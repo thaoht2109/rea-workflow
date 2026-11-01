@@ -10,7 +10,7 @@ rea-flow biến một agent (Claude Code, Codex, Cursor, GitHub Copilot, Gemini 
 |---|---|
 | Đối tượng | PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK |
 | Đầu ra | `facts.jsonl` (fact có nguồn S/E/V) + báo cáo tiếng Việt có bảng IOC, bảng đính chính, mục hạn chế/OPSEC |
-| Yêu cầu | Linux, Python ≥ 3.9, `7z`, `pefile`. Tùy chọn: `rea`, Ghidra 12 + JDK 21, `upx`, unicorn, capstone |
+| Yêu cầu | Linux x86-64, Python ≥ 3.9, Node ≥ 22.20 (chỉ để cài), `7z`, `pefile`; chi tiết ở [Thiết lập](#thiết-lập) |
 | Agent hỗ trợ | Mọi agent hỗ trợ chuẩn [Agent Skills](https://agentskills.io) (`SKILL.md`): Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI, OpenCode… |
 
 ---
@@ -56,52 +56,106 @@ mẫu ─► T0 triage tĩnh ─► T1 bóc vỏ ─► T2 decompile có mục t
 
 **Checklist đóng case:** C0 Phản biện · C1 Nhận dạng · C2 Delivery và điểm vào · C3 Chống phân tích · C4 Giải mã chuỗi/config · C5 IOC mạng · C6 Tiêm mã · C7 Persistence · C8 Payload: định dạng và khóa · C9 Payload cuối · C10 Họ mã độc · C11 Độ phủ. Mục không đạt được có thể chấp nhận kèm lý do (`--accept`), lý do được ghi vào mục hạn chế của báo cáo.
 
-## Cài đặt
+## Thiết lập
+
+Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → cài công cụ phân tích → kiểm tra.
+
+### 1. Chuẩn bị máy
+
+| Thành phần | Bắt buộc | Dùng cho |
+|---|---|---|
+| Linux x86-64, `python3` ≥ 3.9 | có | mọi script của skill |
+| Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài và [skills CLI](https://github.com/vercel-labs/skills) |
+| GitHub CLI (`gh`) đã `gh auth login` | khi cài | repo đang private; SSH key có quyền đọc repo cũng được |
+| Một coding agent | có | Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI… |
+| `claude` CLI đã đăng nhập | cho lớp 2 phản biện | phiên phản biện tách ngữ cảnh; dùng agent khác thì đặt `REVIEW_LLM_CMD` |
+
+### 2. Cài skill
 
 ```bash
-npx github:thaoht2109/rea-flow         # cài cho project hiện tại
+npx github:thaoht2109/rea-flow         # cài cho project hiện tại (chạy trong thư mục project)
 npx github:thaoht2109/rea-flow -g      # cài toàn máy
 ```
 
-Một lệnh làm cả hai việc:
+Lệnh làm hai việc:
 
-1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (CLI hỏi cài cho agent nào: Claude Code, Codex, Cursor, Copilot, Gemini CLI…). Mọi tham số của `skills add` dùng được: `-a claude-code -a codex`, `-y`.
+1. Cài skill qua skills CLI. CLI hỏi cài cho agent nào; thêm `-a claude-code -a codex` để chọn sẵn, `-y` để không hỏi.
 2. Chép mục "Quy tắc bắt buộc" của `SKILL.md` vào file hướng dẫn của agent, **đúng phạm vi vừa cài**, để quy tắc an toàn luôn có trong ngữ cảnh kể cả khi skill chưa được nạp:
 
-| Cài | File được chép quy tắc |
-|---|---|
-| toàn máy (`-g`) | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, chỉ với agent đã có trên máy |
-| project | `<project>/AGENTS.md`, `<project>/CLAUDE.md` (và `GEMINI.md` nếu project đã có) |
+| Phạm vi | Skill nằm ở | File được chép quy tắc |
+|---|---|---|
+| toàn máy (`-g`) | `~/.agents/skills/rea-flow` | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, chỉ với agent đã có trên máy |
+| project | `<project>/.agents/skills/rea-flow` hoặc `<project>/.claude/skills/rea-flow` | `<project>/AGENTS.md`, `<project>/CLAUDE.md` (và `GEMINI.md` nếu project đã có) |
 
-Quy tắc nằm giữa cặp marker `rea-flow:rules`; nội dung khác trong file giữ nguyên. Cài lại thì cập nhật, không lặp nội dung.
+Quy tắc nằm giữa cặp marker `rea-flow:rules`; nội dung khác trong file giữ nguyên, cài lại không lặp nội dung.
+
+Cách cài khác:
+
+- Chỉ dùng skills CLI: `npx skills add thaoht2109/rea-flow [-g]`. Bước chép quy tắc khi đó do agent tự làm ở lần đầu dùng skill, hoặc chạy tay `python3 <thư mục skill>/flow.py rules`.
+- Không có Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules`.
+
+### 3. Cài công cụ phân tích
+
+Ví dụ trên Debian / Ubuntu / Kali:
 
 ```bash
-npx github:thaoht2109/rea-flow -g -a claude-code -a codex -y    # không hỏi
-npx github:thaoht2109/rea-flow -g                               # cập nhật: chạy lại lệnh cài
-npx github:thaoht2109/rea-flow remove [-g]                      # gỡ quy tắc rồi gỡ skill
+sudo apt install 7zip python3-pefile python3-capstone upx-ucl      # 7zip: bản cũ là p7zip-full
+python3 -m pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4
 ```
 
-- Repo đang private: máy cài cần quyền đọc repo (`gh auth login` hoặc SSH key). Yêu cầu Node ≥ 22.20 và `python3`.
-- Dùng thẳng skills CLI cũng được: `npx skills add thaoht2109/rea-flow [-g]`. Khi đó bước 2 do agent tự làm ở lần đầu dùng skill, hoặc chạy tay `python3 <thư mục skill>/flow.py rules` (thêm `--check`, `--remove`, `--global`, `--project [DIR]` khi cần).
-- Không dùng Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules`.
-- Lần đầu trên máy mới, kiểm công cụ: `python3 <thư mục skill>/flow.py doctor`.
+| Công cụ | Bắt buộc | Dùng cho |
+|---|---|---|
+| `7z`, `pefile` | có | giải nén mẫu, triage PE |
+| `capstone`, `unicorn` 2.1.4 | không | giả lập CPU (`winemu`) và disassembly; thiếu thì không có tầng T3 |
+| `upx` | không | tự bóc vỏ UPX |
+| `rea` | không | decompile nhanh x86/x86-64/ARM (T2); thiếu thì dùng Ghidra |
+| Ghidra 12 + JDK 21 | không | decompile kiến trúc `rea` không hỗ trợ (MIPS, PPC…); khai `GHIDRA_INSTALL_DIR`, `JAVA_HOME` |
+| DLL builtin của wine (`WINE_DLL_DIR`) | không | `winemu` chỉ đọc **tên export** của DLL giả. Không bao giờ chạy wine; nếu đã cài wine, `update-binfmts --display wine` phải báo "not in database" để file .exe không tự chạy |
 
-## Cấu hình (tùy chọn)
+`unicorn` cài vào `~/.local/share/rea-flow/pylib` (ngoài thư mục skill) nên cập nhật skill không làm mất; `pip --target` cũng chạy được trên hệ có PEP 668.
 
-Mặc định đủ cho máy có công cụ trên `PATH`. Chỉ khi cần đổi, tạo `~/.config/rea-flow/rea.env` từ `rea.env.example` (file nằm ngoài thư mục skill nên `npx skills update` không làm mất cấu hình). Biến môi trường cùng tên ghi đè file. Workspace, nơi chứa các case, là thư mục hiện tại (hoặc `REA_WORKSPACE`).
+### 4. Kiểm tra
+
+```bash
+python3 ~/.agents/skills/rea-flow/flow.py doctor     # cài theo project: <project>/.agents/skills/rea-flow
+claude -p "hi"                                        # nếu dùng lớp 2 phản biện bằng Claude
+```
+
+`doctor` in từng mục `OK` / `THIẾU` (bắt buộc) / `WARN` (tùy chọn) kèm gợi ý cài, trả mã 1 nếu thiếu mục bắt buộc. Đường dẫn skill của từng agent: `npx skills list [-g]`.
+
+### Cấu hình (tùy chọn)
+
+Mặc định đủ cho máy có công cụ trên `PATH`. Chỉ khi cần đổi, tạo file cấu hình từ mẫu:
+
+```bash
+mkdir -p ~/.config/rea-flow && cp <thư mục skill>/rea.env.example ~/.config/rea-flow/rea.env
+```
+
+File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Biến môi trường cùng tên ghi đè file; `REA_ENV` trỏ tới file cấu hình khác. Workspace, nơi chứa các case, là thư mục hiện tại (hoặc `REA_WORKSPACE`).
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `REA_TMP` | `.tmp` (trong workspace) | `TMPDIR` cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` là tmpfs nhỏ |
-| `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
-| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless cho kiến trúc `rea` không hỗ trợ |
-| `REA_PYLIB` | `<skill>/pylib` | thư mục chứa unicorn cho winemu |
+| `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải nằm ngoài workspace và mọi thư mục có file hướng dẫn agent |
+| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless; `JAVA_HOME` trống thì dùng `java` trên `PATH` |
+| `REA_PYLIB` | `<skill>/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` | thư mục chứa unicorn cho winemu |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để lấy tên export DLL; wine không bao giờ được chạy |
-| `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài |
-| `REVIEW_LLM_CMD` | trống | lớp 2 bằng LLM khác Claude: lệnh không tương tác, prompt qua stdin, JSON ra stdout |
+| `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài: tên trên `PATH` hoặc đường dẫn tuyệt đối |
+| `REVIEW_LLM_CMD` | trống | lớp 2 bằng LLM khác Claude: lệnh không tương tác, prompt qua stdin, JSON ra stdout (cô lập `partial`) |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi dùng LLM khác |
 
-Thiếu unicorn: `python3 -m pip install unicorn==2.1.4` (hoặc `--target <skill>/pylib`).
+### Cập nhật và gỡ
+
+```bash
+npx github:thaoht2109/rea-flow [-g]            # cập nhật: chạy lại lệnh cài (skill và khối quy tắc đều được làm mới)
+npx github:thaoht2109/rea-flow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
+```
+
+Gỡ không xóa `~/.config/rea-flow`, `~/.local/share/rea-flow` và các case trong workspace.
+
+### Dùng lần đầu
+
+Mở agent trong thư mục sẽ chứa các case và giao việc, ví dụ: *"Phân tích mẫu `~/samples/invoice.zip` theo rea-flow"*. Agent tự nạp skill, chạy `flow.py new`, đi theo checklist và dừng khi cổng phản biện đạt.
 
 ## Sử dụng
 

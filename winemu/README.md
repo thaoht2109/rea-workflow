@@ -5,7 +5,7 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 ## Cài đặt
 
 ```bash
-# unicorn 2.1.4: python3 -m pip install unicorn==2.1.4, hoặc --target <skill>/pylib (winemu tự thêm vào sys.path; đổi bằng REA_PYLIB)
+# unicorn 2.1.4: python3 -m pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4 (winemu tự thêm vào sys.path; đổi bằng REA_PYLIB)
 # capstone, pefile, yara: gói Python hệ thống. DLL giả lấy tên export từ WINE_DLL_DIR (mặc định /usr/lib/x86_64-linux-gnu/wine)
 ```
 

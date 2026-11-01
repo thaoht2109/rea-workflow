@@ -29,7 +29,8 @@ TMP = get('REA_TMP', '.tmp')                     # TMPDIR cho rea/Ghidra; đặt
 REVIEW_WS_DIR = get('REVIEW_WS_DIR', '/var/tmp')  # thư mục làm việc của phiên phản biện lớp 2; phải nằm ngoài cây project
 GHIDRA = get('GHIDRA_INSTALL_DIR')               # thư mục cài Ghidra (có support/analyzeHeadless); trống = không dùng Ghidra
 JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = Ghidra tự tìm java trên PATH
-PYLIB = get('REA_PYLIB', os.path.join(TOOLS, 'pylib'))          # thư mục chứa unicorn cho winemu
+SHARE_PYLIB = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'pylib')   # ngoài skill: update không mất
+PYLIB = get('REA_PYLIB') or next((p for p in (os.path.join(TOOLS, 'pylib'), SHARE_PYLIB) if os.path.isdir(p)), SHARE_PYLIB)   # unicorn cho winemu
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p
 ANALYST_LLM_CMD = get('ANALYST_LLM_CMD', path=False)        # phiên sửa fact cho review-loop khi dùng LLM khác; trống = agent hiện tại tự sửa
@@ -68,7 +69,8 @@ def doctor():
         'dec khi rea không hỗ trợ kiến trúc', False)
     row(not JAVA_HOME or os.path.exists(os.path.join(JAVA_HOME, 'bin', 'java')), 'JAVA_HOME', JAVA_HOME, 'JDK 21 cho Ghidra', False)
     for m, req in (('pefile', True), ('unicorn', False), ('capstone', False)):
-        row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '', 'triage/winemu', req)
+        row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',
+            f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
     if REVIEW_LLM_CMD:
         exe = shlex.split(REVIEW_LLM_CMD)[0]; row(bool(shutil.which(exe)), 'REVIEW_LLM_CMD', REVIEW_LLM_CMD, 'lớp 2 bằng LLM khác (cô lập partial)')
     row(os.path.isdir(WINE_DLL_DIR), 'WINE_DLL_DIR', WINE_DLL_DIR, 'tên export cho DLL giả của winemu', False)

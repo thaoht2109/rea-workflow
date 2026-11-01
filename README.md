@@ -10,8 +10,8 @@ rea-flow biến một agent (Claude Code, Codex, Cursor, GitHub Copilot, Gemini 
 |---|---|
 | Đối tượng | PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK |
 | Đầu ra | `facts.jsonl` (fact có nguồn S/E/V) + báo cáo tiếng Việt có bảng IOC, bảng đính chính, mục hạn chế/OPSEC |
-| Yêu cầu | Linux, Python ≥ 3.9, `7z`, `pefile`. Tùy chọn: `rea`, Ghidra 12 + JDK 21, `upx`, unicorn/capstone/pefile |
-| Agent hỗ trợ | Mọi agent đọc được Agent Skills (`SKILL.md`) hoặc `AGENTS.md`; cài sẵn file hướng dẫn cho Claude Code, Codex, Cursor, Copilot, Gemini CLI |
+| Yêu cầu | Linux, Python ≥ 3.9, `7z`, `pefile`. Tùy chọn: `rea`, Ghidra 12 + JDK 21, `upx`, unicorn, capstone |
+| Agent hỗ trợ | Mọi agent hỗ trợ chuẩn [Agent Skills](https://agentskills.io) (`SKILL.md`): Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI, OpenCode… |
 
 ---
 
@@ -58,68 +58,53 @@ mẫu ─► T0 triage tĩnh ─► T1 bóc vỏ ─► T2 decompile có mục t
 
 ## Cài đặt
 
-### Cách 1: `npx skills` (khuyến nghị)
-
 ```bash
-export DISABLE_TELEMETRY=1   # không gửi tên repo/skill ra ngoài
-npx skills add thaoht2109/rea-flow -g -a claude-code -a codex -a cursor -a github-copilot -a gemini-cli -y
-python3 ~/.agents/skills/rea-flow/install.py --workspace ~/REA
+npx skills add thaoht2109/rea-flow
 ```
 
-Lệnh thứ hai cài skill vào thư mục skill của từng agent ([skills CLI](https://github.com/vercel-labs/skills)). Lệnh thứ ba dựng workspace: `~/REA/tools` trỏ về skill, file hướng dẫn cho từng agent, `tools/rea.env`, rồi chạy `doctor`. Đường dẫn skill khác nhau theo agent; xem bằng `npx skills list -g`. Repo là private: máy cài cần quyền đọc repo qua git credential, `gh auth login` hoặc SSH key.
-
-Cập nhật bản mới: `npx skills update rea-flow -g`, rồi chạy lại lệnh `install.py --workspace`.
-
-### Cách 2: bộ cài tự giải nén (máy không có Node hoặc không có mạng)
+Một lệnh, như mọi skill khác trên [skills CLI](https://github.com/vercel-labs/skills): CLI hỏi cài cho agent nào (Claude Code, Codex, Cursor, Copilot, Gemini CLI…) và cho project hiện tại hay toàn máy (`-g`). Không có bước dựng workspace hay sinh file hướng dẫn: agent tự nạp skill khi được giao việc phân tích mã độc.
 
 ```bash
-bash rea-flow-install.sh ~/REA [--agents claude,codex,cursor,copilot,gemini]
+# không hỏi: cài toàn máy cho một số agent cụ thể
+DISABLE_TELEMETRY=1 npx skills add thaoht2109/rea-flow -g -a claude-code -a codex -y
+npx skills update rea-flow -g        # cập nhật
+npx skills remove rea-flow -g        # gỡ
 ```
 
-Tạo bộ cài từ một workspace có sẵn: `python3 tools/install.py --pack rea-flow-install.sh [--with-pylib]`.
+- Repo đang private: máy cài cần quyền đọc repo (`gh auth login`, git credential hoặc SSH key).
+- Không dùng Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow` (thay bằng thư mục skill của agent khác, ví dụ `~/.agents/skills/rea-flow`).
+- Lần đầu trên máy mới, kiểm công cụ: `python3 <thư mục skill>/flow.py doctor`.
 
-### Cách 3: git clone
+## Cấu hình (tùy chọn)
 
-```bash
-mkdir -p ~/REA && git clone https://github.com/thaoht2109/rea-flow.git ~/REA/tools && python3 ~/REA/tools/install.py
-```
-
-Mọi cách đều chạy lại được nhiều lần: file hướng dẫn được cập nhật giữa cặp marker `rea-flow:begin/end`, nội dung khác trong file giữ nguyên, `rea.env` không bị ghi đè.
-
-## Cấu hình
-
-Mọi giá trị phụ thuộc máy nằm trong `tools/rea.env` (mẫu: `rea.env.example`). Biến môi trường cùng tên ghi đè file. Kiểm bằng:
-
-```bash
-python3 tools/flow.py doctor     # rc=1 nếu thiếu mục bắt buộc
-```
+Mặc định đủ cho máy có công cụ trên `PATH`. Chỉ khi cần đổi, tạo `~/.config/rea-flow/rea.env` từ `rea.env.example` (file nằm ngoài thư mục skill nên `npx skills update` không làm mất cấu hình). Biến môi trường cùng tên ghi đè file. Workspace, nơi chứa các case, là thư mục hiện tại (hoặc `REA_WORKSPACE`).
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `REA_TMP` | `.tmp` | `TMPDIR` cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` là tmpfs nhỏ |
+| `REA_TMP` | `.tmp` (trong workspace) | `TMPDIR` cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` là tmpfs nhỏ |
 | `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
 | `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless cho kiến trúc `rea` không hỗ trợ |
-| `REA_PYLIB` | `tools/pylib` | thư mục chứa unicorn cho winemu |
+| `REA_PYLIB` | `<skill>/pylib` | thư mục chứa unicorn cho winemu |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để lấy tên export DLL; wine không bao giờ được chạy |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài |
 | `REVIEW_LLM_CMD` | trống | lớp 2 bằng LLM khác Claude: lệnh không tương tác, prompt qua stdin, JSON ra stdout |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi dùng LLM khác |
 
-Thiếu unicorn: `python3 -m pip install --target tools/pylib unicorn==2.1.4`.
+Thiếu unicorn: `python3 -m pip install unicorn==2.1.4` (hoặc `--target <skill>/pylib`).
 
 ## Sử dụng
 
-Thông thường chỉ cần giao việc cho agent ("phân tích mẫu trong thư mục X"); skill hướng dẫn agent đi đúng quy trình. Các lệnh bên dưới là những gì agent chạy, cũng dùng được trực tiếp:
+Thông thường chỉ cần giao việc cho agent ("phân tích mẫu trong thư mục X"); skill hướng dẫn agent đi đúng quy trình. Các lệnh bên dưới là những gì agent chạy (`$SKILL` là thư mục skill), cũng dùng được trực tiếp từ workspace:
 
 ```bash
-python3 tools/flow.py new  CASE mẫu.exe [file2 ...]   # tạo case, chép mẫu (quyền 0400), giải nén, triage
-python3 tools/flow.py status CASE                      # checklist C0–C11 và gợi ý bước kế
-python3 tools/flow.py dec  CASE FILE hàm|0xaddr|list:chuỗi ...
-python3 tools/case.py add CASE id=c2.main kind=c2 value='host:443' src=E evidence=report/evidence/emu.txt#L12
-python3 tools/flow.py review CASE --llm                # cổng phản biện (lần 1, rồi lần 2 sau khi sửa)
-python3 tools/flow.py review-loop CASE                 # review → tự sửa fact lỗi → review lần 2 (Claude Code)
-python3 tools/flow.py next CASE --accept 'C10=lý do;C11=lý do'   # DONE / NEED_MORE / NEED_REVIEW
-python3 tools/flow.py report CASE --final && python3 tools/flow.py audit CASE
+python3 $SKILL/flow.py new  CASE mẫu.exe [file2 ...]   # tạo case, chép mẫu (quyền 0400), giải nén, triage
+python3 $SKILL/flow.py status CASE                      # checklist C0–C11 và gợi ý bước kế
+python3 $SKILL/flow.py dec  CASE FILE hàm|0xaddr|list:chuỗi ...
+python3 $SKILL/case.py add CASE id=c2.main kind=c2 value='host:443' src=E evidence=report/evidence/emu.txt#L12
+python3 $SKILL/flow.py review CASE --llm                # cổng phản biện (lần 1, rồi lần 2 sau khi sửa)
+python3 $SKILL/flow.py review-loop CASE                 # review → tự sửa fact lỗi → review lần 2 (Claude Code)
+python3 $SKILL/flow.py next CASE --accept 'C10=lý do;C11=lý do'   # DONE / NEED_MORE / NEED_REVIEW
+python3 $SKILL/flow.py report CASE --final && python3 $SKILL/flow.py audit CASE
 ```
 
 Cấu trúc một case:
@@ -169,10 +154,10 @@ CASE/
 ## Cấu trúc skill
 
 ```
-SKILL.md            quy tắc bắt buộc + lệnh (nguồn duy nhất cho file hướng dẫn agent)
-FLOW.md             quy trình thao tác chi tiết
-install.py          cài workspace, --pack (bộ cài tự giải nén), --export (repo cho npx skills)
+SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (agent nạp file này)
+FLOW.md             quy trình thao tác chi tiết (agent đọc khi cần)
 reacfg.py           cấu hình theo máy + doctor
+rea.env.example     mẫu ~/.config/rea-flow/rea.env
 flow.py             điều phối: new, triage, dec, status, review, next, report, audit, doctor
 case.py             kho fact, checklist C0–C11, sinh báo cáo
 review.py           cổng phản biện, review-loop, gate, next
@@ -185,7 +170,7 @@ templates/          khung báo cáo
 ## Kiểm tra sau khi sửa
 
 ```bash
-python3 tools/case.py --selftest
-python3 tools/review.py --selftest
-python3 tools/flow.py doctor
+python3 $SKILL/case.py --selftest
+python3 $SKILL/review.py --selftest
+python3 $SKILL/flow.py doctor
 ```

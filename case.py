@@ -43,7 +43,7 @@ def load(case):
     return cur
 
 def review_status(case):
-    """C0: kết quả cổng phản biện (tools/review.py). ok = review cuối PASS khớp hash facts.jsonl hiện tại."""
+    """C0: kết quả cổng phản biện (review.py). ok = review cuối PASS khớp hash facts.jsonl hiện tại."""
     sp = os.path.join(case, 'work', 'review', 'state.json')
     if not os.path.exists(sp) or not os.path.exists(os.path.join(case, 'facts.jsonl')): return 'missing'
     s = json.load(open(sp)); cur = hashlib.sha256(open(os.path.join(case, 'facts.jsonl'), 'rb').read()).hexdigest()
@@ -100,7 +100,7 @@ def ev_files(case):
 
 def report(case):
     cur, H = load(case), history(case)
-    L = ['<!-- Sinh tự động bởi tools/case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', '## IOC', '',
+    L = ['<!-- Sinh tự động bởi rea-flow case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', '## IOC', '',
          '| Loại | Giá trị | Nguồn | Evidence |', '|---|---|---|---|']
     L += [f"| {f['kind']} | `{f['value']}` | {'+'.join(f['verified_by'])} | `{f['evidence']}` |"
           for k in IOC_KINDS for f in cur.values() if f['kind'] == k and f['status'] == 'active']

@@ -1,6 +1,6 @@
 # Báo cáo phân tích: `{CASE}`
 
-> Ngày bắt đầu: {DATE}. Quy trình: `tools/FLOW.md`.
+> Ngày bắt đầu: {DATE}. Quy trình: rea-flow (`FLOW.md`).
 >
 > Phương pháp (mỗi kết luận ghi rõ một trong các nguồn sau):
 > - **S**: phân tích tĩnh trên file gốc (triage, rea/Ghidra, script tự viết).
@@ -9,7 +9,7 @@
 >
 > Không chạy mẫu trên hệ điều hành thật. Không gửi request nào tới C2 hay hạ tầng phát tán.
 >
-> Trạng thái: _(đang phân tích / hoàn tất tới …)_. Xem `tools/flow.py status` để biết mục nào còn thiếu.
+> Trạng thái: _(đang phân tích / hoàn tất tới …)_. Xem `flow.py status` để biết mục nào còn thiếu.
 
 ## 1. Tóm tắt
 

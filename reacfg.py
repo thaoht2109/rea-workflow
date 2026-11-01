@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > tools/rea.env > mặc định dưới đây.
-# Chuyển sang server mới: cp tools/rea.env.example tools/rea.env, sửa đường dẫn, rồi chạy `python3 tools/flow.py doctor`.
+# Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
+# Không bắt buộc: mặc định đủ cho máy có công cụ trên PATH. Kiểm bằng `python3 <skill>/flow.py doctor`.
+# Workspace (nơi chứa các case) là thư mục hiện tại, hoặc $REA_WORKSPACE.
 import os, sys, shlex, shutil, tempfile, importlib.util
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
-REA = os.environ.get('REA_WORKSPACE') or (os.path.dirname(TOOLS) if os.path.basename(TOOLS) == 'tools' else os.getcwd())   # gọi qua <workspace>/tools/ (symlink cũng được) hoặc thẳng từ thư mục skill
-FILE = os.path.join(TOOLS, 'rea.env')
+REA = os.path.abspath(os.environ.get('REA_WORKSPACE') or os.getcwd())
+FILE = os.environ.get('REA_ENV') or os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'), 'rea-flow', 'rea.env')   # ngoài thư mục skill: cập nhật skill không mất cấu hình
 
 def _load(p):
     d = {}
@@ -28,7 +29,7 @@ TMP = get('REA_TMP', '.tmp')                     # TMPDIR cho rea/Ghidra; đặt
 REVIEW_WS_DIR = get('REVIEW_WS_DIR', '/var/tmp')  # thư mục làm việc của phiên phản biện lớp 2; phải nằm ngoài cây project
 GHIDRA = get('GHIDRA_INSTALL_DIR')               # thư mục cài Ghidra (có support/analyzeHeadless); trống = không dùng Ghidra
 JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = Ghidra tự tìm java trên PATH
-PYLIB = get('REA_PYLIB', 'tools/pylib')          # thư mục chứa unicorn cho winemu
+PYLIB = get('REA_PYLIB', os.path.join(TOOLS, 'pylib'))          # thư mục chứa unicorn cho winemu
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p
 ANALYST_LLM_CMD = get('ANALYST_LLM_CMD', path=False)        # phiên sửa fact cho review-loop khi dùng LLM khác; trống = agent hiện tại tự sửa
@@ -45,7 +46,7 @@ def doctor():
         nonlocal bad
         bad += (not ok) and req
         print(f"{'OK   ' if ok else ('THIẾU' if req else 'WARN ')} {k:<18} {v or '(trống)'}  [{use}]")
-    print(f"cấu hình: {FILE if _F else '(không có tools/rea.env: dùng biến môi trường/mặc định)'}")
+    print(f"workspace: {REA}\ncấu hình: {FILE if _F else f'(chưa có {FILE}: dùng biến môi trường/mặc định; mẫu ở {TOOLS}/rea.env.example)'}")
     for k, p in (('REA_TMP', TMP), ('REVIEW_WS_DIR', REVIEW_WS_DIR)):
         try:
             os.makedirs(p, exist_ok=True); tempfile.TemporaryFile(dir=p).close()

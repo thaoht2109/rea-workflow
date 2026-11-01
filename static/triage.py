@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# T0 triage tĩnh cho mọi file mẫu (tools/FLOW.md bước 2): PE, ELF, Go, .NET, UPX, NSIS, script, archive, Office/PDF.
+# T0 triage tĩnh cho mọi file mẫu (FLOW.md bước 2): PE, ELF, Go, .NET, UPX, NSIS, script, archive, Office/PDF.
 # In tóm tắt ≤ 60 dòng + dòng next: (bước kế tiếp), ghi OUT/triage.json; dữ liệu đầy đủ nằm trong OUT/. Không thực thi mẫu:
 # chỉ đọc byte, pefile, readelf, `go version -m` (đọc buildinfo), 7z (giải nén).
 #   python3 -I triage.py FILE --out OUTDIR [--facts CASE]
@@ -10,7 +10,7 @@ from collections import Counter
 import pefile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: tools/rea.env
+sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: reacfg.py
 NSIS_SIG = b'\xef\xbe\xad\xdeNullsoftInst'
 
 def entropy(b):

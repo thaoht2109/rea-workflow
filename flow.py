@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# Điều phối flow phân tích dịch ngược cho mọi mẫu (tools/FLOW.md). Không bao giờ thực thi mẫu.
+# Điều phối flow phân tích dịch ngược cho mọi mẫu (FLOW.md). Không bao giờ thực thi mẫu.
 #   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), README từ template, triage tất cả
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
-#   flow.py doctor                     kiểm cấu hình theo máy (tools/rea.env) trước khi chạy trên server mới
+#   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
 #   flow.py review CASE [--llm] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, json, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: tools/rea.env (mẫu rea.env.example)
+sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: reacfg.py
 TMP = CFG.TMP
 
 def sh(*a, **kw): return subprocess.run(a, check=True, **kw)
@@ -61,7 +61,7 @@ def show(fn, code, p, c):
 
 def ghidra_dec(c, f, funcs, od, tag):
     """Ghidra headless cho kiến trúc rea không hỗ trợ. Project giữ ở work/ghidra/: lần đầu phân tích cả file (chậm), sau đó -noanalysis."""
-    if not CFG.GHIDRA: print('Chưa khai báo GHIDRA_INSTALL_DIR (tools/rea.env)'); return
+    if not CFG.GHIDRA: print('Chưa khai báo GHIDRA_INSTALL_DIR (rea.env)'); return
     pd = os.path.join(os.path.abspath(c), 'work', 'ghidra'); os.makedirs(pd, exist_ok=True)
     out = os.path.join(os.path.abspath(od), tag + '_ghidra.c')
     mode = ['-process', os.path.basename(f), '-noanalysis'] if os.path.exists(os.path.join(pd, tag + '.gpr')) else ['-import', os.path.abspath(f)]
@@ -127,7 +127,7 @@ if __name__ == '__main__':
     elif cmd == 'dec': dec(c, a[2], a[3:])
     elif cmd == 'status': status(c)
     elif cmd == 'report':
-        if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (tools/review.py)
+        if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (review.py)
             import review; ok, why = review.gate(c)
             if not ok: raise SystemExit(f'CHẶN report --final: {why}')
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md')

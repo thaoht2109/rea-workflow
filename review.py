@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Cổng phản biện facts.jsonl và điểm dừng sớm (tools/FLOW.md §3b). Không bao giờ chạy mẫu.
+# Cổng phản biện facts.jsonl và điểm dừng sớm (FLOW.md §3b). Không bao giờ chạy mẫu.
 #   review.py review CASE [--llm]     lớp 1 (máy) [+ lớp 2: phiên claude mới, tách ngữ cảnh]; tối đa 2 lần review
 #   review.py review-loop CASE        review -> sửa lại fact lỗi (phiên phân tích) -> review lần 2, tự động, dừng nếu vẫn FAIL
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
@@ -68,7 +68,7 @@ def mech(c):
 def claude_review(c, k, ids):
     """Chạy phiên `claude -p` mới, tách ngữ cảnh. Trả (items, missing, isolation)."""
     ws = tempfile.mkdtemp(prefix=f'{os.path.basename(os.path.abspath(c))}-r{k}-', dir=CFG.REVIEW_WS_DIR)   # /tmp là tmpfs hay đầy; không đặt trong cây project (sẽ nạp CLAUDE.md)
-    if os.path.abspath(ws).startswith(os.path.abspath(os.path.join(HERE, '..', '..'))): raise SystemExit('ws nằm trong cây project: dừng')
+    if any(os.path.realpath(ws).startswith(os.path.realpath(d) + os.sep) for d in (CFG.REA, HERE)): raise SystemExit('ws nằm trong workspace/skill: dừng')
     shutil.copy(os.path.join(c, 'facts.jsonl'), ws); shutil.copytree(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
     for d in ('sample', 'scripts', 'extract'):
         if os.path.isdir(os.path.join(c, 'work', d)): shutil.copytree(os.path.join(c, 'work', d), os.path.join(ws, 'work', d))
@@ -183,8 +183,8 @@ def analyst(c, k):
     fp = os.path.join(c, 'facts.jsonl'); before = open(fp, 'rb').read()
     samples = {p: sha_file(p) for p in glob.glob(os.path.join(c, 'work', 'sample', '*'))}
     name = os.path.basename(os.path.abspath(c))
-    sysp = open(os.path.join(HERE, 'review', 'analyst.md'), encoding='utf-8').read().replace('CASE', name)
-    prm = open(os.path.join(HERE, 'review', 'analyst_prompt.tmpl'), encoding='utf-8').read().replace('{CASE}', name).replace('{ROUND}', str(k)).replace(
+    sysp = open(os.path.join(HERE, 'review', 'analyst.md'), encoding='utf-8').read().replace('CASE', name).replace('{SKILL}', HERE)
+    prm = open(os.path.join(HERE, 'review', 'analyst_prompt.tmpl'), encoding='utf-8').read().replace('{CASE}', name).replace('{SKILL}', HERE).replace('{ROUND}', str(k)).replace(
         '{ITEMS}', json.dumps(todo, ensure_ascii=False, indent=1))
     if CFG.ANALYST_LLM_CMD: cmd, prm = shlex.split(CFG.ANALYST_LLM_CMD), sysp + '\n\n---\n\n' + prm   # agent khác có quyền sửa file, chạy không tương tác
     else:
@@ -192,7 +192,7 @@ def analyst(c, k):
                '--disable-slash-commands', '--system-prompt', sysp, '--permission-mode', 'acceptEdits',
                '--allowedTools', 'Read,Grep,Edit,Write,Bash(python3:*),Bash(sed:*),Bash(grep:*),Bash(cat:*),Bash(ls:*),Bash(head:*),Bash(tail:*)',
                '--disallowedTools', 'Agent,WebFetch,WebSearch,Bash(wine:*),Bash(*winemu*)', '--output-format', 'text']
-    r = subprocess.run(cmd, input=prm, cwd=os.path.dirname(HERE), capture_output=True, text=True, timeout=3600)
+    r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
     open(os.path.join(DIR(c), f'r{k}', 'analyst_out.txt'), 'w').write(r.stdout + r.stderr)
     after = open(fp, 'rb').read()
     bad = []
@@ -207,7 +207,7 @@ def loop(c, llm=True):
     code = review(c, llm)
     while code == 1:
         k = len(state(c)['rounds'])
-        if CFG.REVIEW_LLM_CMD and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (tools/SKILL.md, vòng phản biện bước 2)
+        if CFG.REVIEW_LLM_CMD and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
             print(f'HANDOFF: agent hiện tại sửa các mục fail/weak ở trên theo where/redo, rồi chạy lại `flow.py review {c} --llm`'); return 3
         print(f'-- phân tích lại sau review {k}...')
         ok, n, changed = analyst(c, k)

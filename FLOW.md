@@ -23,21 +23,22 @@ File này là quy trình thao tác; quy tắc bắt buộc tóm tắt ở `SKILL
 
 ## 1. Môi trường
 
+Trong tài liệu này `$SKILL` là thư mục chứa `SKILL.md` (ví dụ `~/.claude/skills/rea-flow`). Mọi lệnh chạy từ **workspace**: thư mục chứa các case (thư mục hiện tại, hoặc `$REA_WORKSPACE`).
+
 ```bash
-cd <workspace>                           # thư mục chứa tools/ và các case
-python3 tools/install.py                  # lần đầu trên mỗi máy: file hướng dẫn cho Claude/Codex/Cursor/Copilot/Gemini + tools/rea.env + doctor
-python3 tools/flow.py doctor              # kiểm cấu hình; rc=1 nếu thiếu mục bắt buộc
+cd <workspace>
+python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nếu thiếu mục bắt buộc
 ```
 
-- Đóng gói sang server khác: `python3 tools/install.py --pack dist/rea-flow-install.sh [--with-pylib]`, chép file đó đi rồi `bash rea-flow-install.sh <thư mục workspace> [--agents ...]`. Cài kiểu `npx skills`: `python3 tools/install.py --export dist/rea-flow-skill`, đẩy thư mục đó lên repo private https://github.com/thaoht2109/rea-flow, rồi trên máy mới `DISABLE_TELEMETRY=1 npx skills add thaoht2109/rea-flow -g -a claude-code -a codex ...` và `python3 <thư mục skill>/install.py --workspace <REA>`. Quy tắc cho agent lấy từ `tools/SKILL.md`, sửa ở đó rồi chạy lại `install.py`.
-- Mọi giá trị phụ thuộc máy khai báo trong `tools/rea.env`, đọc qua `tools/reacfg.py`. Biến môi trường cùng tên ghi đè file. Không sửa đường dẫn trong code.
+- Cài skill: `npx skills add thaoht2109/rea-flow` (xem `README.md`). Không cần bước cài nào khác.
+- Cấu hình theo máy là **tùy chọn**: `~/.config/rea-flow/rea.env` (mẫu `$SKILL/rea.env.example`), đọc qua `reacfg.py`. Biến môi trường cùng tên ghi đè file. Không sửa đường dẫn trong code.
 
 | Biến | Mặc định | Dùng cho |
 |---|---|---|
 | `REA_TMP` | `.tmp` (trong workspace) | `TMPDIR` khi gọi rea/Ghidra. `/tmp` dạng tmpfs nhỏ làm Ghidra chết khi khởi động |
-| `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải ghi được và nằm ngoài mọi thư mục có `CLAUDE.md` |
+| `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải ghi được và nằm ngoài workspace và mọi thư mục có file hướng dẫn agent (`CLAUDE.md`, `AGENTS.md`…) |
 | `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless khi rea không hỗ trợ kiến trúc (tùy chọn) |
-| `REA_PYLIB` | `tools/pylib` | unicorn cho winemu (tự thêm vào `sys.path`, không cần `PYTHONPATH`) |
+| `REA_PYLIB` | `$SKILL/pylib` | unicorn cho winemu (tự thêm vào `sys.path`, không cần `PYTHONPATH`) |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | winemu đọc tên export DLL builtin (không chạy wine) |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài; tên trên `PATH` hoặc đường dẫn tuyệt đối |
 
@@ -48,10 +49,10 @@ python3 tools/flow.py doctor              # kiểm cấu hình; rc=1 nếu thi�
 
 | Bước | Lệnh | Đọc gì | Ghi fact |
 |---|---|---|---|
-| 1. Tạo case | `python3 tools/flow.py new <CASE> <mẫu hoặc zip>...` | tóm tắt triage, mỗi file ≤ 60 dòng | tự động: `hash`, `filetype`, `container`, `entry`; IOC ứng viên lấy từ strings ghi dạng `hypothesis` |
-| 2. Định tuyến | `python3 tools/flow.py status <CASE>` | checklist C1–C11 và dòng `next:` của từng file | |
+| 1. Tạo case | `python3 $SKILL/flow.py new <CASE> <mẫu hoặc zip>...` | tóm tắt triage, mỗi file ≤ 60 dòng | tự động: `hash`, `filetype`, `container`, `entry`; IOC ứng viên lấy từ strings ghi dạng `hypothesis` |
+| 2. Định tuyến | `python3 $SKILL/flow.py status <CASE>` | checklist C1–C11 và dòng `next:` của từng file | |
 | 3. Bóc vỏ (T1) | tự động: zip/7z/rar (mật khẩu `''`/`infected`/`malware`), UPX (`upx -d` ra bản sao `.unupx`), NSIS (header, giải nén file con, giải "sàng byte" để lộ `System::Call`) | `nsis_disasm.txt`, `nsis_syscalls.txt` | dạng khác thì tự viết script vào `work/` và ghi fact `container` |
-| 4. Tĩnh có mục tiêu (T2) | `python3 tools/flow.py dec <CASE> <FILE> <hàm\|địa chỉ\|list:chuỗi>...` | mã giả C, in tối đa 80 dòng mỗi hàm | ghi fact cho từng kết luận (§3) |
+| 4. Tĩnh có mục tiêu (T2) | `python3 $SKILL/flow.py dec <CASE> <FILE> <hàm\|địa chỉ\|list:chuỗi>...` | mã giả C, in tối đa 80 dòng mỗi hàm | ghi fact cho từng kết luận (§3) |
 | 5. Giả lập (T3), chỉ cho shellcode/loader Windows x86‑32 | `winemu.py ...` rồi `summarize.py OUT/events.jsonl --facts <CASE>` (xem `winemu/README.md`) | tóm tắt vài chục dòng | tự động: `url`, `ua`, `str_key`, `inject`, `exit_reason`… với nguồn E |
 | 6. Payload offline (T4) | giải mã bằng khóa và định dạng lấy được ở bước 4/5, rồi `flow.py triage <CASE> <payload>` | quay lại bước 2 | `payload_fmt`, `payload_key`, `payload_hash` |
 | 7. VM ngoài (T5) | chỉ khi cần hành vi của payload cuối; người dùng quyết định | báo cáo sandbox | fact nguồn V |
@@ -73,12 +74,12 @@ python3 tools/flow.py doctor              # kiểm cấu hình; rc=1 nếu thi�
 
 **Bộ máy decompile.** `rea` (Ghidra) hỗ trợ x86, x86_64, ARM, ARM64, mất khoảng 30 giây mỗi lần gọi và chạy song song 3 hàm. Với kiến trúc `rea` báo `capability_unavailable` (MIPS, PPC…), `flow.py` tự chuyển sang Ghidra headless (`static/ghidra/ExportDecomp.java`). Project Ghidra được giữ ở `work/ghidra/`: lần đầu phải phân tích cả file nên chậm (Go MIPS cỡ 5 MB mất khoảng 5 phút), các lần sau chỉ khoảng 10 giây.
 
-Với Go bị strip, Ghidra không tự khôi phục tên hàm trên MIPS. Khi đó `flow.py` lấy tên từ `.gopclntab` bằng `static/gopclntab.py` và đặt vào project qua `ApplyNames.java`. Muốn tra nhanh địa chỉ hàm mà không cần Ghidra: `python3 -I tools/static/gopclntab.py FILE main.`.
+Với Go bị strip, Ghidra không tự khôi phục tên hàm trên MIPS. Khi đó `flow.py` lấy tên từ `.gopclntab` bằng `static/gopclntab.py` và đặt vào project qua `ApplyNames.java`. Muốn tra nhanh địa chỉ hàm mà không cần Ghidra: `python3 -I $SKILL/static/gopclntab.py FILE main.`.
 
 ## 3. Ghi fact
 
 ```bash
-python3 tools/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá trị>' src=S|E|V evidence=report/evidence/<file>[#Ln] \
+python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá trị>' src=S|E|V evidence=report/evidence/<file>[#Ln] \
         [status=active|hypothesis|retracted] [verified_by=S,E] [supersedes=<id cũ>] [note='...']
 ```
 
@@ -90,7 +91,7 @@ python3 tools/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
   - Có fact `kind=coverage` (S), liệt kê đã duyệt mọi xref của các import nhạy cảm, với evidence là danh sách hàm đã decompile.
 - **Kết luận chưa chắc:** để `status=hypothesis`. Kết luận sai sau này thì không xóa: ghi fact mới có `supersedes` trỏ về fact cũ. Bảng đính chính được sinh tự động từ đó.
 
-## 3b. Cổng phản biện và điểm dừng sớm (`tools/review.py`)
+## 3b. Cổng phản biện và điểm dừng sớm (`review.py`)
 
 - **Lớp 1 (máy):** evidence có thật và đúng dòng; hash tính lại; giá trị IOC phải có trong evidence; nguồn S/E/V khớp loại evidence; `api_unused` bị suy thành persistence.
 - **Lớp 2 (`--llm`):** một tiến trình `claude -p` mới, tách ngữ cảnh: tắt hook/MCP/skill, chạy trong `$REVIEW_WS_DIR/<case>-rK-*` (mặc định `/var/tmp`, ngoài cây project nên không nạp CLAUDE.md và memory), chỉ đọc `facts.jsonl`, evidence, mẫu, script. Mỗi fact `fail` bắt buộc có `where` và `redo`. Kết quả cô lập được ghi vào `review.json` (`isolation`); không hợp lệ thì review tính là FAIL. Tốn khoảng 10 phút mỗi lần. Dùng LLM khác: đặt `REVIEW_LLM_CMD` trong `rea.env` (cô lập ghi là `partial`).
@@ -125,12 +126,12 @@ Dòng `next:` của triage sinh ra từ bảng này.
 ## 6. Kiểm tra công cụ (sau khi sửa)
 
 ```bash
-python3 tools/case.py --selftest
-python3 tools/review.py --selftest              # cổng phản biện: bộ fact cố tình sai, 2 lần review, STOPPED, sửa rồi PASS
-python3 tools/flow.py doctor
+python3 $SKILL/case.py --selftest
+python3 $SKILL/review.py --selftest              # cổng phản biện: bộ fact cố tình sai, 2 lần review, STOPPED, sửa rồi PASS
+python3 $SKILL/flow.py doctor
 ```
 
-Hồi quy trên mẫu thật (triage/định tuyến, lõi winemu) phụ thuộc mẫu có trên từng máy nên không nằm trong skill: giữ chúng ngoài `tools/` (ví dụ `<workspace>/local/tests/`) và chạy lại sau mỗi lần sửa lõi.
+Hồi quy trên mẫu thật (triage/định tuyến, lõi winemu) phụ thuộc mẫu có trên từng máy nên không nằm trong skill: giữ chúng ngoài thư mục skill (ví dụ `<workspace>/local/tests/`) và chạy lại sau mỗi lần sửa lõi.
 
 ## 7. Giới hạn hiện tại
 

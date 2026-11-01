@@ -68,7 +68,7 @@ Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → 
 | Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài và [skills CLI](https://github.com/vercel-labs/skills) |
 | GitHub CLI (`gh`) đã `gh auth login` | khi cài | repo đang private; SSH key có quyền đọc repo cũng được |
 | Một coding agent | có | Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI… |
-| Một backend LLM cho lớp 2 phản biện | cho lớp 2 | bất kỳ: `claude`, `codex`, `gemini`, `copilot`, `cursor-agent` đã đăng nhập, hoặc API key chuẩn OpenAI (ChatGPT, DeepSeek…). Xem [Cổng phản biện](#cổng-phản-biện) |
+| Một LLM cho lớp 2 phản biện | không bắt buộc | CLI `claude`/`codex`/`gemini`/`copilot`/`cursor-agent` đã đăng nhập, hoặc API key chuẩn OpenAI (ChatGPT, DeepSeek…). Không có gì thì dùng chế độ `manual` (dán vào chat web). Xem [Cổng phản biện](#cổng-phản-biện) |
 
 ### 2. Cài skill
 
@@ -141,9 +141,10 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REA_PYLIB` | `<skill>/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` | thư mục chứa unicorn cho winemu |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để lấy tên export DLL; wine không bao giờ được chạy |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài: tên trên `PATH` hoặc đường dẫn tuyệt đối |
-| `REVIEW_LLM` | `auto` | backend lớp 2: `auto`, `claude`, `codex`, `gemini`, `copilot`, `cursor`, `api`, `cmd` |
+| `REVIEW_LLM` | `auto` | backend lớp 2: `auto`, `claude`, `codex`, `gemini`, `copilot`, `cursor`, `api`, `cmd`, `manual` |
+| `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | số fact mỗi lô; số lượt tối đa mỗi lô (mỗi lượt tối đa 8 thao tác đọc) |
 | `REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL` | `https://api.openai.com/v1`, `$OPENAI_API_KEY`, trống | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
-| `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, JSON ra stdout |
+| `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, text ra stdout |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude`; trống thì agent đang chạy tự sửa |
 
 ### Cập nhật và gỡ
@@ -191,29 +192,41 @@ CASE/
 
 ## Cổng phản biện
 
-| | Lớp 1: script | Lớp 2: phiên LLM mới |
+| | Lớp 1: script | Lớp 2: LLM bất kỳ, phiên mới |
 |---|---|---|
-| Kiểm gì | evidence tồn tại và đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; suy diễn persistence từ `api_unused` | phản biện từng fact như chuyên gia dịch ngược: giải thích thay thế, mức chắc chắn, chủ đề còn thiếu |
-| Cô lập | không cần | phiên mới không có lịch sử hội thoại, chạy trong thư mục tạm ngoài project, chỉ đọc, câu hỏi canary phát hiện rò ngữ cảnh |
+| Kiểm gì | evidence tồn tại và đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; suy diễn persistence từ `api_unused` | phản biện từng fact như chuyên gia dịch ngược: evidence có chứng minh không, giải thích thay thế, mức chắc chắn, chủ đề còn thiếu |
+| Truy cập dữ liệu | đọc trực tiếp | **không có công cụ**: chỉ thấy hồ sơ script gửi và kết quả các thao tác chỉ đọc nó xin |
 | Kết quả | `fail`/`weak` kèm `where` (vị trí lỗi) và `redo` (cách kiểm lại) | như lớp 1, ghi vào `work/review/rK/review.json` |
+
+**Lớp 2 chạy trên mọi LLM** (`reviewer.py`). Mô hình chỉ cần nhận text và trả JSON:
+
+```
+reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (chỉ text)
+     ▲                                                   │
+     │◄── {"requests":[{"op":"disasm","file":…,"va":…}]} ┘  tối đa REVIEW_MAX_TURNS lượt mỗi lô
+     │── kết quả thao tác chỉ đọc (đã cắt gọn) ─────────►
+     │◄── {"items":[…], "missing":[…]} kết luận ─────────┘
+```
+
+1. **Hồ sơ tự chứa:** với mỗi fact, script gửi giá trị, nguồn, trạng thái, fact cũ bị thay, kết quả lớp 1, đoạn evidence quanh dòng được trỏ, và các phép dò chạy sẵn (chuỗi của fact có trong mẫu không, disassembly tại địa chỉ nêu trong fact). Fact chia lô (`REVIEW_BATCH`, mặc định 20) để vừa cả model context ngắn.
+2. **Thao tác chỉ đọc:** `read`, `grep`, `hex`, `strings`, `find`, `disasm`, `xrefs`, `pe`, `sha256`, `xor`; chỉ trong `facts.jsonl`, `report/evidence/`, `work/sample|extract|scripts/`. Mô hình không có shell, không tự đọc file, không thể chạy mẫu.
+3. **Cô lập theo thiết kế:** script gửi toàn bộ nội dung nên biết chính xác mô hình thấy gì. Thêm một câu hỏi canary trước khi gửi dữ liệu để phát hiện ngữ cảnh cũ phía nhà cung cấp (bộ nhớ, hướng dẫn hệ thống khác).
+4. **Kiểm toán, chạy lại được:** mỗi lượt lưu `work/review/llm_cache/<hash>.prompt.md` và `.answer.md`. Chạy lại với cùng dữ liệu dùng lại câu trả lời, không gọi lại LLM.
+5. **An toàn trước prompt injection:** dữ liệu từ mẫu được đánh dấu là không tin cậy; mô hình không có công cụ nên chuỗi cài cắm không thể gây hành động. Lớp 2 chỉ thêm được lỗi, không gỡ được `fail` của lớp 1.
+
+| Backend (`REVIEW_LLM`) | Kết nối |
+|---|---|
+| `claude` | `claude -p --safe-mode --tools ""` (không công cụ, không CLAUDE.md/skill/hook/MCP) |
+| `codex`, `gemini`, `copilot`, `cursor` | CLI tương ứng ở chế độ không tương tác, thư mục tạm rỗng ngoài project |
+| `api` | API chat completions chuẩn OpenAI: ChatGPT/OpenAI, DeepSeek, GitHub Models, vLLM… (`REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL`) |
+| `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
+| `manual` | không cần gì: script ghi `…prompt.md`, người dùng dán vào một cuộc chat **mới** trên giao diện web bất kỳ, lưu câu trả lời vào `…answer.md` rồi chạy lại lệnh (mã thoát 4 = đang chờ) |
+
+`auto` (mặc định) chọn CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`, nên lớp 2 **luôn chạy được**. Ví dụ DeepSeek: `REVIEW_LLM=api REVIEW_API_BASE=https://api.deepseek.com REVIEW_MODEL=deepseek-chat REVIEW_API_KEY=…`. Model khác họ với agent phân tích giúp phản biện độc lập hơn.
 
 - Review hết hiệu lực khi `facts.jsonl` đổi; review lặp lại với facts không đổi không tính thêm lần.
 - Lần 2 vẫn FAIL thì `STOPPED`: chặn `report --final`, sinh `STOP_REPORT.md`. Chỉ người dùng mở lại, bằng `work/review/OVERRIDE` chứa `facts_sha256` khớp.
-- Lớp 2 **không phụ thuộc Claude**. Yêu cầu kiến trúc chỉ có hai điều: phiên mới không mang ngữ cảnh của phiên phân tích, và vai trò chuyên gia dịch ngược hoài nghi (prompt ở `review/re-reviewer.md`, dùng chung cho mọi backend). Model khác họ với agent phân tích còn giúp phản biện độc lập hơn.
-
-| Backend (`REVIEW_LLM`) | Cách chạy | Mức cô lập kiểm được |
-|---|---|---|
-| `claude` | `claude -p`, tắt hook/MCP/skill, chỉ công cụ đọc | `full`: kiểm từ sự kiện khởi động (cwd, công cụ, MCP, hook) + canary |
-| `codex` | `codex exec --sandbox read-only -` | `partial`: cwd tách riêng + canary |
-| `gemini` | `gemini -p … --output-format json` | `partial` |
-| `copilot` | `copilot -p … --allow-tool=read --deny-tool='shell, write, url'` | `partial` |
-| `cursor` | `cursor-agent -p --output-format text` (không `--force`) | `partial` |
-| `api` | gọi API chat completions chuẩn OpenAI (OpenAI/ChatGPT, DeepSeek, GitHub Models, vLLM…); facts + evidence được nhúng vào prompt | `stateless`: mỗi request độc lập, không có ngữ cảnh cũ; không đọc được byte mẫu nên fact cần byte mẫu chỉ đạt `weak` |
-| `cmd` | lệnh tự khai ở `REVIEW_LLM_CMD`: prompt qua stdin, JSON ra stdout | `partial` |
-
-`auto` (mặc định) chọn backend đầu tiên có trên máy theo thứ tự trên; `api` khi có `REVIEW_API_KEY` và `REVIEW_MODEL`. Ví dụ dùng DeepSeek: `REVIEW_LLM=api REVIEW_API_BASE=https://api.deepseek.com REVIEW_MODEL=deepseek-chat REVIEW_API_KEY=…`.
-
-- Mức cô lập được ghi vào `review.json` (`isolation.backend`, `isolation.level`) và báo cáo cuối.
+- `review.json` ghi backend, số lô, số lượt, số thao tác, canary, sha256 của hồ sơ và prompt hệ thống.
 
 ## An toàn và OPSEC
 
@@ -243,7 +256,8 @@ install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-flow): ski
 package.json        khai báo bin cho npx
 flow.py             điều phối: new, triage, dec, status, review, next, report, audit, doctor
 case.py             kho fact, checklist C0–C11, sinh báo cáo
-review.py           cổng phản biện, review-loop, gate, next
+review.py           cổng phản biện (lớp 1), review-loop, gate, next
+reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết nối mọi LLM
 review/             prompt cho người phản biện và phiên sửa fact
 static/             triage, gopclntab, NSIS, script Ghidra
 winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc

@@ -24,7 +24,7 @@ python3 $SKILL/flow.py new <CASE> <mẫu|zip>...     # tạo case, chép mẫu (
 python3 $SKILL/flow.py status <CASE>               # checklist C0-C11 và gợi ý bước kế
 python3 $SKILL/flow.py dec <CASE> <FILE> <hàm|list:chuỗi>...   # decompile (rea, hoặc Ghidra)
 python3 $SKILL/case.py add <CASE> id=... kind=... value=... src=S evidence=report/evidence/F[#Ln]
-python3 $SKILL/flow.py review <CASE> [--llm]       # cổng phản biện: lớp 1 script, lớp 2 phiên LLM mới
+python3 $SKILL/flow.py review <CASE> [--llm]       # cổng phản biện: lớp 1 script, lớp 2 LLM bất kỳ (mã 4 = chờ manual)
 python3 $SKILL/flow.py next <CASE> [--accept 'C4=lý do;...']   # DONE khi checklist đủ và cổng đạt, không cần VM
 python3 $SKILL/flow.py report <CASE> --final && python3 $SKILL/flow.py audit <CASE>
 ```
@@ -37,4 +37,4 @@ Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`.
 2. FAIL: với từng mục `fail`/`weak` in ra, làm đúng `redo` tại `where`, ghi fact mới có `supersedes`, cập nhật báo cáo.
 3. Chạy lại `flow.py review <CASE> --llm` (lần 2). Vẫn FAIL thì dừng, báo người dùng nội dung `STOP_REPORT.md`.
 
-Lớp 2 chạy bằng backend LLM có trên máy (`REVIEW_LLM=auto`: claude, codex, gemini, copilot, cursor-agent, hoặc API chuẩn OpenAI như ChatGPT/DeepSeek); `flow.py doctor` cho biết backend nào được dùng. `flow.py review-loop <CASE>` làm cả 3 bước tự động khi backend là claude; backend khác thì lệnh dừng với mã 3 sau review lỗi để chính agent đang chạy làm bước 2.
+Lớp 2 chạy trên mọi LLM (`REVIEW_LLM=auto`: claude, codex, gemini, copilot, cursor-agent, API chuẩn OpenAI như ChatGPT/DeepSeek, cuối cùng `manual`). Mô hình phản biện không có công cụ: script gửi hồ sơ và thực hiện các thao tác chỉ đọc nó xin. `flow.py review` trả mã 4 nghĩa là đang chờ manual: báo người dùng dán file prompt được in ra vào một cuộc chat mới và lưu câu trả lời. `flow.py review-loop <CASE>` tự động cả 3 bước khi backend là claude; backend khác thì dừng với mã 3 sau review lỗi để chính agent đang chạy làm bước 2.

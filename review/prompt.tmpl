@@ -1,4 +1,7 @@
-Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):
-{IDS}
+Lượt phản biện số {ROUND}, lô {LOT}. Phản biện các fact dưới đây theo hướng dẫn hệ thống. Cần xem thêm thì trả {"requests": [...]}; đủ thì trả {"items": [...], "missing": [...]}.
 
-Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước, rồi kiểm từng fact, rồi trả về một đối tượng JSON duy nhất.
+{HEAD}
+
+## Fact cần phản biện
+
+{FACTS}

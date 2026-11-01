@@ -42,7 +42,7 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | winemu đọc tên export DLL builtin (không chạy wine) |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài; tên trên `PATH` hoặc đường dẫn tuyệt đối |
 
-- Lớp 2 dùng backend LLM có trên máy (`REVIEW_LLM`, mặc định `auto`: claude > codex > gemini > copilot > cursor > api), dùng chung tài khoản đã đăng nhập của CLI đó.
+- Lớp 2 dùng LLM có trên máy (`REVIEW_LLM`, mặc định `auto`: claude > codex > gemini > copilot > cursor > api > manual), dùng chung tài khoản đã đăng nhập của CLI đó; không có gì thì `manual` (dán vào chat web).
 - Nếu sandbox của agent coi workspace là chỉ đọc, các lệnh `flow.py` cần ghi file phải được cấp quyền ghi (với Claude Code: `/sandbox`).
 
 ## 2. Các bước
@@ -94,7 +94,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 ## 3b. Cổng phản biện và điểm dừng sớm (`review.py`)
 
 - **Lớp 1 (máy):** evidence có thật và đúng dòng; hash tính lại; giá trị IOC phải có trong evidence; nguồn S/E/V khớp loại evidence; `api_unused` bị suy thành persistence.
-- **Lớp 2 (`--llm`):** một phiên LLM mới, tách ngữ cảnh (backend `REVIEW_LLM`: claude, codex, gemini, copilot, cursor, api chuẩn OpenAI, hoặc lệnh tự khai), chạy trong `$REVIEW_WS_DIR/<case>-rK-*` (mặc định `/var/tmp`, ngoài cây project nên không nạp file hướng dẫn và memory của project), chỉ đọc `facts.jsonl`, evidence, mẫu, script. Mỗi fact `fail` bắt buộc có `where` và `redo`. Kết quả cô lập được ghi vào `review.json` (`isolation`); không hợp lệ thì review tính là FAIL. Tốn khoảng 10 phút mỗi lần. Mức cô lập: `full` (claude, kiểm từ sự kiện khởi động), `partial` (CLI khác: cwd + canary), `stateless` (api: request độc lập, dữ liệu nhúng trong prompt).
+- **Lớp 2 (`--llm`, `reviewer.py`):** LLM bất kỳ ở phiên mới, **không có công cụ**. Script gửi hồ sơ tự chứa theo lô (fact, đoạn evidence, kết quả lớp 1, phép dò sẵn trên mẫu); mô hình xin thêm dữ liệu bằng `{"requests": [...]}` với các thao tác chỉ đọc (`read`, `grep`, `hex`, `strings`, `find`, `disasm`, `xrefs`, `pe`, `sha256`, `xor`), rồi trả `{"items": [...]}`. Mỗi fact `fail` bắt buộc có `where` và `redo`. Canary hỏi trước khi gửi dữ liệu; thiếu kết luận hoặc canary lộ tên case thì review tính là FAIL. Mỗi lượt lưu ở `work/review/llm_cache/` (chạy lại không gọi lại LLM). Backend `manual`: mã thoát 4, dán `…prompt.md` vào chat mới, lưu `…answer.md`, chạy lại.
 - **Tối đa 2 lần review.** Lần 1 FAIL thì sửa đúng các fact bị chỉ ra (fact mới có `supersedes`). Lần 2 FAIL thì `STOPPED`: in thông báo, sinh `work/review/STOP_REPORT.md`, chặn `report --final`. Chỉ người dùng mở lại (sửa tay, hoặc `work/review/OVERRIDE` có `facts_sha256=<hash>`).
 - **`facts.jsonl` đổi thì review hết hiệu lực** (mục C0 về `missing`). Review lặp lại với facts không đổi thì không tính thêm lần.
 - **`flow.py next`:** checklist đủ (hoặc `--accept Cx=lý do` ghi vào `work/accepted.json` để đưa vào mục hạn chế) và phản biện đạt thì in `DONE`: báo cáo và đóng case, **không cần VM**. VM (T5) chỉ cân nhắc khi mục còn thiếu mà T2/T3 không lấy được.

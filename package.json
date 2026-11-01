@@ -1,0 +1,11 @@
+{
+  "name": "rea-flow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cài skill rea-flow bằng một lệnh: npx github:thaoht2109/rea-flow [-g]",
+  "type": "module",
+  "bin": { "rea-flow": "install.mjs" },
+  "files": ["install.mjs"],
+  "engines": { "node": ">=22.20" },
+  "license": "UNLICENSED"
+}

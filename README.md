@@ -59,36 +59,32 @@ mẫu ─► T0 triage tĩnh ─► T1 bóc vỏ ─► T2 decompile có mục t
 ## Cài đặt
 
 ```bash
-npx skills add thaoht2109/rea-flow
+npx github:thaoht2109/rea-flow         # cài cho project hiện tại
+npx github:thaoht2109/rea-flow -g      # cài toàn máy
 ```
 
-Một lệnh, như mọi skill khác trên [skills CLI](https://github.com/vercel-labs/skills): CLI hỏi cài cho agent nào (Claude Code, Codex, Cursor, Copilot, Gemini CLI…) và cho project hiện tại hay toàn máy (`-g`). Không có bước dựng workspace hay sinh file hướng dẫn: agent tự nạp skill khi được giao việc phân tích mã độc.
+Một lệnh làm cả hai việc:
 
-```bash
-# không hỏi: cài toàn máy cho một số agent cụ thể
-DISABLE_TELEMETRY=1 npx skills add thaoht2109/rea-flow -g -a claude-code -a codex -y
-npx skills update rea-flow -g        # cập nhật
-npx skills remove rea-flow -g        # gỡ
-```
+1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (CLI hỏi cài cho agent nào: Claude Code, Codex, Cursor, Copilot, Gemini CLI…). Mọi tham số của `skills add` dùng được: `-a claude-code -a codex`, `-y`.
+2. Chép mục "Quy tắc bắt buộc" của `SKILL.md` vào file hướng dẫn của agent, **đúng phạm vi vừa cài**, để quy tắc an toàn luôn có trong ngữ cảnh kể cả khi skill chưa được nạp:
 
-- Repo đang private: máy cài cần quyền đọc repo (`gh auth login`, git credential hoặc SSH key).
-- Không dùng Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow` (thay bằng thư mục skill của agent khác, ví dụ `~/.agents/skills/rea-flow`).
-- Lần đầu trên máy mới, kiểm công cụ: `python3 <thư mục skill>/flow.py doctor`.
-
-### Quy tắc luôn bật (tùy chọn)
-
-Skill chỉ được nạp khi agent nhận việc phân tích mã độc. Muốn quy tắc an toàn ("không bao giờ thực thi mẫu"…) **luôn** có trong ngữ cảnh, chép mục "Quy tắc bắt buộc" của `SKILL.md` vào file hướng dẫn của agent:
-
-```bash
-python3 <thư mục skill>/flow.py rules            # phạm vi tự theo cách cài skill
-```
-
-| Cài skill | File được ghi |
+| Cài | File được chép quy tắc |
 |---|---|
-| toàn máy (`-g`, skill ở `~/.agents/skills/…`) | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, chỉ với agent đã có trên máy |
-| theo project (skill ở `<project>/.agents/skills/…`) | `<project>/AGENTS.md`, `<project>/CLAUDE.md` (và `GEMINI.md` nếu project đã có) |
+| toàn máy (`-g`) | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, chỉ với agent đã có trên máy |
+| project | `<project>/AGENTS.md`, `<project>/CLAUDE.md` (và `GEMINI.md` nếu project đã có) |
 
-Ép phạm vi bằng `--global` hoặc `--project [DIR]`; kiểm bằng `--check`; gỡ bằng `--remove` (trước `npx skills remove`). Quy tắc nằm giữa cặp marker `rea-flow:rules`, nội dung khác trong file giữ nguyên; chạy lại sau `npx skills update` để cập nhật. Agent cũng tự chạy bước này ở lần đầu dùng skill.
+Quy tắc nằm giữa cặp marker `rea-flow:rules`; nội dung khác trong file giữ nguyên. Cài lại thì cập nhật, không lặp nội dung.
+
+```bash
+npx github:thaoht2109/rea-flow -g -a claude-code -a codex -y    # không hỏi
+npx github:thaoht2109/rea-flow -g                               # cập nhật: chạy lại lệnh cài
+npx github:thaoht2109/rea-flow remove [-g]                      # gỡ quy tắc rồi gỡ skill
+```
+
+- Repo đang private: máy cài cần quyền đọc repo (`gh auth login` hoặc SSH key). Yêu cầu Node ≥ 22.20 và `python3`.
+- Dùng thẳng skills CLI cũng được: `npx skills add thaoht2109/rea-flow [-g]`. Khi đó bước 2 do agent tự làm ở lần đầu dùng skill, hoặc chạy tay `python3 <thư mục skill>/flow.py rules` (thêm `--check`, `--remove`, `--global`, `--project [DIR]` khi cần).
+- Không dùng Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules`.
+- Lần đầu trên máy mới, kiểm công cụ: `python3 <thư mục skill>/flow.py doctor`.
 
 ## Cấu hình (tùy chọn)
 
@@ -173,6 +169,8 @@ SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (a
 FLOW.md             quy trình thao tác chi tiết (agent đọc khi cần)
 reacfg.py           cấu hình theo máy + doctor
 rea.env.example     mẫu ~/.config/rea-flow/rea.env
+install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-flow): skills add + flow.py rules
+package.json        khai báo bin cho npx
 flow.py             điều phối: new, triage, dec, status, review, next, report, audit, doctor
 case.py             kho fact, checklist C0–C11, sinh báo cáo
 review.py           cổng phản biện, review-loop, gate, next

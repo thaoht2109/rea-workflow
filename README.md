@@ -68,7 +68,7 @@ Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → 
 | Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài và [skills CLI](https://github.com/vercel-labs/skills) |
 | GitHub CLI (`gh`) đã `gh auth login` | khi cài | repo đang private; SSH key có quyền đọc repo cũng được |
 | Một coding agent | có | Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI… |
-| `claude` CLI đã đăng nhập | cho lớp 2 phản biện | phiên phản biện tách ngữ cảnh; dùng agent khác thì đặt `REVIEW_LLM_CMD` |
+| Một backend LLM cho lớp 2 phản biện | cho lớp 2 | bất kỳ: `claude`, `codex`, `gemini`, `copilot`, `cursor-agent` đã đăng nhập, hoặc API key chuẩn OpenAI (ChatGPT, DeepSeek…). Xem [Cổng phản biện](#cổng-phản-biện) |
 
 ### 2. Cài skill
 
@@ -118,7 +118,7 @@ python3 -m pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4
 
 ```bash
 python3 ~/.agents/skills/rea-flow/flow.py doctor     # cài theo project: <project>/.agents/skills/rea-flow
-claude -p "hi"                                        # nếu dùng lớp 2 phản biện bằng Claude
+# dòng "lớp 2 phản biện" cho biết backend sẽ dùng; CLI của backend đó phải đã đăng nhập
 ```
 
 `doctor` in từng mục `OK` / `THIẾU` (bắt buộc) / `WARN` (tùy chọn) kèm gợi ý cài, trả mã 1 nếu thiếu mục bắt buộc. Đường dẫn skill của từng agent: `npx skills list [-g]`.
@@ -141,8 +141,10 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REA_PYLIB` | `<skill>/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` | thư mục chứa unicorn cho winemu |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để lấy tên export DLL; wine không bao giờ được chạy |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài: tên trên `PATH` hoặc đường dẫn tuyệt đối |
-| `REVIEW_LLM_CMD` | trống | lớp 2 bằng LLM khác Claude: lệnh không tương tác, prompt qua stdin, JSON ra stdout (cô lập `partial`) |
-| `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi dùng LLM khác |
+| `REVIEW_LLM` | `auto` | backend lớp 2: `auto`, `claude`, `codex`, `gemini`, `copilot`, `cursor`, `api`, `cmd` |
+| `REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL` | `https://api.openai.com/v1`, `$OPENAI_API_KEY`, trống | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
+| `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, JSON ra stdout |
+| `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude`; trống thì agent đang chạy tự sửa |
 
 ### Cập nhật và gỡ
 
@@ -167,7 +169,7 @@ python3 $SKILL/flow.py status CASE                      # checklist C0–C11 và
 python3 $SKILL/flow.py dec  CASE FILE hàm|0xaddr|list:chuỗi ...
 python3 $SKILL/case.py add CASE id=c2.main kind=c2 value='host:443' src=E evidence=report/evidence/emu.txt#L12
 python3 $SKILL/flow.py review CASE --llm                # cổng phản biện (lần 1, rồi lần 2 sau khi sửa)
-python3 $SKILL/flow.py review-loop CASE                 # review → tự sửa fact lỗi → review lần 2 (Claude Code)
+python3 $SKILL/flow.py review-loop CASE                 # review → tự sửa fact lỗi → review lần 2
 python3 $SKILL/flow.py next CASE --accept 'C10=lý do;C11=lý do'   # DONE / NEED_MORE / NEED_REVIEW
 python3 $SKILL/flow.py report CASE --final && python3 $SKILL/flow.py audit CASE
 ```
@@ -192,12 +194,26 @@ CASE/
 | | Lớp 1: script | Lớp 2: phiên LLM mới |
 |---|---|---|
 | Kiểm gì | evidence tồn tại và đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; suy diễn persistence từ `api_unused` | phản biện từng fact như chuyên gia dịch ngược: giải thích thay thế, mức chắc chắn, chủ đề còn thiếu |
-| Cô lập | không cần | tiến trình mới, chạy ngoài cây project, tắt hook/MCP/skill, chỉ công cụ đọc, câu hỏi canary phát hiện rò ngữ cảnh |
+| Cô lập | không cần | phiên mới không có lịch sử hội thoại, chạy trong thư mục tạm ngoài project, chỉ đọc, câu hỏi canary phát hiện rò ngữ cảnh |
 | Kết quả | `fail`/`weak` kèm `where` (vị trí lỗi) và `redo` (cách kiểm lại) | như lớp 1, ghi vào `work/review/rK/review.json` |
 
 - Review hết hiệu lực khi `facts.jsonl` đổi; review lặp lại với facts không đổi không tính thêm lần.
 - Lần 2 vẫn FAIL thì `STOPPED`: chặn `report --final`, sinh `STOP_REPORT.md`. Chỉ người dùng mở lại, bằng `work/review/OVERRIDE` chứa `facts_sha256` khớp.
-- Với Claude Code, cô lập được kiểm từ sự kiện khởi động của phiên (`full`). Với LLM khác qua `REVIEW_LLM_CMD`, chỉ kiểm được thư mục làm việc và canary (`partial`); mức này được ghi vào kết quả review.
+- Lớp 2 **không phụ thuộc Claude**. Yêu cầu kiến trúc chỉ có hai điều: phiên mới không mang ngữ cảnh của phiên phân tích, và vai trò chuyên gia dịch ngược hoài nghi (prompt ở `review/re-reviewer.md`, dùng chung cho mọi backend). Model khác họ với agent phân tích còn giúp phản biện độc lập hơn.
+
+| Backend (`REVIEW_LLM`) | Cách chạy | Mức cô lập kiểm được |
+|---|---|---|
+| `claude` | `claude -p`, tắt hook/MCP/skill, chỉ công cụ đọc | `full`: kiểm từ sự kiện khởi động (cwd, công cụ, MCP, hook) + canary |
+| `codex` | `codex exec --sandbox read-only -` | `partial`: cwd tách riêng + canary |
+| `gemini` | `gemini -p … --output-format json` | `partial` |
+| `copilot` | `copilot -p … --allow-tool=read --deny-tool='shell, write, url'` | `partial` |
+| `cursor` | `cursor-agent -p --output-format text` (không `--force`) | `partial` |
+| `api` | gọi API chat completions chuẩn OpenAI (OpenAI/ChatGPT, DeepSeek, GitHub Models, vLLM…); facts + evidence được nhúng vào prompt | `stateless`: mỗi request độc lập, không có ngữ cảnh cũ; không đọc được byte mẫu nên fact cần byte mẫu chỉ đạt `weak` |
+| `cmd` | lệnh tự khai ở `REVIEW_LLM_CMD`: prompt qua stdin, JSON ra stdout | `partial` |
+
+`auto` (mặc định) chọn backend đầu tiên có trên máy theo thứ tự trên; `api` khi có `REVIEW_API_KEY` và `REVIEW_MODEL`. Ví dụ dùng DeepSeek: `REVIEW_LLM=api REVIEW_API_BASE=https://api.deepseek.com REVIEW_MODEL=deepseek-chat REVIEW_API_KEY=…`.
+
+- Mức cô lập được ghi vào `review.json` (`isolation.backend`, `isolation.level`) và báo cáo cuối.
 
 ## An toàn và OPSEC
 

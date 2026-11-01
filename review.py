@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Cổng phản biện facts.jsonl và điểm dừng sớm (FLOW.md §3b). Không bao giờ chạy mẫu.
-#   review.py review CASE [--llm]     lớp 1 (máy) [+ lớp 2: phiên claude mới, tách ngữ cảnh]; tối đa 2 lần review
+#   review.py review CASE [--llm]     lớp 1 (máy) [+ lớp 2: phiên LLM mới, tách ngữ cảnh: claude/codex/gemini/copilot/cursor/api]; tối đa 2 lần review
 #   review.py review-loop CASE        review -> sửa lại fact lỗi (phiên phân tích) -> review lần 2, tự động, dừng nếu vẫn FAIL
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
 #   review.py next CASE [--accept C4=lý do,...]   DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
@@ -64,10 +64,42 @@ def mech(c):
             bad('weak', 'api_unused_inference', 'API persistence nằm trong api_unused: có thể là import của payload, chưa chắc là hành vi', 'đối chiếu import của PE đã giải mã')
     return items
 
-# ---------- lớp 2: phiên claude mới ----------
-def claude_review(c, k, ids):
-    """Chạy phiên `claude -p` mới, tách ngữ cảnh. Trả (items, missing, isolation)."""
-    ws = tempfile.mkdtemp(prefix=f'{os.path.basename(os.path.abspath(c))}-r{k}-', dir=CFG.REVIEW_WS_DIR)   # /tmp là tmpfs hay đầy; không đặt trong cây project (sẽ nạp CLAUDE.md)
+# ---------- lớp 2: phiên LLM mới, tách ngữ cảnh ----------
+ASK = 'Đọc file REVIEW_PROMPT.md trong thư mục hiện tại và làm đúng hướng dẫn trong đó. Chỉ in một đối tượng JSON.'
+# backend CLI: (lệnh, prompt qua stdin?). Cùng kiến trúc: tiến trình mới, cwd tách riêng, chỉ đọc, không ghi file.
+CLI = {
+    'codex':   (lambda: ['codex', 'exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-'], True),
+    'gemini':  (lambda: ['gemini', '-p', 'Làm đúng hướng dẫn ở đầu vào chuẩn. Chỉ in một đối tượng JSON.', '--output-format', 'json'], True),
+    'copilot': (lambda: ['copilot', '-p', ASK, '-s', '--no-ask-user', '--allow-tool=read', '--deny-tool=shell, write, url'], False),
+    'cursor':  (lambda: ['cursor-agent', '-p', '--output-format', 'text', ASK], False),   # không --force: không sửa file
+    'cmd':     (lambda: shlex.split(CFG.REVIEW_LLM_CMD), True),
+}
+
+def api_bundle(ws):
+    """Backend api không đọc được file: nhúng facts và evidence (cắt bớt) vào prompt; mẫu nhị phân chỉ có tên + sha256."""
+    parts, total = [], 0
+    for p in ['facts.jsonl'] + sorted(os.path.relpath(x, ws) for x in glob.glob(os.path.join(ws, 'report', 'evidence', '**', '*'), recursive=True) if os.path.isfile(x)):
+        b = open(os.path.join(ws, p), 'rb').read()
+        if b'\0' in b[:4096]: continue
+        t = b[:CFG.REVIEW_API_FILE_MAX].decode('utf-8', 'replace') + ('\n[... cắt bớt]' if len(b) > CFG.REVIEW_API_FILE_MAX else '')
+        if total + len(t) > CFG.REVIEW_API_TOTAL_MAX: parts.append(f'### {p}\n[bỏ qua: vượt giới hạn tổng]'); continue
+        total += len(t); parts.append(f'### {p}\n```\n{t}\n```')
+    return ('\n\nKhông có công cụ đọc file: mọi dữ liệu nằm dưới đây (file nhị phân chỉ có sha256 trong input_manifest.sha256). '
+            'Fact cần đọc byte mẫu mà không kiểm được thì đánh `weak`. Trường `canary` chỉ tính ngữ cảnh có TRƯỚC hướng dẫn hệ thống.\n\n'
+            + '\n\n'.join(parts + ['### input_manifest.sha256\n```\n' + open(os.path.join(ws, 'input_manifest.sha256')).read() + '\n```']))
+
+def api_call(sysp, prm):
+    """OpenAI-compatible chat completions (OpenAI, DeepSeek, GitHub Models, vLLM…). Mỗi lần gọi là một request độc lập."""
+    import urllib.request
+    body = json.dumps({'model': CFG.REVIEW_MODEL, 'temperature': 0, 'messages': [{'role': 'system', 'content': sysp}, {'role': 'user', 'content': prm}]}).encode()
+    rq = urllib.request.Request(CFG.REVIEW_API_BASE.rstrip('/') + '/chat/completions', body, {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + CFG.REVIEW_API_KEY})
+    with urllib.request.urlopen(rq, timeout=1800) as r: return json.load(r)['choices'][0]['message']['content']
+
+def llm_review(c, k, ids):
+    """Phản biện lớp 2 bằng một phiên LLM mới, tách ngữ cảnh (backend: CFG.REVIEW_LLM). Trả (items, missing, isolation)."""
+    be = CFG.review_backend()
+    if not be: raise SystemExit('Không có backend cho lớp 2: cài claude/codex/gemini/copilot/cursor-agent, hoặc đặt REVIEW_LLM=api + REVIEW_API_KEY + REVIEW_MODEL (flow.py doctor)')
+    ws = tempfile.mkdtemp(prefix=f'{os.path.basename(os.path.abspath(c))}-r{k}-', dir=CFG.REVIEW_WS_DIR)   # ngoài cây project: agent không nạp file hướng dẫn của project
     if any(os.path.realpath(ws).startswith(os.path.realpath(d) + os.sep) for d in (CFG.REA, HERE)): raise SystemExit('ws nằm trong workspace/skill: dừng')
     shutil.copy(os.path.join(c, 'facts.jsonl'), ws); shutil.copytree(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
     for d in ('sample', 'scripts', 'extract'):
@@ -76,35 +108,48 @@ def claude_review(c, k, ids):
     open(os.path.join(ws, 'input_manifest.sha256'), 'w').write(''.join(f'{h}  {p}\n' for p, h in man.items()))
     sysp = open(os.path.join(HERE, 'review', 're-reviewer.md'), encoding='utf-8').read()
     prm = open(os.path.join(HERE, 'review', 'prompt.tmpl'), encoding='utf-8').read().replace('{ROUND}', str(k)).replace('{IDS}', ' '.join(ids))
-    if CFG.REVIEW_LLM_CMD:   # LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout. Không đọc được init nên chỉ kiểm cwd + canary
-        r = subprocess.run(shlex.split(CFG.REVIEW_LLM_CMD), input=sysp + '\n\n---\n\n' + prm, cwd=ws, capture_output=True, text=True, timeout=1800)
-    else:
+    ev, init, out = [], {'session_id': be, 'cwd': ws}, ''
+    if be == 'claude':   # cô lập kiểm được đầy đủ qua sự kiện init của stream-json
         cmd = [CFG.CLAUDE, '-p', '--no-session-persistence', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
                '--settings', '{"disableAllHooks":true}', '--disable-slash-commands', '--system-prompt', sysp,
                '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
                '--output-format', 'stream-json', '--verbose']
-        r = subprocess.run(cmd, input=prm, cwd=ws, capture_output=True, text=True, timeout=1800)
+        raw = subprocess.run(cmd, input=prm, cwd=ws, capture_output=True, text=True, timeout=1800).stdout
+        ev = [json.loads(l) for l in raw.splitlines() if l.startswith('{')]
+        init = next((e for e in ev if e.get('subtype') == 'init'), {})
+        out = next((e for e in reversed(ev) if e.get('type') == 'result'), {}).get('result', '')
+    elif be == 'api':
+        prm += api_bundle(ws)
+        raw = out = api_call(sysp, prm)
+    else:
+        argv, stdin = CLI[be]
+        full = sysp + '\n\n---\n\n' + prm
+        open(os.path.join(ws, 'REVIEW_PROMPT.md'), 'w', encoding='utf-8').write(full)
+        r = subprocess.run(argv(), input=full if stdin else '', cwd=ws, capture_output=True, text=True, timeout=1800)
+        raw = out = r.stdout + ('\n[stderr]\n' + r.stderr[-4000:] if r.returncode else '')
     os.makedirs(os.path.join(DIR(c), f'r{k}'), exist_ok=True)
-    open(os.path.join(DIR(c), f'r{k}', 'stream.jsonl'), 'w').write(r.stdout)
-    ev = [json.loads(l) for l in r.stdout.splitlines() if l.startswith('{')]
-    init = next((e for e in ev if e.get('subtype') == 'init'), {})
-    out = next((e for e in reversed(ev) if e.get('type') == 'result'), {}).get('result', '')
-    if CFG.REVIEW_LLM_CMD: init, out = {'session_id': 'cmd', 'cwd': ws}, r.stdout
+    open(os.path.join(DIR(c), f'r{k}', 'stream.jsonl'), 'w').write(raw)
     m = re.search(r'\{.*\}', out, re.S)
-    data = json.loads(m.group(0)) if m else {}
+    try: data = json.loads(m.group(0)) if m else {}
+    except ValueError: data = {}
+    if isinstance(data.get('response'), str):   # gemini --output-format json bọc câu trả lời trong .response
+        m = re.search(r'\{.*\}', data['response'], re.S); data = json.loads(m.group(0)) if m else {}
     names = {c.rstrip('/').split('/')[-1]} | {t.lower() for f in C.load(c).values() if f['kind'] in ('c2', 'mutex') for t in f['value'].split()[:1]}
-    iso = dict(backend='cmd' if CFG.REVIEW_LLM_CMD else 'claude', level='partial' if CFG.REVIEW_LLM_CMD else 'full', session_id=init.get('session_id'), cwd=init.get('cwd'), mcp=len(init.get('mcp_servers', [])), skills=len(init.get('skills', [])),
+    level = {'claude': 'full', 'api': 'stateless'}.get(be, 'partial')
+    iso = dict(backend=be, level=level, session_id=init.get('session_id'), cwd=init.get('cwd'), mcp=len(init.get('mcp_servers', [])), skills=len(init.get('skills', [])),
                slash=len(init.get('slash_commands', [])), tools=init.get('tools', []), hook_events=sum(1 for e in ev if str(e.get('subtype', '')).startswith('hook')),
                canary=data.get('canary'), manifest_sha256=hashlib.sha256(open(os.path.join(ws, 'input_manifest.sha256'), 'rb').read()).hexdigest(),
                system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), prompt_sha256=hashlib.sha256(prm.encode()).hexdigest())
     why = []
+    if not data: why.append('không đọc được JSON trả về (xem stream.jsonl)')
     if not iso['session_id']: why.append('không đọc được sự kiện init')
     if not os.path.realpath(iso['cwd'] or '/nonexistent').startswith(os.path.realpath(CFG.REVIEW_WS_DIR)): why.append('cwd không nằm trong thư mục làm việc tách riêng')
     if iso['mcp'] or iso['skills'] or iso['slash']: why.append('còn MCP/skill/slash command')
     if {'Write', 'Edit', 'Agent'} & set(iso['tools']): why.append('còn công cụ ghi/Agent')
     if iso['hook_events']: why.append('có sự kiện hook')
-    if data.get('canary') is None: why.append('thiếu canary')
-    elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
+    if be != 'api':   # api: request độc lập, không có ngữ cảnh cũ; dữ liệu case nằm ngay trong prompt nên canary không dùng được
+        if data.get('canary') is None: why.append('thiếu canary')
+        elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
     iso['valid'], iso['invalid_reasons'] = not why, why
     shutil.rmtree(ws, ignore_errors=True)
     its = [dict(i, layer='llm') for i in data.get('items', [])]
@@ -155,17 +200,17 @@ def review(c, llm=False, force=False):
     miss, iso = [], None
     if llm:
         ids = [i for i, f in C.load(c).items() if f['status'] != 'retracted']
-        li, miss, iso = claude_review(c, k, ids)
+        li, miss, iso = llm_review(c, k, ids)
         if iso['valid']: items += li
     v = verdict(items)
     if llm and not iso['valid']: v = 'FAIL'
     os.makedirs(os.path.join(DIR(c), f'r{k}'), exist_ok=True)
-    json.dump(dict(round=k, facts_sha256=h, reviewer='mech' + (('+cmd' if CFG.REVIEW_LLM_CMD else '+claude') if llm else ''), verdict=v, items=items, missing=miss, isolation=iso, ts=now()),
+    json.dump(dict(round=k, facts_sha256=h, reviewer='mech' + ('+' + iso['backend'] if llm else ''), verdict=v, items=items, missing=miss, isolation=iso, ts=now()),
               open(os.path.join(DIR(c), f'r{k}', 'review.json'), 'w'), ensure_ascii=False, indent=1)
     weak = sum(1 for i in items if i['verdict'] == 'weak')
     s['rounds'].append(dict(n=k, facts_sha256=h, verdict=v, weak=weak))
     fl = [i for i in items if i['verdict'] == 'fail']
-    print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", cô lập: {('OK' + (' (partial: ' + iso['backend'] + ')' if iso['level'] == 'partial' else '')) if iso['valid'] else 'KHÔNG HỢP LỆ ' + '; '.join(iso['invalid_reasons'])}" if iso else '') + ')')
+    print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", cô lập: {('OK' + (' (' + iso['level'] + ': ' + iso['backend'] + ')' if iso['level'] != 'full' else '')) if iso['valid'] else 'KHÔNG HỢP LỆ ' + '; '.join(iso['invalid_reasons'])}" if iso else '') + ')')
     for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
     code = 0
     if v == 'FAIL' and k >= MAX_ROUNDS:
@@ -207,7 +252,7 @@ def loop(c, llm=True):
     code = review(c, llm)
     while code == 1:
         k = len(state(c)['rounds'])
-        if CFG.REVIEW_LLM_CMD and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
+        if CFG.review_backend() != 'claude' and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
             print(f'HANDOFF: agent hiện tại sửa các mục fail/weak ở trên theo where/redo, rồi chạy lại `flow.py review {c} --llm`'); return 3
         print(f'-- phân tích lại sau review {k}...')
         ok, n, changed = analyst(c, k)

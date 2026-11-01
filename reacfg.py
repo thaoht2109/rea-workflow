@@ -32,9 +32,23 @@ JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = 
 SHARE_PYLIB = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'pylib')   # ngoài skill: update không mất
 PYLIB = get('REA_PYLIB') or next((p for p in (os.path.join(TOOLS, 'pylib'), SHARE_PYLIB) if os.path.isdir(p)), SHARE_PYLIB)   # unicorn cho winemu
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
+REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|claude|codex|gemini|copilot|cursor|api|cmd
+REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible
+REVIEW_API_KEY = get('REVIEW_API_KEY', path=False) or os.environ.get('OPENAI_API_KEY', '')
+REVIEW_MODEL = get('REVIEW_MODEL', path=False)                  # api: tên model (bắt buộc với api)
+REVIEW_API_FILE_MAX, REVIEW_API_TOTAL_MAX = int(get('REVIEW_API_FILE_MAX', '20000', path=False)), int(get('REVIEW_API_TOTAL_MAX', '300000', path=False))
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p
 ANALYST_LLM_CMD = get('ANALYST_LLM_CMD', path=False)        # phiên sửa fact cho review-loop khi dùng LLM khác; trống = agent hiện tại tự sửa
 REA_BIN, UPX, SEVENZ, CLAUDE = get('REA_BIN', 'rea'), get('UPX_BIN', 'upx'), get('SEVENZ_BIN', '7z'), get('CLAUDE_BIN', 'claude')
+
+CLI_BIN = {'claude': None, 'codex': 'codex', 'gemini': 'gemini', 'copilot': 'copilot', 'cursor': 'cursor-agent'}
+
+def review_backend():
+    """Backend lớp 2 đang dùng, None nếu không có. auto: claude > codex > gemini > copilot > cursor > api (khi có key + model)."""
+    b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else next(
+        (k for k, v in CLI_BIN.items() if shutil.which(v or CLAUDE)), 'api' if REVIEW_API_KEY and REVIEW_MODEL else None)
+    ok = {'cmd': bool(REVIEW_LLM_CMD), 'api': bool(REVIEW_API_KEY and REVIEW_MODEL)}.get(b, b in CLI_BIN and bool(shutil.which(CLI_BIN[b] or CLAUDE)))
+    return b if ok else None
 
 if os.path.isdir(PYLIB) and PYLIB not in sys.path: sys.path.insert(0, PYLIB)
 
@@ -62,7 +76,7 @@ def doctor():
         if d == os.path.dirname(d): break
         d = os.path.dirname(d)
     row(not up, 'cô lập lớp 2', f'có {up}' if up else ws, 'REVIEW_WS_DIR phải nằm ngoài thư mục có file hướng dẫn agent')
-    for k, b, use, req in (('SEVENZ_BIN', SEVENZ, 'giải nén mẫu', True), ('CLAUDE_BIN', CLAUDE, 'review --llm, review-loop', not REVIEW_LLM_CMD),
+    for k, b, use, req in (('SEVENZ_BIN', SEVENZ, 'giải nén mẫu', True), ('CLAUDE_BIN', CLAUDE, 'review-loop tự động; lớp 2 nếu chọn claude', False),
                            ('REA_BIN', REA_BIN, 'flow.py dec', False), ('UPX_BIN', UPX, 'bóc UPX', False)):
         row(bool(shutil.which(b)), k, shutil.which(b) or b, use, req)
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,
@@ -71,8 +85,9 @@ def doctor():
     for m, req in (('pefile', True), ('unicorn', False), ('capstone', False)):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',
             f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
-    if REVIEW_LLM_CMD:
-        exe = shlex.split(REVIEW_LLM_CMD)[0]; row(bool(shutil.which(exe)), 'REVIEW_LLM_CMD', REVIEW_LLM_CMD, 'lớp 2 bằng LLM khác (cô lập partial)')
+    be = review_backend()
+    row(bool(be), 'lớp 2 phản biện', f"{be} (cô lập {({'claude': 'full', 'api': 'stateless'}).get(be, 'partial')})" if be else f'REVIEW_LLM={REVIEW_LLM}: chưa có backend',
+        'cần một trong: claude, codex, gemini, copilot, cursor-agent, hoặc REVIEW_LLM=api + REVIEW_API_KEY + REVIEW_MODEL')
     row(os.path.isdir(WINE_DLL_DIR), 'WINE_DLL_DIR', WINE_DLL_DIR, 'tên export cho DLL giả của winemu', False)
     print('Đăng nhập claude: kiểm bằng `claude -p hi` (dùng chung tài khoản, không cần API key riêng; cần mạng tới api.anthropic.com)')
     return 1 if bad else 0

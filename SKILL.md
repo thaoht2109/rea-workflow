@@ -37,4 +37,4 @@ Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`.
 2. FAIL: với từng mục `fail`/`weak` in ra, làm đúng `redo` tại `where`, ghi fact mới có `supersedes`, cập nhật báo cáo.
 3. Chạy lại `flow.py review <CASE> --llm` (lần 2). Vẫn FAIL thì dừng, báo người dùng nội dung `STOP_REPORT.md`.
 
-Với Claude Code, `flow.py review-loop <CASE>` làm cả 3 bước tự động. Với agent khác, đặt `REVIEW_LLM_CMD` (lệnh LLM không tương tác, prompt qua stdin, JSON ra stdout) để lớp 2 chạy bằng model đó; mức cô lập ghi là `partial`.
+Lớp 2 chạy bằng backend LLM có trên máy (`REVIEW_LLM=auto`: claude, codex, gemini, copilot, cursor-agent, hoặc API chuẩn OpenAI như ChatGPT/DeepSeek); `flow.py doctor` cho biết backend nào được dùng. `flow.py review-loop <CASE>` làm cả 3 bước tự động khi backend là claude; backend khác thì lệnh dừng với mã 3 sau review lỗi để chính agent đang chạy làm bước 2.

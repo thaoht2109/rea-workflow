@@ -75,6 +75,21 @@ npx skills remove rea-flow -g        # gỡ
 - Không dùng Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow` (thay bằng thư mục skill của agent khác, ví dụ `~/.agents/skills/rea-flow`).
 - Lần đầu trên máy mới, kiểm công cụ: `python3 <thư mục skill>/flow.py doctor`.
 
+### Quy tắc luôn bật (tùy chọn)
+
+Skill chỉ được nạp khi agent nhận việc phân tích mã độc. Muốn quy tắc an toàn ("không bao giờ thực thi mẫu"…) **luôn** có trong ngữ cảnh, chép mục "Quy tắc bắt buộc" của `SKILL.md` vào file hướng dẫn của agent:
+
+```bash
+python3 <thư mục skill>/flow.py rules            # phạm vi tự theo cách cài skill
+```
+
+| Cài skill | File được ghi |
+|---|---|
+| toàn máy (`-g`, skill ở `~/.agents/skills/…`) | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, chỉ với agent đã có trên máy |
+| theo project (skill ở `<project>/.agents/skills/…`) | `<project>/AGENTS.md`, `<project>/CLAUDE.md` (và `GEMINI.md` nếu project đã có) |
+
+Ép phạm vi bằng `--global` hoặc `--project [DIR]`; kiểm bằng `--check`; gỡ bằng `--remove` (trước `npx skills remove`). Quy tắc nằm giữa cặp marker `rea-flow:rules`, nội dung khác trong file giữ nguyên; chạy lại sau `npx skills update` để cập nhật. Agent cũng tự chạy bước này ở lần đầu dùng skill.
+
 ## Cấu hình (tùy chọn)
 
 Mặc định đủ cho máy có công cụ trên `PATH`. Chỉ khi cần đổi, tạo `~/.config/rea-flow/rea.env` từ `rea.env.example` (file nằm ngoài thư mục skill nên `npx skills update` không làm mất cấu hình). Biến môi trường cùng tên ghi đè file. Workspace, nơi chứa các case, là thư mục hiện tại (hoặc `REA_WORKSPACE`).

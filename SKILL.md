@@ -7,6 +7,8 @@ description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, 
 
 `$SKILL` dưới đây là thư mục chứa file này. Chạy mọi lệnh từ **workspace**: thư mục chứa các case (thường là thư mục hiện tại của người dùng). Không cần bước cài đặt nào; nếu thiếu công cụ, chạy `python3 $SKILL/flow.py doctor` và làm theo gợi ý. Quy trình đầy đủ: `$SKILL/FLOW.md`.
 
+**Lần đầu dùng skill:** chạy `python3 $SKILL/flow.py rules --check`. Nếu báo `THIẾU`, chạy `python3 $SKILL/flow.py rules` để chép mục "Quy tắc bắt buộc" dưới đây vào file hướng dẫn của agent (skill cài toàn máy: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`…; cài theo project: `AGENTS.md` và `CLAUDE.md` của chính project đó), rồi báo người dùng đã ghi file nào. Nếu lệnh báo không đoán được phạm vi thì bỏ qua.
+
 ## Quy tắc bắt buộc
 
 - **Không bao giờ thực thi mẫu.** Không chạy qua wine/qemu, không chạy script mẫu, không dùng `rea capture-*` hay `debug-with-gdb` trên mẫu. Không chạm C2 hay hạ tầng phát tán, không tra mẫu trên dịch vụ ngoài. Chỉ được phân tích tĩnh và giả lập CPU (`$SKILL/winemu`).

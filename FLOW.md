@@ -30,7 +30,7 @@ cd <workspace>
 python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nếu thiếu mục bắt buộc
 ```
 
-- Cài skill: `npx skills add thaoht2109/rea-flow` (xem `README.md`). Không cần bước cài nào khác.
+- Cài skill: `npx skills add thaoht2109/rea-flow` (xem `README.md`). Tùy chọn: `python3 $SKILL/flow.py rules` chép "Quy tắc bắt buộc" vào `CLAUDE.md`/`AGENTS.md` (toàn máy hoặc chỉ project, theo cách cài skill) để quy tắc luôn bật.
 - Cấu hình theo máy là **tùy chọn**: `~/.config/rea-flow/rea.env` (mẫu `$SKILL/rea.env.example`), đọc qua `reacfg.py`. Biến môi trường cùng tên ghi đè file. Không sửa đường dẫn trong code.
 
 | Biến | Mặc định | Dùng cho |

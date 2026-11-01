@@ -7,6 +7,7 @@
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
+#   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
 #   flow.py review CASE [--llm] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, json, shutil, datetime, subprocess
@@ -117,9 +118,52 @@ def status(c):
         if d.startswith('triage_') and os.path.exists(p):
             R = json.load(open(p)); print(f"triage {R['file']}: {R['type']} {' '.join(R['flags'])} -> {R['next']}")
 
+# ---------- chép "Quy tắc bắt buộc" của SKILL.md vào file hướng dẫn agent ----------
+RB, RE_ = '<!-- rea-flow:rules:begin (sinh bởi flow.py rules; sửa SKILL.md rồi chạy lại) -->', '<!-- rea-flow:rules:end -->'
+
+def rules_scope():
+    """Đoán phạm vi theo nơi skill được cài: ~/.<agent>/skills/rea-flow -> global; <project>/.<agent>/skills/rea-flow -> project."""
+    p, home = os.path.realpath(TOOLS), os.path.realpath(os.path.expanduser('~'))
+    m = re.match(r'(.*?)/\.[^/]+/(?:[^/]+/)*skills/[^/]+$', p)
+    return None if not m else ('global', home) if m.group(1) == home else ('project', m.group(1))
+
+def rules_targets(scope, root):
+    if scope == 'project':   # AGENTS.md: Codex, Cursor, Copilot…; CLAUDE.md: Claude Code; GEMINI.md chỉ khi project đã dùng
+        return [os.path.join(root, f) for f in ('AGENTS.md', 'CLAUDE.md')] + [p for p in [os.path.join(root, 'GEMINI.md')] if os.path.exists(p)]
+    return [os.path.join(root, d, f) for d, f in (('.claude', 'CLAUDE.md'), ('.codex', 'AGENTS.md'), ('.gemini', 'GEMINI.md'))
+            if os.path.isdir(os.path.join(root, d))]   # chỉ agent đã cài trên máy
+
+def rules(a):
+    """flow.py rules [--global | --project [DIR]] [--check | --remove]. Mặc định: phạm vi theo nơi cài skill."""
+    if '--global' in a: sc = ('global', os.path.expanduser('~'))
+    elif '--project' in a:
+        i = a.index('--project'); sc = ('project', os.path.abspath(a[i + 1] if i + 1 < len(a) and not a[i + 1].startswith('-') else '.'))
+    else: sc = rules_scope()
+    if not sc: print('Không đoán được phạm vi (skill không nằm trong thư mục skills của agent): dùng --global hoặc --project [DIR]'); return 2
+    T = os.path.realpath(TOOLS)   # đường dẫn ổn định dù gọi qua symlink nào
+    sk = open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read()
+    body = sk.split('## Quy tắc bắt buộc', 1)[1].split('\n## ', 1)[0].strip().replace('$SKILL', T)
+    blk = (f'{RB}\n## rea-flow: quy tắc bắt buộc khi phân tích mã độc\n\nÁp dụng mỗi khi làm việc với mẫu mã độc hoặc case dịch ngược '
+           f'(skill rea-flow tại `{T}`, lệnh và quy trình trong `{T}/SKILL.md`).\n\n{body}\n{RE_}\n')
+    pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)
+    bad = 0
+    print(f'phạm vi: {sc[0]} ({sc[1]})')
+    for p in rules_targets(*sc):
+        s = open(p, encoding='utf-8').read() if os.path.exists(p) else ''
+        if '--check' in a:
+            ok = blk in s; bad += not ok; print(f"  {'OK   ' if ok else 'THIẾU'} {p}"); continue
+        new = pat.sub('', s).rstrip() + '\n' if '--remove' in a else pat.sub(lambda _: blk, s) if RB in s else (s.rstrip() + '\n\n' if s.strip() else '') + blk
+        if new.strip() != s.strip():
+            if new.strip(): os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(new)
+            elif os.path.exists(p): os.remove(p)   # file chỉ có khối của rea-flow
+            print(f"  {'gỡ' if '--remove' in a else 'ghi'} {p}")
+        else: print(f'  không đổi {p}')
+    return 1 if bad else 0
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['doctor']: sys.exit(CFG.doctor())
+    if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if len(a) < 2: raise SystemExit(__doc__ or open(__file__).read().split('import')[0])
     cmd, c = a[0], a[1]
     if cmd == 'new': new(c, a[2:])

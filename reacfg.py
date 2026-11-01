@@ -35,7 +35,7 @@ WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ �
 REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|claude|codex|gemini|copilot|cursor|api|cmd|manual
 REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible
 REVIEW_API_KEY = get('REVIEW_API_KEY', path=False) or os.environ.get('OPENAI_API_KEY', '')
-REVIEW_MODEL = get('REVIEW_MODEL', path=False)                  # api: tên model (bắt buộc với api)
+REVIEW_MODEL = get('REVIEW_MODEL', path=False)                  # tên model: bắt buộc với api; với claude là --model (vd sonnet) để giảm chi phí
 REVIEW_MAX_TURNS = int(get('REVIEW_MAX_TURNS', '6', path=False))   # số lượt tối đa mỗi lô (mỗi lượt mô hình được xin tối đa 8 thao tác đọc)
 REVIEW_BATCH = int(get('REVIEW_BATCH', '20', path=False))           # số fact mỗi lô: lô nhỏ hợp model có context ngắn
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p

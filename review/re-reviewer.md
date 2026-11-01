@@ -23,3 +23,4 @@ Quy tắc chấm:
 - `severity=high` khi fact sai làm sai IOC, tham số môi trường hoặc họ mã độc. Còn lại `low`.
 - Chỉ liệt kê fact `fail`, `weak` và các fact `pass` bạn đã tự kiểm lại bằng thao tác (ghi cách kiểm trong `problem`). Không liệt kê fact pass chỉ vì đọc lướt.
 - Không đưa ý kiến chung chung, không khen. Mỗi mục phải kiểm chứng được.
+- Ngắn gọn: `problem` tối đa 3 câu, `redo` một câu. Không lặp lại dữ liệu đã có trong hồ sơ.

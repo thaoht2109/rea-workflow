@@ -143,7 +143,8 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài: tên trên `PATH` hoặc đường dẫn tuyệt đối |
 | `REVIEW_LLM` | `auto` | backend lớp 2: `auto`, `claude`, `codex`, `gemini`, `copilot`, `cursor`, `api`, `cmd`, `manual` |
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | số fact mỗi lô; số lượt tối đa mỗi lô (mỗi lượt tối đa 8 thao tác đọc) |
-| `REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL` | `https://api.openai.com/v1`, `$OPENAI_API_KEY`, trống | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
+| `REVIEW_API_BASE`, `REVIEW_API_KEY` | `https://api.openai.com/v1`, `$OPENAI_API_KEY` | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
+| `REVIEW_MODEL` | trống | model cho lớp 2: bắt buộc với `api`; với `claude` là `--model` (ví dụ `sonnet`) để giảm chi phí |
 | `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, text ra stdout |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude`; trống thì agent đang chạy tự sửa |
 
@@ -226,7 +227,8 @@ reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (ch
 
 - Review hết hiệu lực khi `facts.jsonl` đổi; review lặp lại với facts không đổi không tính thêm lần.
 - Lần 2 vẫn FAIL thì `STOPPED`: chặn `report --final`, sinh `STOP_REPORT.md`. Chỉ người dùng mở lại, bằng `work/review/OVERRIDE` chứa `facts_sha256` khớp.
-- `review.json` ghi backend, số lô, số lượt, số thao tác, canary, sha256 của hồ sơ và prompt hệ thống.
+- `review.json` ghi backend, số lô, số lượt, số thao tác, token và chi phí (`isolation.usage`, với claude và api), canary, sha256 của hồ sơ và prompt hệ thống.
+- Chi phí: các lượt trong một lô nối tiếp cùng phiên (claude `--resume`; api gửi mảng messages) nên phần hội thoại đã gửi được prompt cache đọc lại với giá khoảng 10%, không gửi lại toàn bộ mỗi lượt.
 
 ## An toàn và OPSEC
 

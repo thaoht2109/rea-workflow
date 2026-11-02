@@ -215,9 +215,18 @@ def select(c, k, ids, mech_items):
     same = [i for i in ids if pd.get(i) == dig[i] and i not in flagged and i not in low]
     return [i for i in ids if i not in low and i not in same], low, same, dig
 
+NEG = re.compile(r'không|chưa|chỉ|ngoài|mọi|toàn|\bn/a\b|\b(no|not|none|only|all|any)\b', re.I)   # khẳng định phủ định/tổng thể: phụ thuộc cả file
+
 def digest(c, f):
-    """Dấu vân tay của một fact: nội dung fact + nội dung file evidence. Đổi một trong hai thì phải phản biện lại."""
-    try: ev = hashlib.sha256(raw(safe(c, f['evidence'].split('#')[0]))).hexdigest()
+    """Dấu vân tay của một fact: nội dung fact + evidence. Fact literal có #L (không phủ định) chỉ băm cửa sổ dòng mà excerpt gửi cho LLM,
+    còn lại băm cả file: đổi một trong hai thì phải phản biện lại. Lớp 1 vẫn chạy trên cả file mỗi lần."""
+    rel = f['evidence'].split('#')[0]; m = re.search(r'#L(\d+)(?:-L?(\d+))?$', f['evidence'])
+    try:
+        b = raw(safe(c, rel))
+        if m and f['kind'] in LITERAL and not NEG.search(f['value'] + ' ' + f.get('note', '')) and is_text(safe(c, rel)):
+            L = b.decode('utf-8', 'replace').splitlines(); a = int(m.group(1)); z = int(m.group(2) or a)
+            b = '\n'.join(L[max(1, a - 6) - 1:min(len(L), z + 6)]).encode()
+        ev = hashlib.sha256(b).hexdigest()
     except ValueError: ev = ''
     return hashlib.sha256((json.dumps(f, sort_keys=True, ensure_ascii=False) + ev).encode()).hexdigest()[:16]
 

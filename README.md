@@ -8,6 +8,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 - **Mỗi kết luận là một fact** có nguồn (`S` tĩnh, `E` giả lập, `V` VM) và bằng chứng trong `report/evidence/`; máy kiểm fact ngay khi ghi.
 - **Cổng phản biện độc lập** (máy + một phiên LLM mới, cô lập) trước khi ra báo cáo cuối.
 - **Báo cáo tiếng Việt** có bảng IOC, bảng đính chính, mục hạn chế/OPSEC.
+- **Chạy được với LLM local** (Ollama, vLLM, llama.cpp… trên server tự dựng) cho phản biện, để dữ liệu mẫu không rời mạng nội bộ.
 
 | | |
 |---|---|
@@ -15,7 +16,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | Đầu ra | `CASE/facts.jsonl` + `CASE/report/README.md`, `GENERATED.md`, `evidence/` |
 | Nền tảng | Linux x86-64 (Debian/Ubuntu/Kali đã kiểm) |
 
-**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Cập nhật và gỡ](#8-cập-nhật-và-gỡ) · [9. Phát triển skill](#9-phát-triển-skill)
+**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Cập nhật và gỡ](#8-cập-nhật-và-gỡ) · [9. Phát triển skill](#9-phát-triển-skill)
 
 ---
 
@@ -31,7 +32,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | JDK 21 + **Ghidra 12** | có | engine decompile (của `rea` trên Linux, và Ghidra headless cho MIPS/PPC) |
 | **`rea`** (gói npm [`rea-agents`](https://github.com/morluto/rea)) | có | decompile và inspect: PE/ELF/Mach-O, Go, .NET, Android, JS/Electron… |
 | `upx` | không | tự bóc vỏ UPX |
-| Một LLM cho phản biện lớp 2 | không | CLI `claude`/`codex`/`copilot`/`gemini`/`cursor-agent` đã đăng nhập, hoặc API chuẩn OpenAI (ChatGPT, DeepSeek…). Không có thì dùng chế độ `manual` (dán vào chat web) |
+| Một LLM cho phản biện lớp 2 | không | CLI `claude`/`codex`/`copilot`/`gemini`/`cursor-agent` đã đăng nhập, hoặc API chuẩn OpenAI (ChatGPT, DeepSeek…), hoặc **LLM local** chuẩn OpenAI (Ollama, vLLM, llama.cpp; mục 4.1). Không có thì dùng chế độ `manual` (dán vào chat web) |
 
 Lệnh cài skill (mục 2.1) kiểm và cài luôn các công cụ phân tích ở trên; chỉ cần có sẵn Node.js, Python và agent. Không cần, và **không được**, cài wine để chạy mẫu.
 
@@ -277,7 +278,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 - **Không thực thi mẫu dưới bất kỳ hình thức nào:** không chạy trực tiếp, không wine/qemu, không chạy script mẫu, không dùng lệnh `rea` chạy target (`capture-*`, `debug-*`, `observe-*`…; danh sách được phép/bị cấm ở `FLOW.md` mục 4a).
 - **Không chạm hạ tầng của kẻ tấn công:** không kết nối C2, không tra mẫu trên dịch vụ ngoài. Tải payload thật chỉ khi người dùng cho phép.
 - `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại.
-- Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend.
+- Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1).
 - Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo, commit message hay mô tả PR.
 - Với agent không phải Claude Code, quy tắc "không thực thi mẫu" chỉ là hướng dẫn bằng chữ: bật chế độ hỏi trước khi chạy lệnh hoặc sandbox của agent.
 
@@ -287,6 +288,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 - `rea` không hỗ trợ MIPS/PPC (dùng Ghidra headless; lần đầu chậm vài phút với file lớn).
 - IOC ứng viên từ strings chỉ thành fact khi thấy chỗ mã dùng nó (xref, tham số API trong giả lập).
 - Phiên gọn (`flow.py session`) chỉ có cho Claude Code; agent khác chỉ được bảo đảm quy tắc qua `AGENTS.md`/`GEMINI.md`.
+- LLM local: chất lượng phản biện phụ thuộc model (nên từ khoảng 32B) và ngữ cảnh của server (≥ 32k token).
 - Phần nhận định trong báo cáo do agent/người viết; script sinh bảng và kiểm bằng chứng.
 
 ## 8. Cập nhật và gỡ

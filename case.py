@@ -3,7 +3,7 @@
 #   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [recompute=..] [--strict]
 #   recompute: phép đếm lại con số trong value, máy chạy lại mỗi lần lint/review: '<count|distinct> <regex> report/evidence/F[#La-Lb] = <N>',
 #   nhiều phép nối bằng ' && '. count = số dòng khớp; distinct = số giá trị khác nhau (nhóm 1 nếu có). N phải có trong value.
-#   case.py show CASE [kind]     case.py check CASE     case.py report CASE     case.py audit CASE     case.py --selftest
+#   case.py show CASE [kind] | show CASE --id ID | search CASE TỪ... [--src S] [--all]     case.py check CASE     case.py report CASE     case.py audit CASE     case.py --selftest
 #   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
 #   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
@@ -279,9 +279,24 @@ if __name__ == '__main__':
         rest = a[2:]
         add(case, strict='--strict' in rest, lint=True,
             **dict(x.split('=', 1) for x in rest if not x.startswith('--'))); print('OK')
+    elif cmd == 'show' and '--id' in a:   # một fact đầy đủ + lịch sử đính chính (recall sau khi ngữ cảnh bị nén)
+        i = a[a.index('--id') + 1]; cur = load(case)
+        if i not in cur: raise SystemExit(f'không có fact id={i}')
+        print(json.dumps(cur[i], ensure_ascii=False, indent=1))
+        for h in history(case):
+            if h['id'] != i and h.get('supersedes') == i: print(f"bị thay bởi {h['id']} ({h['status']}): {h['value'][:160]}")
+        old = [h for h in history(case) if h['id'] == i][:-1]
+        if old: print(f'{len(old)} bản ghi cũ cùng id; bản cuối thắng')
     elif cmd == 'show':
         for f in load(case).values():
             if len(a) < 3 or f['kind'] == a[2]: print(f"{f['id']:<18} {f['kind']:<13} {f['status']:<10} {f['src']} {f['value'][:90]}")
+    elif cmd == 'search':   # mọi từ phải khớp (không phân biệt hoa thường) trên id/kind/value/note/evidence
+        q = [x.lower() for x in a[2:] if not x.startswith('--') and x != (a[a.index('--src') + 1] if '--src' in a else None)]
+        src = a[a.index('--src') + 1] if '--src' in a else None
+        hit = [f for f in load(case).values() if ('--all' in a or f['status'] != 'retracted') and (not src or f['src'] == src)
+               and all(w in ' '.join(str(f.get(k, '')) for k in ('id', 'kind', 'value', 'note', 'evidence')).lower() for w in q)]
+        for f in hit[:20]: print(f"{f['id']:<18} {f['kind']:<13} {f['status']:<10} {f['src']} {f['value'][:90]}  @{f['evidence']}")
+        print(f'{len(hit)} fact khớp' + (' (in 20 đầu)' if len(hit) > 20 else ''))
     elif cmd == 'check':
         for k, v, n in check(case): print(f'{k:<34} {v:<10} {"next: " + n if n else ""}')
     elif cmd == 'report': print(f'{len(report(case))} dòng -> {case}/report/GENERATED.md')

@@ -125,7 +125,7 @@ Dòng `next:` của triage sinh ra từ bảng này.
 - Mỗi file chỉ đọc tóm tắt triage, mã giả của **những hàm đã chọn** và `status`. Không đọc toàn bộ danh sách hàm, strings hay disassembly.
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
-- Sau khi hội thoại bị nén: đọc lại `flow.py status` và `case.py show`. Không đọc lại log.
+- Sau khi hội thoại bị nén hoặc `/clear`: chạy `flow.py resume CASE` (việc kế tiếp, cổng, fact kết luận nguyên văn, giả thuyết; tính lại từ `facts.jsonl` nên không lệch), tra chi tiết bằng `case.py show CASE --id ID` / `case.py search CASE TỪ`. Không đọc lại log.
 
 ## 6. Kiểm tra công cụ (sau khi sửa)
 

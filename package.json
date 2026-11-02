@@ -2,7 +2,7 @@
   "name": "rea-flow",
   "version": "1.0.0",
   "private": true,
-  "description": "Cài skill rea-flow bằng một lệnh: npx github:thaoht2109/rea-workflow [-g]",
+  "description": "Cài skill rea-flow và công cụ phân tích bằng một lệnh: npx github:thaoht2109/rea-workflow [-g] [-y]",
   "type": "module",
   "bin": { "rea-flow": "install.mjs" },
   "files": ["install.mjs"],

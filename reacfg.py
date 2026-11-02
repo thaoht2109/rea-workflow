@@ -2,7 +2,7 @@
 # Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
 # Không bắt buộc: mặc định đủ cho máy có công cụ trên PATH. Kiểm bằng `python3 <skill>/flow.py doctor`.
 # Workspace (nơi chứa các case) là thư mục hiện tại, hoặc $REA_WORKSPACE.
-import os, sys, shlex, shutil, tempfile, importlib.util
+import os, re, sys, shlex, shutil, tempfile, importlib.util
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REA = os.path.abspath(os.environ.get('REA_WORKSPACE') or os.getcwd())
@@ -36,6 +36,8 @@ REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|cl
 REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible
 REVIEW_API_KEY = get('REVIEW_API_KEY', path=False) or os.environ.get('OPENAI_API_KEY', '')
 REVIEW_MODEL = get('REVIEW_MODEL', path=False)                  # tên model: bắt buộc với api; với claude là --model (vd sonnet) để giảm chi phí
+API_LOCAL = not re.match(r'https://api\.(openai|deepseek)\.com', REVIEW_API_BASE)   # server tự dựng (Ollama, vLLM, llama.cpp…): key không bắt buộc
+API_OK = bool(REVIEW_MODEL and (REVIEW_API_KEY or API_LOCAL))
 REVIEW_EFFORT = get('REVIEW_EFFORT', 'medium', path=False)    # claude --effort cho lớp 2 (low|medium|high…): mức suy nghĩ, ảnh hưởng token đầu ra
 REVIEW_TIMEOUT = int(get('REVIEW_TIMEOUT', '3600', path=False))   # trần tổng (giây) cho một lần gọi LLM (claude: cả phiên agent)
 REVIEW_IDLE = int(get('REVIEW_IDLE', '300', path=False))   # giết tiến trình LLM khi không in gì quá N giây (đứng im); phiên đang làm việc không bị giết
@@ -50,13 +52,22 @@ CLI_BIN = {'claude': None, 'codex': 'codex', 'gemini': 'gemini', 'copilot': 'cop
 def review_backend():
     """Backend lớp 2. auto: claude > codex > gemini > copilot > cursor > api (có key + model) > manual (luôn có: dán tay vào chat web)."""
     b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else next(
-        (k for k, v in CLI_BIN.items() if shutil.which(v or CLAUDE)), 'api' if REVIEW_API_KEY and REVIEW_MODEL else 'manual')
-    ok = {'cmd': bool(REVIEW_LLM_CMD), 'api': bool(REVIEW_API_KEY and REVIEW_MODEL), 'manual': True}.get(b, b in CLI_BIN and bool(shutil.which(CLI_BIN[b] or CLAUDE)))
+        (k for k, v in CLI_BIN.items() if shutil.which(v or CLAUDE)), 'api' if API_OK else 'manual')
+    ok = {'cmd': bool(REVIEW_LLM_CMD), 'api': API_OK, 'manual': True}.get(b, b in CLI_BIN and bool(shutil.which(CLI_BIN[b] or CLAUDE)))
     return b if ok else None
 
 if os.path.isdir(PYLIB) and PYLIB not in sys.path: sys.path.insert(0, PYLIB)
 
 def tmpenv(**kw): return dict(os.environ, TMPDIR=TMP, **kw)
+
+def api_probe(timeout=5):
+    """Backend api: gọi GET {base}/models (chuẩn OpenAI, Ollama/vLLM/llama.cpp đều có). Trả (ok, mô tả)."""
+    import urllib.request, json
+    rq = urllib.request.Request(REVIEW_API_BASE.rstrip('/') + '/models', headers={'Authorization': 'Bearer ' + REVIEW_API_KEY} if REVIEW_API_KEY else {})
+    try: ids = [m.get('id') for m in json.load(urllib.request.urlopen(rq, timeout=timeout)).get('data', [])]
+    except Exception as e: return False, f'không gọi được {REVIEW_API_BASE}/models: {e}'
+    if REVIEW_MODEL not in ids: return False, f'server không có model {REVIEW_MODEL!r} (có: {", ".join(map(str, ids[:8]))})'
+    return True, f'{REVIEW_API_BASE} có {REVIEW_MODEL}'
 
 def doctor():
     """In trạng thái từng mục; rc=1 nếu thiếu mục bắt buộc."""
@@ -91,7 +102,11 @@ def doctor():
             f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
-        'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_API_KEY + REVIEW_MODEL) hoặc manual (dán tay vào chat web)')
+        'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')
+    if be == 'api':
+        ok, why = api_probe(); row(ok, 'endpoint lớp 2', why, 'model phải có trên server', False)
+        if API_LOCAL: print('Lưu ý LLM local: đặt ngữ cảnh >= 32k token (Ollama mặc định 2–4k và cắt bớt im lặng: OLLAMA_CONTEXT_LENGTH=32768 hoặc PARAMETER num_ctx 32768);'
+                           ' review tự báo lỗi nếu server nhận ít token hơn nhiều so với prompt.')
     row(os.path.isdir(WINE_DLL_DIR), 'WINE_DLL_DIR', WINE_DLL_DIR, 'tên export cho DLL giả của winemu', False)
     print('Đăng nhập claude: kiểm bằng `claude -p hi` (dùng chung tài khoản, không cần API key riêng; cần mạng tới api.anthropic.com)')
     return 1 if bad else 0

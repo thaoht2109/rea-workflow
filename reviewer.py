@@ -462,9 +462,13 @@ def ask(be, msgs, cache):
         import urllib.request
         body = json.dumps({'model': CFG.REVIEW_MODEL, 'temperature': 0, 'messages': msgs}).encode()
         rq = urllib.request.Request(CFG.REVIEW_API_BASE.rstrip('/') + '/chat/completions', body,
-                                    {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + CFG.REVIEW_API_KEY})
+                                    {'Content-Type': 'application/json', **({'Authorization': 'Bearer ' + CFG.REVIEW_API_KEY} if CFG.REVIEW_API_KEY else {})})
         with urllib.request.urlopen(rq, timeout=CFG.REVIEW_TIMEOUT) as r: e = json.load(r)
         out, u = e['choices'][0]['message']['content'], e.get('usage', {})   # OpenAI/DeepSeek tự cache tiền tố của mảng messages
+        sent = sum(len(m['content']) for m in msgs)
+        if u.get('prompt_tokens') and sent > 20000 and u['prompt_tokens'] < sent / 12:   # ~3-4 ký tự/token; ít hơn nhiều = server cắt prompt
+            raise RuntimeError(f"server chỉ nhận {u['prompt_tokens']} token cho prompt {sent} ký tự: ngữ cảnh bị cắt. Tăng ngữ cảnh của model "
+                               '(Ollama: OLLAMA_CONTEXT_LENGTH=32768 hoặc PARAMETER num_ctx 32768) hoặc giảm REVIEW_BATCH')
         USAGE.append(dict(cost_usd=0, input=u.get('prompt_tokens', 0), cache_write=0, cache_read=(u.get('prompt_tokens_details') or {}).get('cached_tokens', 0),
                           output=u.get('completion_tokens', 0)))
     else:

@@ -40,14 +40,14 @@ def checks():
     return [
         ('7z', any(map(shutil.which, (CFG.SEVENZ, '7z', '7zz'))), True, ['7zip'], None, None, 'giải nén mẫu và file nén'),
         ('python: pefile', has_mod('pefile'), True, ['python3-pefile'], 'pefile', None, 'triage PE'),
-        ('python: capstone', has_mod('capstone'), False, ['python3-capstone'], 'capstone', None, 'disassembly, winemu'),
-        ('python: unicorn 2.1.4', unicorn_ok(), False, [], 'unicorn==2.1.4', None, 'giả lập CPU (winemu, tầng T3)'),
+        ('python: capstone', has_mod('capstone'), True, ['python3-capstone'], 'capstone', None, 'disassembly, winemu'),
+        ('python: unicorn 2.1.4', unicorn_ok(), True, [], 'unicorn==2.1.4', None, 'giả lập CPU (winemu, tầng T3)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
-        ('JDK 21', java_major() >= 21, False, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
-        (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), False,
+        ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
+        (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), True,
          [], None, 'ghidra', 'decompile (rea dùng Ghidra trên Linux; Ghidra headless cho MIPS/PPC)'),
-        ('Node.js >= 22.20', bool(node) and node >= NODE_MIN, False, [], None, 'node', 'chạy rea và bộ cài skill'),
-        ('rea (rea-agents)', bool(shutil.which(CFG.REA_BIN)), False, [], None, 'rea', 'flow.py dec: decompile nhanh x86/x64/ARM'),
+        ('Node.js >= 22.20', bool(node) and node >= NODE_MIN, True, [], None, 'node', 'chạy rea và bộ cài skill'),
+        ('rea (rea-agents)', bool(shutil.which(CFG.REA_BIN)), True, [], None, 'rea', 'flow.py dec: decompile nhanh x86/x64/ARM'),
     ]
 
 def ghidra_install():
@@ -112,7 +112,8 @@ def main(a):
     node = ver(out('node', '--version'))
     if 'rea' in steps and node and node >= NODE_MIN: rea_install()
     elif 'rea' in steps: print('  bỏ qua rea: cần Node.js >= 22.20 trước')
-    print('\nXong. Kiểm lại: python3 flow.py setup  và  python3 flow.py doctor'); return 0
+    left = [c[0] for c in checks() if c[2] and not c[1]]
+    print('\nCòn thiếu (bắt buộc): ' + ', '.join(left) if left else '\nXong. Kiểm cấu hình: python3 flow.py doctor'); return 1 if left else 0
 
 def selftest():
     assert ver('v24.22.0') == (24, 22) and ver('2.1.4', 3) == (2, 1, 4) and ver('') is None

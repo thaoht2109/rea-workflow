@@ -81,12 +81,12 @@ def doctor():
         d = os.path.dirname(d)
     row(not up, 'cô lập lớp 2', f'có {up}' if up else ws, 'REVIEW_WS_DIR phải nằm ngoài thư mục có file hướng dẫn agent')
     for k, b, use, req in (('SEVENZ_BIN', SEVENZ, 'giải nén mẫu', True), ('CLAUDE_BIN', CLAUDE, 'review-loop tự động; lớp 2 nếu chọn claude', False),
-                           ('REA_BIN', REA_BIN, 'flow.py dec', False), ('UPX_BIN', UPX, 'bóc UPX', False)):
+                           ('REA_BIN', REA_BIN, 'flow.py dec (decompile)', True), ('UPX_BIN', UPX, 'bóc UPX', False)):
         row(bool(shutil.which(b)), k, shutil.which(b) or b, use, req)
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,
-        'dec khi rea không hỗ trợ kiến trúc', False)
-    row(not JAVA_HOME or os.path.exists(os.path.join(JAVA_HOME, 'bin', 'java')), 'JAVA_HOME', JAVA_HOME, 'JDK 21 cho Ghidra', False)
-    for m, req in (('pefile', True), ('unicorn', False), ('capstone', False)):
+        'engine decompile của rea trên Linux + Ghidra headless cho MIPS/PPC', True)
+    row(not JAVA_HOME or os.path.exists(os.path.join(JAVA_HOME, 'bin', 'java')), 'JAVA_HOME', JAVA_HOME, 'JDK 21 cho Ghidra', True)
+    for m, req in (('pefile', True), ('unicorn', True), ('capstone', True)):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',
             f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
     be = review_backend()

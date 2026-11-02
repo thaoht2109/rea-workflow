@@ -10,7 +10,7 @@ rea-flow biến một agent (Claude Code, Codex, Cursor, GitHub Copilot, Gemini 
 |---|---|
 | Đối tượng | PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK |
 | Đầu ra | `facts.jsonl` (fact có nguồn S/E/V) + báo cáo tiếng Việt có bảng IOC, bảng đính chính, mục hạn chế/OPSEC |
-| Yêu cầu | Linux x86-64, Python ≥ 3.9, Node ≥ 22.20 (chỉ để cài), `7z`, `pefile`; chi tiết ở [Thiết lập](#thiết-lập) |
+| Yêu cầu | Linux x86-64, Python ≥ 3.9, Node ≥ 22.20, `7z`, `pefile`, `capstone`, `unicorn`, Ghidra 12 + JDK 21, `rea`; một lệnh kiểm và cài: `flow.py setup` ([Thiết lập](#thiết-lập)) |
 | Agent hỗ trợ | Mọi agent hỗ trợ chuẩn [Agent Skills](https://agentskills.io) (`SKILL.md`): Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI, OpenCode… |
 
 ---
@@ -108,15 +108,16 @@ python3 <thư mục skill>/flow.py setup --yes      # cài phần thiếu (apt c
 |---|---|---|---|
 | `7z` | có | giải nén mẫu, file nén có mật khẩu | `apt-get install 7zip` (bản cũ: `p7zip-full`) |
 | `pefile` | có | triage PE | `apt-get install python3-pefile` (không có apt: `pip --target`) |
-| `capstone` | không | disassembly, `winemu` | `apt-get install python3-capstone` |
-| `unicorn` 2.1.4 | không | giả lập CPU (`winemu`, tầng T3); thiếu thì không có T3 | `pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4` |
+| `capstone` | có | disassembly, `winemu` | `apt-get install python3-capstone` |
+| `unicorn` 2.1.4 | có | giả lập CPU (`winemu`, tầng T3) | `pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4` |
 | `upx` | không | tự bóc vỏ UPX | `apt-get install upx-ucl` |
-| JDK 21 | không | chạy Ghidra | `apt-get install openjdk-21-jdk-headless` |
-| **Ghidra 12.1.4** | không | decompile: `rea` dùng Ghidra làm engine trên Linux; `flow.py dec` gọi Ghidra headless cho kiến trúc `rea` không hỗ trợ (MIPS, PPC…) | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố, giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `rea.env` |
-| Node.js ≥ 22.20 | không | chạy `rea` và bộ cài skill | cài tay (nodejs.org hoặc nvm): apt của nhiều bản phân phối còn bản cũ |
-| **`rea`** ([rea-agents](https://github.com/morluto/rea), CLI "reverse engineer anything") | không | `flow.py dec`: decompile nhanh x86/x86-64/ARM (T2); thiếu thì dùng Ghidra headless | `npm install -g rea-agents@6.7.0` (prefix không ghi được thì `--prefix ~/.local`); kiểm bằng `rea doctor` |
+| JDK 21 | có | chạy Ghidra | `apt-get install openjdk-21-jdk-headless` |
+| **Ghidra 12.1.4** | có | decompile: `rea` dùng Ghidra làm engine trên Linux; `flow.py dec` gọi Ghidra headless cho kiến trúc `rea` không hỗ trợ (MIPS, PPC…) | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố, giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `rea.env` |
+| Node.js ≥ 22.20 | có | chạy `rea` và bộ cài skill | cài tay (nodejs.org hoặc nvm): apt của nhiều bản phân phối còn bản cũ |
+| **`rea`** ([rea-agents](https://github.com/morluto/rea), CLI "reverse engineer anything") | có | `flow.py dec`: decompile x86/x86-64/ARM (T2), dùng Ghidra làm engine | `npm install -g rea-agents@6.7.0` (prefix không ghi được thì `--prefix ~/.local`); kiểm bằng `rea doctor` |
 | DLL builtin của wine (`WINE_DLL_DIR`) | không | `winemu` chỉ đọc **tên export** của DLL giả | **không tự cài.** Không bao giờ chạy wine; nếu đã cài wine, `update-binfmts --display wine` phải báo "not in database" để file .exe không tự chạy |
 
+- Gần như mọi case đều cần decompile (T2) và giả lập (T3), nên Ghidra + JDK 21, Node + `rea`, `capstone` + `unicorn` là **bắt buộc**: `setup` và `doctor` báo `THIẾU` và trả mã 1 khi thiếu. Chỉ `upx` (mẫu UPX) và DLL của wine là tùy chọn.
 - Phiên bản Ghidra và `rea` được ghim ở bản đã kiểm với `flow.py dec` (`install_tools.py`: `GHIDRA_VER`, `REA_PKG`).
 - `unicorn` cài vào `~/.local/share/rea-flow/pylib` (ngoài thư mục skill) nên cập nhật skill không làm mất; `pip --target` chạy được cả trên hệ có PEP 668.
 - `rea` có chế độ chạy target (`capture-*`, `debug-with-gdb`, …): rea-flow **cấm** dùng các lệnh đó trên mẫu; chỉ dùng `decompile`, `inspect-artifact` và lệnh tĩnh.

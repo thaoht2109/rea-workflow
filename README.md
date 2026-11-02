@@ -2,7 +2,7 @@
 
 **Skill dịch ngược mã độc có kiểm chứng cho AI coding agent.**
 
-Repo: <https://github.com/thaoht2109/rea-workflow> (private)
+Repo: <https://github.com/thaoht2109/rea-workflow> (public)
 
 rea-flow biến một agent (Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI…) thành người phân tích mã độc làm việc có quy trình. Mỗi kết luận là một *fact* có nguồn và bằng chứng. Mọi fact phải qua cổng phản biện độc lập trước khi vào báo cáo cuối. Mẫu **không bao giờ được thực thi**: chỉ phân tích tĩnh và giả lập CPU.
 
@@ -68,7 +68,6 @@ Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → 
 |---|---|---|
 | Linux x86-64, `python3` ≥ 3.9 | có | mọi script của skill |
 | Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài và [skills CLI](https://github.com/vercel-labs/skills) |
-| GitHub CLI (`gh`) đã `gh auth login` | khi cài | repo đang private; SSH key có quyền đọc repo cũng được |
 | Một coding agent | có | Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI… |
 | Một LLM cho lớp 2 phản biện | không bắt buộc | CLI `claude`/`codex`/`gemini`/`copilot`/`cursor-agent` đã đăng nhập, hoặc API key chuẩn OpenAI (ChatGPT, DeepSeek…). Không có gì thì dùng chế độ `manual` (dán vào chat web). Xem [Cổng phản biện](#cổng-phản-biện) |
 
@@ -274,7 +273,7 @@ reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (ch
 - **Không thực thi mẫu dưới bất kỳ hình thức nào:** không chạy trực tiếp, không wine/qemu, không chạy script mẫu, không dùng lệnh `rea` có chạy target.
 - **Không chạm hạ tầng của kẻ tấn công:** không kết nối C2, không tra mẫu trên dịch vụ ngoài. Tải payload thật chỉ khi người dùng cho phép.
 - `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại. Snapshot dùng `pickle`, chỉ nạp snapshot do chính mình tạo.
-- Không đưa mẫu và thư mục case lên git. Nên để repo skill ở chế độ **private**.
+- Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo (kể cả trong test hay ví dụ). Hồi quy trên mẫu thật và tài liệu theo case để ngoài repo.
 - Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi đổi nhà cung cấp.
 - Với agent không phải Claude Code, quy tắc "không thực thi mẫu" chỉ là hướng dẫn bằng chữ; hãy bật chế độ hỏi trước khi chạy lệnh hoặc sandbox của agent.
 

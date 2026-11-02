@@ -142,7 +142,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để lấy tên export DLL; wine không bao giờ được chạy |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài: tên trên `PATH` hoặc đường dẫn tuyệt đối |
 | `REVIEW_LLM` | `auto` | backend lớp 2: `auto`, `claude`, `codex`, `gemini`, `copilot`, `cursor`, `api`, `cmd`, `manual` |
-| `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | số fact mỗi lô; số lượt tối đa mỗi lô (mỗi lượt tối đa 8 thao tác đọc) |
+| `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | harness (backend khác claude): số fact mỗi lô; số lượt tối đa mỗi lô (mỗi lượt tối đa 8 thao tác đọc) |
 | `REVIEW_API_BASE`, `REVIEW_API_KEY` | `https://api.openai.com/v1`, `$OPENAI_API_KEY` | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
 | `REVIEW_MODEL` | trống | model cho lớp 2: bắt buộc với `api`; với `claude` là `--model` (ví dụ `sonnet`) để giảm chi phí |
 | `REVIEW_EFFORT` | `medium` | mức suy nghĩ của claude ở lớp 2 (`low`…`max`); ảnh hưởng trực tiếp token đầu ra |
@@ -197,10 +197,12 @@ CASE/
 | | Lớp 1: script | Lớp 2: LLM bất kỳ, phiên mới |
 |---|---|---|
 | Kiểm gì | evidence tồn tại và đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; suy diễn persistence từ `api_unused` | phản biện từng fact như chuyên gia dịch ngược: evidence có chứng minh không, giải thích thay thế, mức chắc chắn, chủ đề còn thiếu |
-| Truy cập dữ liệu | đọc trực tiếp | **không có công cụ**: chỉ thấy hồ sơ script gửi và kết quả các thao tác chỉ đọc nó xin |
+| Truy cập dữ liệu | đọc trực tiếp | claude: tự đọc bằng công cụ chỉ đọc (Read, Grep, `python3 -I`) trong bản sao tạm; LLM khác: **không có công cụ**, chỉ thấy hồ sơ script gửi và kết quả các thao tác chỉ đọc nó xin |
 | Kết quả | `fail`/`weak` kèm `where` (vị trí lỗi) và `redo` (cách kiểm lại) | như lớp 1, ghi vào `work/review/rK/review.json` |
 
-**Lớp 2 chạy trên mọi LLM** (`reviewer.py`). Mô hình chỉ cần nhận text và trả JSON:
+**Backend `claude`:** một phiên agent duy nhất, cwd là bản sao tạm ngoài project chỉ chứa các fact được chọn, `report/evidence/`, `work/sample|extract|scripts/`. Prompt chỉ có danh sách id; mô hình tự đọc phần cần. Công cụ: `Read`, `Grep`, `Bash(python3 -I:*)`; cấm ghi, Agent, mạng; không MCP/skill/hook/slash command (kiểm qua sự kiện `init` của `stream-json`). Cả lần review là một phiên nên mỗi lượt chỉ ghi phần mới vào prompt cache, phần cũ đọc lại với giá khoảng 10%. Đo trên một case thật: khoảng $0,06/fact, so với khoảng $0,31/fact khi tách thành nhiều phiên không công cụ (harness bên dưới).
+
+**Lớp 2 chạy trên mọi LLM** (`reviewer.py`). Với backend khác claude, mô hình chỉ cần nhận text và trả JSON:
 
 ```
 reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (chỉ text)
@@ -218,7 +220,7 @@ reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (ch
 
 | Backend (`REVIEW_LLM`) | Kết nối |
 |---|---|
-| `claude` | `claude -p --safe-mode --tools ""` (không công cụ, không CLAUDE.md/skill/hook/MCP) |
+| `claude` | `claude -p --no-session-persistence --allowedTools Read,Grep,Bash(python3 -I:*) --effort $REVIEW_EFFORT` (một phiên có công cụ chỉ đọc, xem trên) |
 | `codex`, `gemini`, `copilot`, `cursor` | CLI tương ứng ở chế độ không tương tác, thư mục tạm rỗng ngoài project |
 | `api` | API chat completions chuẩn OpenAI: ChatGPT/OpenAI, DeepSeek, GitHub Models, vLLM… (`REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL`) |
 | `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
@@ -230,7 +232,8 @@ reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (ch
 - Lần 2 vẫn FAIL thì `STOPPED`: chặn `report --final`, sinh `STOP_REPORT.md`. Chỉ người dùng mở lại, bằng `work/review/OVERRIDE` chứa `facts_sha256` khớp.
 - `review.json` ghi backend, số lô, số lượt, số thao tác, token và chi phí (`isolation.usage`, với claude và api), canary, sha256 của hồ sơ và prompt hệ thống.
 - Chỉ gửi fact cần LLM: fact `hash`/`filetype` mà lớp 1 đã tính lại không lỗi thì không gửi; từ review 2 chỉ gửi fact đã đổi (nội dung fact hoặc file evidence) và fact bị chỉ ra ở review trước. Kết quả thao tác bị cắt ở 2.500 ký tự mỗi thao tác, 16.000 ký tự mỗi lượt.
-- Chi phí: các lượt trong một lô nối tiếp cùng phiên (claude `--resume`; api gửi mảng messages) nên phần hội thoại đã gửi được prompt cache đọc lại với giá khoảng 10%, không gửi lại toàn bộ mỗi lượt.
+- Không còn fact nào cần gửi (ví dụ review 2 mà chỉ còn fact không đổi) thì không mở phiên LLM.
+- Chi phí với api: các lượt trong một lô gửi mảng messages, nhà cung cấp tự cache tiền tố. `REVIEW_BATCH`, `REVIEW_MAX_TURNS` chỉ áp dụng cho harness (backend khác claude).
 
 ## An toàn và OPSEC
 

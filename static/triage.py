@@ -93,6 +93,14 @@ def pe_info(d, R):
     if pe.OPTIONAL_HEADER.DATA_DIRECTORY[14].VirtualAddress: R['flags'].append('.NET')
     if any(s['name'].startswith('UPX') for s in R['sections']): R['flags'].append('UPX')
     if NSIS_SIG in d: R['flags'].append('NSIS')
+    sd = pe.OPTIONAL_HEADER.DATA_DIRECTORY[4]   # vùng chữ ký Authenticode: địa chỉ ở đây là offset file
+    if sd.VirtualAddress and sd.Size: R['signature'] = {'offset': sd.VirtualAddress, 'size': sd.Size}
+
+def only_in_signature(d, x, sig):
+    """Chuỗi chỉ xuất hiện trong vùng chữ ký (URL CA/CRL/OCSP/CPS của chứng thư): không phải hành vi của mã."""
+    a, b = sig['offset'], sig['offset'] + sig['size']
+    pos = [m.start() for e in (x.encode('latin1', 'ignore'), x.encode('utf-16le')) for m in re.finditer(re.escape(e), d)]
+    return bool(pos) and all(a <= p < b for p in pos)
 
 def elf_info(path, d, R):
     end = '<' if d[5] == 1 else '>'
@@ -162,6 +170,9 @@ def main():
         if go: R['flags'].append('Go'); R['go'] = go.splitlines()[:8]
     allstr = strings(d)
     R['strings'] = allstr[:40]; R['ioc_candidates'] = iocs(allstr)
+    if 'signature' in R:
+        R['ioc_in_signature'] = [x for x in R['ioc_candidates'] if only_in_signature(d, x, R['signature'])]
+        R['ioc_candidates'] = [x for x in R['ioc_candidates'] if x not in R['ioc_in_signature']]
     R['entropy'] = entropy(d)
     if 'NSIS' in R['flags']: nsis(A.file, A.out, R)
     R['next'] = route(R, A.out)
@@ -179,7 +190,8 @@ def main():
         for f in sorted(R['nsis']['files'], key=lambda f: -f['size'])[:10]: print(f"  nsis file {f['name']:<24} {f['size']:>9} B H={f['entropy']}")
         if 'sieve' in R['nsis']: s = R['nsis']['sieve']; print(f"  sàng byte: {s['file']} từ {s['start']} bước {s['step']} kết thúc '{s['sep']}' -> {s['calls']} lệnh System::Call ({s['out']})")
         if sc: print(f"  shellcode: {sc['file']} offset {sc['offset']} callback {sc['callback']}")
-    if R['ioc_candidates']: print('  IOC ứng viên (từ strings, chưa xác nhận):', ' '.join(R['ioc_candidates'][:10]))
+    if R['ioc_candidates']: print('  IOC ứng viên (từ strings, CHƯA là fact; ghi fact url/c2 khi đã có xref tới mã hoặc quan sát giả lập):', ' '.join(R['ioc_candidates'][:10]))
+    if R.get('ioc_in_signature'): print(f"  bỏ {len(R['ioc_in_signature'])} URL chỉ nằm trong vùng chữ ký Authenticode")
     print('  strings:'); [print('   ', s[:110]) for s in R['strings'][:12]]
     print('next:', R['next'])
 
@@ -195,7 +207,7 @@ def main():
         for c in ('NSIS', 'UPX'):
             if c in R['flags']: add(f'container_{c}', 'container', c)
         if sc: add('entry', 'entry', f"{sc['file']}@{sc['offset']} ({sc['callback']} callback)")
-        for i, x in enumerate(R['ioc_candidates']):
-            add(f'ioc{i}', 'url' if '://' in x else 'c2', x, status='hypothesis', note='chuỗi tĩnh, chưa thấy được dùng')
+        # IOC ứng viên từ strings không tự thành fact: trên các case cũ 0/35 là IOC thật (chứng thư, banner thư viện, tính năng
+        # của phần mềm hợp lệ, số phiên bản) và chiếm gần nửa số đính chính. Ứng viên nằm trong triage.json để phân tích xref.
 
 if __name__ == '__main__': main()

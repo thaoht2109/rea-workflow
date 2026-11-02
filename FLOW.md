@@ -49,7 +49,7 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 
 | Bước | Lệnh | Đọc gì | Ghi fact |
 |---|---|---|---|
-| 1. Tạo case | `python3 $SKILL/flow.py new <CASE> <mẫu hoặc zip>...` | tóm tắt triage, mỗi file ≤ 60 dòng | tự động: `hash`, `filetype`, `container`, `entry`; IOC ứng viên lấy từ strings ghi dạng `hypothesis` |
+| 1. Tạo case | `python3 $SKILL/flow.py new <CASE> <mẫu hoặc zip>...` | tóm tắt triage, mỗi file ≤ 60 dòng | tự động: `hash`, `filetype`, `container`, `entry`. IOC ứng viên từ strings chỉ nằm trong `triage_*.json` (`ioc_candidates`, đã bỏ URL chỉ có trong vùng chữ ký Authenticode), **không** tự thành fact |
 | 2. Định tuyến | `python3 $SKILL/flow.py status <CASE>` | checklist C1–C11 và dòng `next:` của từng file | |
 | 3. Bóc vỏ (T1) | tự động: zip/7z/rar (mật khẩu `''`/`infected`/`malware`), UPX (`upx -d` ra bản sao `.unupx`), NSIS (header, giải nén file con, giải "sàng byte" để lộ `System::Call`) | `nsis_disasm.txt`, `nsis_syscalls.txt` | dạng khác thì tự viết script vào `work/` và ghi fact `container` |
 | 4. Tĩnh có mục tiêu (T2) | `python3 $SKILL/flow.py dec <CASE> <FILE> <hàm\|địa chỉ\|list:chuỗi>...` | mã giả C, in tối đa 80 dòng mỗi hàm | ghi fact cho từng kết luận (§3) |
@@ -140,5 +140,5 @@ Hồi quy trên mẫu thật (triage/định tuyến, lõi winemu) phụ thuộc
 
 - **T3 chỉ có cho Windows x86‑32.** ELF, x64 và .NET chỉ phân tích tĩnh được.
 - **`rea` không hỗ trợ MIPS/PPC,** nên phải dùng Ghidra headless. Lần phân tích đầu một file Go MIPS cỡ vài MB mất vài phút.
-- **IOC ứng viên từ strings là heuristic.** Go nối liền các chuỗi nên URL có thể bị dính ký tự thừa. Mọi IOC ứng viên chỉ là `hypothesis` cho tới khi tìm thấy chỗ mã dùng nó.
+- **IOC ứng viên từ strings là heuristic.** Go nối liền các chuỗi nên URL có thể bị dính ký tự thừa. Ứng viên chỉ được ghi thành fact `url`/`c2` khi đã thấy chỗ mã dùng nó (xref, tham số API trong giả lập); chuỗi chứng thư, banner thư viện, tài liệu, số phiên bản không phải IOC.
 - **Phần nhận định trong README vẫn do người phân tích viết.** Script chỉ sinh bảng (IOC, nguồn, đính chính, evidence).

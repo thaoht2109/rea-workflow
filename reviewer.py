@@ -258,10 +258,35 @@ ASK = 'Đọc REVIEW_TURN.md trong thư mục hiện tại và trả lời đún
 CLI = {   # backend: (argv, gửi qua stdin?). Không backend nào được giao quyền ghi hay chạy lệnh.
     'codex':   (lambda sysp: ['codex', 'exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-'], True),
     'gemini':  (lambda sysp: ['gemini', '-p', 'Trả lời đúng theo nội dung ở đầu vào chuẩn. Chỉ in một đối tượng JSON.', '--output-format', 'json'], True),
-    'copilot': (lambda sysp: ['copilot', '-p', ASK, '-s', '--no-ask-user', '--allow-tool=read', '--deny-tool=shell, write, url'], False),
+    'copilot': (lambda sysp: ['copilot', '-p', ASK, '-s', '--no-ask-user', '--allow-tool=read', '--deny-tool=shell, write, url',
+                              '--no-custom-instructions', '--disable-builtin-mcps', '--no-auto-update'], False),
     'cursor':  (lambda sysp: ['cursor-agent', '-p', '--output-format', 'text', ASK], False),
     'cmd':     (lambda sysp: shlex.split(CFG.REVIEW_LLM_CMD), True),
 }
+
+# Cô lập CLI: chạy với HOME tạm (không nạp AGENTS.md, bộ nhớ, skill ~/.agents, plugin, MCP, hook của máy), chỉ mang theo xác thực.
+# Đã kiểm thật: copilot. codex: theo tài liệu CODEX_HOME, chưa chạy thật. gemini, cursor, cmd: CHƯA cô lập (cần xác thực trong HOME thật).
+HOME_ISOLATED = {'copilot', 'codex'}
+
+def gh_token():
+    try: return subprocess.run(['gh', 'auth', 'token'], capture_output=True, text=True, timeout=20).stdout.strip() or None
+    except (OSError, subprocess.TimeoutExpired): return None
+
+def cli_env(be):
+    """(env, thư mục HOME tạm) cho backend CLI; (None, None) nếu backend chưa cô lập được."""
+    if be not in HOME_ISOLATED: return None, None
+    h = tempfile.mkdtemp(prefix='rea-home-', dir=CFG.REVIEW_WS_DIR)
+    env = dict(os.environ, HOME=h, XDG_CONFIG_HOME=os.path.join(h, '.config'), XDG_DATA_HOME=os.path.join(h, '.local', 'share'), XDG_STATE_HOME=os.path.join(h, '.local', 'state'))
+    if be == 'copilot':
+        tok = next((os.environ[k] for k in ('COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN') if os.environ.get(k)), None) or gh_token()
+        if not tok: shutil.rmtree(h, ignore_errors=True); raise RuntimeError('copilot chạy cô lập cần token: đặt COPILOT_GITHUB_TOKEN hoặc đăng nhập `gh auth login`')
+        env.update(COPILOT_HOME=os.path.join(h, '.copilot'), COPILOT_GITHUB_TOKEN=tok)
+    elif be == 'codex':   # chỉ chép auth.json: bỏ AGENTS.md, memories, hooks, plugins, skills, MCP trong config.toml
+        d = os.path.join(h, '.codex'); os.makedirs(d)
+        src = os.path.join(os.environ.get('CODEX_HOME') or os.path.expanduser('~/.codex'), 'auth.json')
+        if os.path.exists(src): shutil.copy(src, d); os.chmod(os.path.join(d, 'auth.json'), 0o600)
+        env['CODEX_HOME'] = d
+    return env, h
 
 def render(msgs, with_system):
     parts = [f'=== HƯỚNG DẪN HỆ THỐNG ===\n{msgs[0]["content"]}'] if with_system else []
@@ -285,10 +310,10 @@ def ledger(c, k, be, status, usage=None):
         f.write(json.dumps(dict(ts=now_s(), round=k, backend=be, status=status,
                                 usage=usage if usage is not None else usage_sum(), prompt_bytes=PB[0], estimated=EST[0]), ensure_ascii=False) + '\n')
 
-def spawn(argv, inp, cwd):
+def spawn(argv, inp, cwd, env=None):
     """Chạy CLI LLM, giết cả nhóm tiến trình khi im lặng (stdout lẫn stderr) quá REVIEW_IDLE giây hoặc tổng quá REVIEW_TIMEOUT.
     Trả (mã thoát, stdout, stderr, lý do bị giết hoặc None)."""
-    p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, text=True, start_new_session=True)
+    p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, text=True, start_new_session=True)
     out, err, last, t0, why = [], [], [time.time()], time.time(), None
     def pump(s, buf):
         for l in iter(s.readline, ''): buf.append(l); last[0] = time.time()
@@ -440,10 +465,14 @@ def ask(be, msgs, cache):
     else:
         argv, stdin = CLI[be]
         ws = tempfile.mkdtemp(prefix='rea-review-', dir=CFG.REVIEW_WS_DIR)   # thư mục rỗng ngoài project: agent không nạp hướng dẫn của project
+        env, home = None, None
         try:
+            env, home = cli_env(be)
             open(os.path.join(ws, 'REVIEW_TURN.md'), 'w', encoding='utf-8').write(text)
-            rc, out, err, killed = spawn(argv(msgs[0]['content']), text if stdin else '', ws)
-        finally: shutil.rmtree(ws, ignore_errors=True)
+            rc, out, err, killed = spawn(argv(msgs[0]['content']), text if stdin else '', ws, env)
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
+            if home: shutil.rmtree(home, ignore_errors=True)
         if killed: raise RuntimeError(f'{be} {killed}; các lượt trước đã lưu ở llm_cache, chạy lại chỉ gọi lại lượt này')
         if rc: raise RuntimeError(f'{be} thoát mã {rc}: {err[-400:]}')
         USAGE.append(dict(cost_usd=0, input=len(text) // 4, cache_write=0, cache_read=0, output=len(out) // 4)); EST[0] = True
@@ -519,7 +548,9 @@ def _run(c, k, ids, mech_items):
     elif any(n and n in json.dumps(can['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
     os.makedirs(rd, exist_ok=True)
     json.dump(log, open(os.path.join(rd, 'llm_lots.json'), 'w'), ensure_ascii=False, indent=1)
-    iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend=be, level='harness', model=CFG.REVIEW_MODEL if be == 'api' else '', canary=can.get('canary'), lots=len(lots), turns=turns,
+    home_iso = 'n/a' if be in ('api', 'manual') else be in HOME_ISOLATED
+    if home_iso is False: print(f'CẢNH BÁO: backend {be} chưa được cô lập khỏi cấu hình máy (AGENTS.md/GEMINI.md, bộ nhớ, skill, MCP); kết luận lớp 2 có thể bị nhiễm ngữ cảnh')
+    iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend=be, level='harness', home_isolated=home_iso, model=CFG.REVIEW_MODEL if be == 'api' else '', canary=can.get('canary'), lots=len(lots), turns=turns,
                requests=nreq, cache=os.path.relpath(cache, c), usage=usage_sum(), estimated=EST[0], dossier_sha256=hashlib.sha256((head + json.dumps(body, ensure_ascii=False)).encode()).hexdigest(),
                system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), valid=not why, invalid_reasons=why)
     return items, missing, iso
@@ -617,6 +648,24 @@ def selftest():
     CFG.REVIEW_IDLE, CFG.REVIEW_TIMEOUT = 300, 3600
     CFG.CLAUDE = shutil.which('false')   # bị gọi thì thoát mã 1 -> RuntimeError
     assert run(c, 2, ['h'], [])[2]['sent'] == 0   # không còn fact cần xét: không gọi LLM
+    # cô lập CLI: HOME tạm chỉ mang xác thực; backend chưa cô lập trả (None, None)
+    env0, fake = dict(os.environ), tempfile.mkdtemp()
+    open(os.path.join(fake, 'auth.json'), 'w').write('{}'); open(os.path.join(fake, 'AGENTS.md'), 'w').write('bí mật')
+    os.environ.update(COPILOT_GITHUB_TOKEN='t0k', CODEX_HOME=fake)
+    try:
+        env, h = cli_env('copilot')
+        assert env['HOME'] == h != env0.get('HOME') and env['COPILOT_HOME'].startswith(h) and env['COPILOT_GITHUB_TOKEN'] == 't0k'; shutil.rmtree(h)
+        env, h = cli_env('codex')
+        assert env['CODEX_HOME'].startswith(h) and os.listdir(env['CODEX_HOME']) == ['auth.json'], os.listdir(env['CODEX_HOME']); shutil.rmtree(h)
+        assert cli_env('gemini') == (None, None)
+        # ask() qua CLI cô lập: tiến trình thấy HOME tạm, HOME tạm bị xoá sau lượt
+        st2 = os.path.join(c, 'cli_stub.py')
+        open(st2, 'w').write('#!/usr/bin/env python3\nimport os, json, sys\nsys.stdin.read()\nprint(json.dumps({"items": [], "home": os.environ["HOME"], "cph": os.environ.get("COPILOT_HOME")}))\n')
+        os.chmod(st2, 0o755); keep = CLI['copilot']; CLI['copilot'] = (lambda sysp: [st2], True)
+        try: d = json.loads(ask('copilot', [{'role': 'system', 'content': 's'}, {'role': 'user', 'content': 'iso-test'}], cache))
+        finally: CLI['copilot'] = keep
+        assert d['home'] != env0.get('HOME') and d['cph'].startswith(d['home']) and not os.path.exists(d['home']), d
+    finally: os.environ.clear(); os.environ.update(env0); shutil.rmtree(fake)
     shutil.rmtree(wsd); shutil.rmtree(c); print('OK reviewer selftest')
 
 if __name__ == '__main__' and sys.argv[1:] == ['--selftest']: selftest()

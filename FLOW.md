@@ -30,7 +30,7 @@ cd <workspace>
 python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nếu thiếu mục bắt buộc
 ```
 
-- Cài skill: `npx github:thaoht2109/rea-workflow [-g]` (xem `README.md`): cài skill và chép "Quy tắc bắt buộc" vào `CLAUDE.md`/`AGENTS.md` đúng phạm vi (toàn máy hoặc chỉ project). Cài bằng `npx skills add` thì bước chép quy tắc là `python3 $SKILL/flow.py rules`.
+- Cài skill: `npx github:thaoht2109/rea-workflow [-g] [-y]` (xem `README.md`): cài skill, chép "Quy tắc bắt buộc" vào `CLAUDE.md`/`AGENTS.md` đúng phạm vi (toàn máy hoặc chỉ project), rồi kiểm và cài công cụ phân tích (`flow.py setup`; hỏi trước, `-y` cài luôn). Cài bằng `npx skills add` thì bước chép quy tắc là `python3 $SKILL/flow.py rules`.
 - Cấu hình theo máy là **tùy chọn**: `~/.config/rea-flow/rea.env` (mẫu `$SKILL/rea.env.example`), đọc qua `reacfg.py`. Biến môi trường cùng tên ghi đè file. Không sửa đường dẫn trong code.
 
 | Biến | Mặc định | Dùng cho |

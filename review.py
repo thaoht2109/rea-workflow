@@ -150,7 +150,7 @@ def analyst(c, k):
     r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
     open(os.path.join(DIR(c), f'r{k}', 'analyst_out.txt'), 'w').write(r.stdout + r.stderr)
     after = open(fp, 'rb').read()
-    bad = []
+    bad = [f'phiên sửa fact lỗi (mã {r.returncode}): {(r.stdout + r.stderr).strip()[-200:]}'] if r.returncode else []   # vd hết hạn mức LLM
     if not after.startswith(before): bad.append('facts.jsonl bị sửa/xóa dòng cũ (chỉ được nối thêm)')
     bad += [f'mẫu đổi: {p}' for p, h in samples.items() if not os.path.exists(p) or sha_file(p) != h]
     if bad:
@@ -167,6 +167,8 @@ def loop(c, llm=True):
         print(f'-- phân tích lại sau review {k}...')
         ok, n, changed = analyst(c, k)
         print(f'-- phân tích lại: {n} mục, facts {"đã đổi" if changed else "KHÔNG đổi"}' + ('' if ok else ', bị hủy'))
+        if not ok or not changed:   # không tiêu lần review 2 cho facts không đổi; chạy lại review-loop sẽ tiếp từ bước sửa
+            print('DỪNG: phân tích lại không tạo thay đổi hợp lệ; xem work/review/r%d/analyst_out.txt rồi chạy lại review-loop' % k); return 5
         code = review(c, llm, force=True)
     return code
 

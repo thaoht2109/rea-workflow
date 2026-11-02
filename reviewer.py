@@ -3,7 +3,7 @@
 # nhận và trả text (JSON). Cần xem thêm thì mô hình gửi {"requests": [...]}, script thực hiện bằng thao tác CHỈ ĐỌC
 # rồi gửi kết quả. Mô hình không có shell, không đọc file trực tiếp, không bao giờ chạm vào việc thực thi mẫu.
 #   python3 reviewer.py --selftest
-import os, re, sys, json, glob, shlex, shutil, struct, hashlib, tempfile, subprocess
+import os, re, sys, json, glob, shlex, datetime, shutil, struct, hashlib, tempfile, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -271,7 +271,17 @@ def render(msgs, with_system):
         parts.append(f'=== LƯỢT {n}: {"ĐIỀU PHỐI" if m["role"] == "user" else "BẠN"} ===\n{m["content"]}')
     return '\n\n'.join(parts) + f'\n\n=== LƯỢT {n}: BẠN (chỉ in một đối tượng JSON) ==='
 
-USAGE = []   # mỗi lần gọi LLM thật: dict token/chi phí (claude, api)
+USAGE = []   # mỗi lần gọi LLM thật: dict token/chi phí (api: số thật; CLI không báo usage: ước lượng ký tự/4, EST=True)
+PB, EST = [0], [False]   # tổng byte prompt của lần run này; có số ước lượng không
+UKEYS = ('cost_usd', 'input', 'cache_write', 'cache_read', 'output')
+def usage_sum(): return {k: round(sum(x[k] for x in USAGE), 4) for k in UKEYS}
+
+def ledger(c, k, be, status, usage=None):
+    """Sổ usage của mọi lần gọi LLM (kể cả lỗi/quá hạn): work/review/usage.jsonl, mỗi dòng một lần run."""
+    d = os.path.join(c, 'work', 'review'); os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'usage.jsonl'), 'a', encoding='utf-8') as f:
+        f.write(json.dumps(dict(ts=datetime.datetime.now().isoformat(timespec='seconds'), round=k, backend=be, status=status,
+                                usage=usage if usage is not None else usage_sum(), prompt_bytes=PB[0], estimated=EST[0]), ensure_ascii=False) + '\n')
 
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
                 'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước, rồi kiểm từng fact, rồi trả về một đối tượng JSON duy nhất.')
@@ -302,7 +312,15 @@ def run_tools(c, k, ids, mech_items):
                 '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
                 '--output-format', 'stream-json', '--verbose'] \
                + (['--model', CFG.REVIEW_MODEL] if CFG.REVIEW_MODEL else []) + (['--effort', CFG.REVIEW_EFFORT] if CFG.REVIEW_EFFORT else [])
-        r = subprocess.run(argv, input=prm, cwd=ws, capture_output=True, text=True, timeout=1800)
+        try: r = subprocess.run(argv, input=prm, cwd=ws, capture_output=True, text=True, timeout=CFG.REVIEW_TIMEOUT)
+        except subprocess.TimeoutExpired as e:   # phiên bị giết: giữ stream dở và số token đã tốn (cộng usage từng message), không im lặng
+            part = e.stdout.decode('utf-8', 'replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
+            rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True); open(os.path.join(rd, 'stream.jsonl'), 'w').write(part)
+            for l in part.splitlines():
+                try: m = json.loads(l).get('message', {}).get('usage') if l.startswith('{') else None
+                except ValueError: m = None
+                if m: USAGE.append(dict(cost_usd=0, input=m.get('input_tokens', 0), cache_write=m.get('cache_creation_input_tokens', 0), cache_read=m.get('cache_read_input_tokens', 0), output=m.get('output_tokens', 0)))
+            raise RuntimeError(f'claude quá hạn {CFG.REVIEW_TIMEOUT}s (tăng REVIEW_TIMEOUT); stream dở ở {rd}/stream.jsonl, token đã tốn ghi ở work/review/usage.jsonl') from None
     finally: shutil.rmtree(ws, ignore_errors=True)
     rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True)
     open(os.path.join(rd, 'stream.jsonl'), 'w').write(r.stdout)
@@ -341,7 +359,7 @@ def apply_severity(c, items):
 
 def ask(be, msgs, cache):
     """Một lượt hỏi (backend không có công cụ). Câu trả lời lưu theo hash của prompt: chạy lại (hoặc manual) dùng lại, không gọi lại LLM."""
-    text = render(msgs, True)
+    text = render(msgs, True); PB[0] += len(text.encode())
     key = hashlib.sha256((be + '\0' + json.dumps(msgs, ensure_ascii=False)).encode()).hexdigest()[:16]
     pp, ap = os.path.join(cache, key + '.prompt.md'), os.path.join(cache, key + '.answer.md')
     os.makedirs(cache, exist_ok=True)
@@ -362,10 +380,11 @@ def ask(be, msgs, cache):
         ws = tempfile.mkdtemp(prefix='rea-review-', dir=CFG.REVIEW_WS_DIR)   # thư mục rỗng ngoài project: agent không nạp hướng dẫn của project
         try:
             open(os.path.join(ws, 'REVIEW_TURN.md'), 'w', encoding='utf-8').write(text)
-            r = subprocess.run(argv(msgs[0]['content']), input=text if stdin else '', cwd=ws, capture_output=True, text=True, timeout=1800)
+            r = subprocess.run(argv(msgs[0]['content']), input=text if stdin else '', cwd=ws, capture_output=True, text=True, timeout=CFG.REVIEW_TIMEOUT)
         finally: shutil.rmtree(ws, ignore_errors=True)
         out = r.stdout
         if r.returncode: raise RuntimeError(f'{be} thoát mã {r.returncode}: {r.stderr[-400:]}')
+        USAGE.append(dict(cost_usd=0, input=len(text) // 4, cache_write=0, cache_read=0, output=len(out) // 4)); EST[0] = True
         try:   # gemini --output-format json bọc câu trả lời trong .response
             w = json.loads(out)
             if isinstance(w, dict) and isinstance(w.get('response'), str): out = w['response']
@@ -384,6 +403,15 @@ def parse(text):
 
 # ---------- vòng phản biện ----------
 def run(c, k, ids, mech_items):
+    """Gọi lớp 2 và ghi sổ usage cho mọi kết cục (ok, không hợp lệ, lỗi/quá hạn). Pending (manual) chưa tốn gì nên không ghi."""
+    del USAGE[:]; PB[0] = 0; EST[0] = False; be = CFG.review_backend()
+    try: r = _run(c, k, ids, mech_items)
+    except Pending: raise
+    except BaseException as e:
+        ledger(c, k, be, f'lỗi: {type(e).__name__}: {str(e)[:200]}'); raise
+    ledger(c, k, be, 'ok' if r[2]['valid'] else 'không hợp lệ', r[2].get('usage') or None); return r
+
+def _run(c, k, ids, mech_items):
     be = CFG.review_backend()
     if be == 'claude': return run_tools(c, k, ids, mech_items)
     rd = os.path.join(c, 'work', 'review', f'r{k}'); cache = os.path.join(c, 'work', 'review', 'llm_cache')
@@ -430,7 +458,7 @@ def run(c, k, ids, mech_items):
     os.makedirs(rd, exist_ok=True)
     json.dump(log, open(os.path.join(rd, 'llm_lots.json'), 'w'), ensure_ascii=False, indent=1)
     iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend=be, level='harness', model=CFG.REVIEW_MODEL if be == 'api' else '', canary=can.get('canary'), lots=len(lots), turns=turns,
-               requests=nreq, cache=os.path.relpath(cache, c), usage={k: round(sum(x[k] for x in USAGE), 4) for k in ('cost_usd', 'input', 'cache_write', 'cache_read', 'output')}, dossier_sha256=hashlib.sha256((head + json.dumps(body, ensure_ascii=False)).encode()).hexdigest(),
+               requests=nreq, cache=os.path.relpath(cache, c), usage=usage_sum(), estimated=EST[0], dossier_sha256=hashlib.sha256((head + json.dumps(body, ensure_ascii=False)).encode()).hexdigest(),
                system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), valid=not why, invalid_reasons=why)
     return items, missing, iso
 
@@ -490,6 +518,22 @@ def selftest():
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
     assert iso['valid'] and iso['sent'] == 2 and iso['turns'] == 2 and iso['requests'] == 1 and iso['usage']['cache_read'] == 5, iso
     assert miss[0] == dict(topic='c2 m', why='medium') and its[0]['severity'] == 'low' and not os.listdir(wsd), (miss, its)
+    # sổ usage: lần run claude ở trên ghi 1 dòng ok với usage thật
+    led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
+    assert led[-1]['status'] == 'ok' and led[-1]['backend'] == 'claude' and led[-1]['usage']['cache_read'] == 5, led
+    # quá hạn: phiên bị giết, giữ stream dở, cộng usage từng message vào sổ, báo lỗi rõ
+    slow = os.path.join(c, 'claude_slow.py')
+    open(slow, 'w').write('#!/usr/bin/env python3\nimport json, time, os\n'
+        'print(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 7, "cache_read_input_tokens": 100, "output_tokens": 3}, "content": []}}), flush=True)\n'
+        'time.sleep(30)\n')
+    os.chmod(slow, 0o755)
+    CFG.CLAUDE, CFG.REVIEW_TIMEOUT = slow, 1
+    try: run(c, 3, ['c2', 'm'], []); raise AssertionError('phải báo quá hạn')
+    except RuntimeError as e: assert 'quá hạn' in str(e), e
+    led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
+    assert led[-1]['status'].startswith('lỗi') and led[-1]['usage']['cache_read'] == 100 and led[-1]['usage']['output'] == 3, led[-1]
+    assert '"cache_read_input_tokens": 100' in open(os.path.join(c, 'work', 'review', 'r3', 'stream.jsonl')).read()
+    CFG.REVIEW_TIMEOUT = 1800
     CFG.CLAUDE = shutil.which('false')   # bị gọi thì thoát mã 1 -> RuntimeError
     assert run(c, 2, ['h'], [])[2]['sent'] == 0   # không còn fact cần xét: không gọi LLM
     shutil.rmtree(wsd); shutil.rmtree(c); print('OK reviewer selftest')

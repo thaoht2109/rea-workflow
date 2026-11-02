@@ -17,7 +17,9 @@ Với MỖI fact được giao, tự trả lời:
 
 Ngân sách: tối đa 40 lệnh kiểm chứng. Ưu tiên theo rủi ro: fact thuộc `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, `env_*`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
 
-Định dạng đầu ra: CHỈ một đối tượng JSON, không văn bản khác:
+Dòng tiến độ (bắt buộc, để giữ kết quả nếu phiên bị ngắt): ngay sau bước 0, in một dòng văn bản `CANARY {"canary": [...]}`. Mỗi khi xét xong MỘT fact (kể cả pass), in ngay một dòng `ITEM {...}`: một đối tượng JSON trên một dòng theo đúng schema item dưới đây; fact pass không tự kiểm thì chỉ cần `ITEM {"id": "...", "verdict": "pass"}`. Không in gì khác ngoài các dòng này cho đến kết quả cuối.
+
+Kết quả cuối: CHỈ một đối tượng JSON, không văn bản khác (chứa lại mọi item đã in):
 {"canary": [...],
  "items": [{"id": "...", "verdict": "pass|fail|weak", "severity": "high|low", "check": "value_vs_evidence|source|alternative_explanation|status_too_strong|recompute", "claim": "...", "problem": "...", "where": "report/evidence/FILE#Ln", "redo": "lệnh hoặc việc cụ thể để kiểm lại/sửa", "suggest_status": "hypothesis|retracted|"}],
  "missing": [{"topic": "...", "why": "...", "redo": "..."}]}

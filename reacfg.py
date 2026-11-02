@@ -37,7 +37,8 @@ REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False
 REVIEW_API_KEY = get('REVIEW_API_KEY', path=False) or os.environ.get('OPENAI_API_KEY', '')
 REVIEW_MODEL = get('REVIEW_MODEL', path=False)                  # tên model: bắt buộc với api; với claude là --model (vd sonnet) để giảm chi phí
 REVIEW_EFFORT = get('REVIEW_EFFORT', 'medium', path=False)    # claude --effort cho lớp 2 (low|medium|high…): mức suy nghĩ, ảnh hưởng token đầu ra
-REVIEW_TIMEOUT = int(get('REVIEW_TIMEOUT', '1800', path=False))   # giây tối đa cho một lần gọi LLM (claude: cả phiên agent); quá hạn thì lưu stream dở + usage rồi báo lỗi
+REVIEW_TIMEOUT = int(get('REVIEW_TIMEOUT', '3600', path=False))   # trần tổng (giây) cho một lần gọi LLM (claude: cả phiên agent)
+REVIEW_IDLE = int(get('REVIEW_IDLE', '300', path=False))   # giết tiến trình LLM khi không in gì quá N giây (đứng im); phiên đang làm việc không bị giết
 REVIEW_MAX_TURNS = int(get('REVIEW_MAX_TURNS', '6', path=False))   # số lượt tối đa mỗi lô (mỗi lượt mô hình được xin tối đa 8 thao tác đọc)
 REVIEW_BATCH = int(get('REVIEW_BATCH', '20', path=False))           # số fact mỗi lô: lô nhỏ hợp model có context ngắn
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p

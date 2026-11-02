@@ -145,7 +145,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | harness (backend khác claude): số fact mỗi lô; số lượt tối đa mỗi lô (mỗi lượt tối đa 8 thao tác đọc) |
 | `REVIEW_API_BASE`, `REVIEW_API_KEY` | `https://api.openai.com/v1`, `$OPENAI_API_KEY` | backend `api` (endpoint chuẩn OpenAI). Nên đặt key bằng biến môi trường, không ghi vào file |
 | `REVIEW_MODEL` | trống | model cho lớp 2: bắt buộc với `api`; với `claude` là `--model` (ví dụ `sonnet`) để giảm chi phí |
-| `REVIEW_TIMEOUT` | `1800` | giây tối đa cho một lần gọi LLM; quá hạn lưu `stream.jsonl` dở + usage đã tốn, báo lỗi (không tính một lần review) |
+| `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giết tiến trình LLM khi im lặng quá `REVIEW_IDLE` giây hoặc tổng quá `REVIEW_TIMEOUT` giây; phiên claude bị ngắt giữ kết luận từng fact đã xong (`rN/salvage.jsonl`), chạy lại chỉ gửi phần còn lại; usage đã tốn ghi vào `usage.jsonl` |
 | `REVIEW_EFFORT` | `medium` | mức suy nghĩ của claude ở lớp 2 (`low`…`max`); ảnh hưởng trực tiếp token đầu ra |
 | `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, text ra stdout |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude`; trống thì agent đang chạy tự sửa |

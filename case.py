@@ -165,7 +165,7 @@ def check(case):
     NEXT = {'C0': 'flow.py review CASE [--llm] (tối đa 2 lần); stopped thì đọc work/review/STOP_REPORT.md', 'C1': 'T0 flow.py triage', 'C2': 'T0/T1 bóc vỏ; ghi entry (hàm/offset bắt đầu mã độc)',
             'C3': 'T2 tìm anti-debug/anti-VM quanh import nhạy cảm; T3 nếu chạy được',
             'C4': 'T2 tìm hàm giải mã chuỗi/config (xref chuỗi rác, vòng XOR); hoặc fact n/a nếu chuỗi rõ',
-            'C5': 'T2 xref các hàm mạng/chuỗi URL-IP; T3 nếu chạy được', 'C6': 'T2/T3: CreateProcess/WriteProcessMemory/ptrace/LD_PRELOAD; hoặc n/a',
+            'C5': 'T2 xref các hàm mạng và ioc_candidates trong report/evidence/triage_*.json (ứng viên chưa phải fact); T3 nếu chạy được', 'C6': 'T2/T3: CreateProcess/WriteProcessMemory/ptrace/LD_PRELOAD; hoặc n/a',
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm'}

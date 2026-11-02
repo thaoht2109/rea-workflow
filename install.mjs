@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Cài rea-flow bằng một lệnh: `skills add` (vercel-labs/skills) rồi chép "Quy tắc bắt buộc" vào CLAUDE.md/AGENTS.md
 // đúng phạm vi vừa cài (toàn máy hoặc project hiện tại). skills CLI không có post-install hook nên bước 2 nằm ở đây.
-//   npx github:thaoht2109/rea-flow [-g] [-a claude-code -a codex ...] [-y]   tham số chuyển nguyên cho `skills add`
-//   npx github:thaoht2109/rea-flow remove [-g]                               gỡ quy tắc rồi gỡ skill
+//   npx github:thaoht2109/rea-workflow [-g] [-a claude-code -a codex ...] [-y]   tham số chuyển nguyên cho `skills add`
+//   npx github:thaoht2109/rea-workflow remove [-g]                               gỡ quy tắc rồi gỡ skill
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-const REPO = 'thaoht2109/rea-flow', SKILLS = 'skills@1.7.4';   // bản skills CLI đã kiểm
+const REPO = 'thaoht2109/rea-workflow', SKILLS = 'skills@1.7.4';   // bản skills CLI đã kiểm
 const args = process.argv.slice(2), remove = args[0] === 'remove', rest = remove ? args.slice(1) : args;
 const global = rest.includes('-g') || rest.includes('--global');
 const run = (cmd, a) => { const r = spawnSync(cmd, a, { stdio: 'inherit', env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };

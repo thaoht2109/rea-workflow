@@ -2,7 +2,7 @@
 
 **Skill dịch ngược mã độc có kiểm chứng cho AI coding agent.**
 
-Repo: <https://github.com/thaoht2109/rea-flow> (private)
+Repo: <https://github.com/thaoht2109/rea-workflow> (private)
 
 rea-flow biến một agent (Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI…) thành người phân tích mã độc làm việc có quy trình. Mỗi kết luận là một *fact* có nguồn và bằng chứng. Mọi fact phải qua cổng phản biện độc lập trước khi vào báo cáo cuối. Mẫu **không bao giờ được thực thi**: chỉ phân tích tĩnh và giả lập CPU.
 
@@ -75,8 +75,8 @@ Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → 
 ### 2. Cài skill
 
 ```bash
-npx github:thaoht2109/rea-flow         # cài cho project hiện tại (chạy trong thư mục project)
-npx github:thaoht2109/rea-flow -g      # cài toàn máy
+npx github:thaoht2109/rea-workflow         # cài cho project hiện tại (chạy trong thư mục project)
+npx github:thaoht2109/rea-workflow -g      # cài toàn máy
 ```
 
 Lệnh làm hai việc:
@@ -93,8 +93,8 @@ Quy tắc nằm giữa cặp marker `rea-flow:rules`; nội dung khác trong fil
 
 Cách cài khác:
 
-- Chỉ dùng skills CLI: `npx skills add thaoht2109/rea-flow [-g]`. Bước chép quy tắc khi đó do agent tự làm ở lần đầu dùng skill, hoặc chạy tay `python3 <thư mục skill>/flow.py rules`.
-- Không có Node: `git clone https://github.com/thaoht2109/rea-flow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules`.
+- Chỉ dùng skills CLI: `npx skills add thaoht2109/rea-workflow [-g]`. Bước chép quy tắc khi đó do agent tự làm ở lần đầu dùng skill, hoặc chạy tay `python3 <thư mục skill>/flow.py rules`.
+- Không có Node: `git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules`.
 
 ### 3. Cài công cụ phân tích
 
@@ -172,8 +172,8 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 ### Cập nhật và gỡ
 
 ```bash
-npx github:thaoht2109/rea-flow [-g]            # cập nhật: chạy lại lệnh cài (skill và khối quy tắc đều được làm mới)
-npx github:thaoht2109/rea-flow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
+npx github:thaoht2109/rea-workflow [-g]            # cập nhật: chạy lại lệnh cài (skill và khối quy tắc đều được làm mới)
+npx github:thaoht2109/rea-workflow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
 ```
 
 Gỡ không xóa `~/.config/rea-flow`, `~/.local/share/rea-flow` và các case trong workspace.
@@ -294,7 +294,7 @@ SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (a
 FLOW.md             quy trình thao tác chi tiết (agent đọc khi cần)
 reacfg.py           cấu hình theo máy + doctor
 rea.env.example     mẫu ~/.config/rea-flow/rea.env
-install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-flow): skills add + flow.py rules
+install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow): skills add + flow.py rules
 package.json        khai báo bin cho npx
 flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, next, report, audit, doctor, rules, session
 case.py             kho fact (add + lint + recompute, show, search), checklist C0–C11, sinh báo cáo

@@ -125,7 +125,47 @@ def rescore(c, s, h):
     print(f"re-score theo luật v{C.REVIEW_RULE_VERSION}: review {last['n']} {last['verdict']} (không gọi LLM)")
     return s
 
+# ---------- chạy nền: không phụ thuộc agent có chế độ nền hay timeout lệnh dài ----------
+def bg_pid(c):
+    """pid của review đang chạy nền cho case này, hoặc None."""
+    try: pid = int(open(os.path.join(DIR(c), 'run.pid')).read().split()[0])
+    except (OSError, ValueError, IndexError): return None
+    try: return pid if b'_bg' in open(f'/proc/{pid}/cmdline', 'rb').read() else None
+    except FileNotFoundError: return None
+    except OSError:   # không có /proc (macOS): chỉ kiểm tiến trình còn sống
+        try: os.kill(pid, 0); return pid
+        except OSError: return None
+
+def tail(p, n):
+    try: return ''.join(open(p, encoding='utf-8', errors='replace').readlines()[-n:]).rstrip()
+    except OSError: return ''
+
+def detach(c, cmd, flags):
+    """Gọi lặp lại được: lần đầu khởi chạy nền và trả 6; trong lúc chạy in tiến độ và trả 6; xong thì in kết quả và trả mã thật.
+    Dành cho agent có timeout lệnh ngắn hoặc không có chế độ nền."""
+    d = DIR(c); os.makedirs(d, exist_ok=True)
+    pf, lf, rf = (os.path.join(d, x) for x in ('run.pid', 'run.log', 'run.rc'))
+    p = bg_pid(c)
+    if p:
+        print(f'ĐANG CHẠY nền pid {p} ({int(datetime.datetime.now().timestamp() - os.path.getmtime(pf))}s). Gọi lại đúng lệnh này để xem tiến độ; không chạy review khác cho case này.')
+        print(tail(lf, 5)); return 6
+    if os.path.exists(rf):
+        rc = int(open(rf).read().strip() or 1)
+        print(f'XONG chạy nền (mã {rc}), log {lf}:\n' + tail(lf, 40))
+        for x in (rf, pf):
+            if os.path.exists(x): os.remove(x)
+        return rc
+    if os.path.exists(pf):
+        print(f'Lần chạy nền trước đã chết mà không ghi kết quả. Log {lf}:\n' + tail(lf, 20) + '\nGọi lại đúng lệnh này để chạy lại.')
+        os.remove(pf); return 7
+    pr = subprocess.Popen([sys.executable, '-u', os.path.abspath(__file__), '_bg', cmd, c] + flags, stdout=open(lf, 'w'), stderr=subprocess.STDOUT,
+                          stdin=subprocess.DEVNULL, start_new_session=True, cwd=os.getcwd())
+    open(pf, 'w').write(str(pr.pid))
+    print(f'ĐÃ CHẠY NỀN {cmd} {c} (pid {pr.pid}), log {lf}. Gọi lại đúng lệnh này để xem tiến độ và lấy kết quả (mã 6 = đang chạy).'); return 6
+
 def review(c, llm=False, force=False):
+    p = bg_pid(c)
+    if p and p != os.getpid(): print(f'ĐANG CÓ review chạy nền pid {p} cho case này: gọi lại lệnh với --detach để xem kết quả'); return 6
     s, h = state(c), facts_sha(c)
     if s.get('rule_version') != C.REVIEW_RULE_VERSION:   # luật cổng đổi: tính lại verdict từ review.json, không có thì mở bộ đếm mới
         s = rescore(c, s, h) or {'rounds': [], 'stopped': False, 'reset_for': None}
@@ -281,7 +321,15 @@ def selftest():
 if __name__ == '__main__':
     a = sys.argv[1:]
     if not a or a[0] == '--selftest': selftest(); sys.exit()
+    if a[0] == '_bg':   # tiến trình nền do detach() mở: luôn ghi mã thoát, kể cả khi lỗi
+        cmd, c, rc = a[1], a[2], 70
+        try: rc = review(c, '--llm' in a) if cmd == 'review' else loop(c, '--no-llm' not in a)
+        finally:
+            rf = os.path.join(DIR(c), 'run.rc'); open(rf + '.tmp', 'w').write(str(rc)); os.replace(rf + '.tmp', rf)
+            if os.path.exists(os.path.join(DIR(c), 'run.pid')): os.remove(os.path.join(DIR(c), 'run.pid'))
+        sys.exit(rc)
     cmd, c = a[0], a[1]
+    if cmd in ('review', 'review-loop') and '--detach' in a: sys.exit(detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     if cmd == 'review': sys.exit(review(c, '--llm' in a))
     elif cmd == 'review-loop': sys.exit(loop(c, '--no-llm' not in a))
     elif cmd == 'gate': ok, why = gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)

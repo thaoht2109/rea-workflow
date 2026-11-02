@@ -9,7 +9,7 @@
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
-#   flow.py review CASE [--llm] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
+#   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, json, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -175,6 +175,7 @@ if __name__ == '__main__':
             import review; ok, why = review.gate(c)
             if not ok: raise SystemExit(f'CHẶN report --final: {why}')
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md')
+    elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))
     elif cmd == 'next': import review; sys.exit(review.next_step(c, a[a.index('--accept') + 1] if '--accept' in a else ''))

@@ -3,7 +3,7 @@
 # nhận và trả text (JSON). Cần xem thêm thì mô hình gửi {"requests": [...]}, script thực hiện bằng thao tác CHỈ ĐỌC
 # rồi gửi kết quả. Mô hình không có shell, không đọc file trực tiếp, không bao giờ chạm vào việc thực thi mẫu.
 #   python3 reviewer.py --selftest
-import os, re, sys, json, glob, shlex, shutil, struct, hashlib, tempfile, subprocess
+import os, re, sys, json, glob, time, shlex, signal, datetime, threading, shutil, struct, hashlib, tempfile, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -271,10 +271,60 @@ def render(msgs, with_system):
         parts.append(f'=== LƯỢT {n}: {"ĐIỀU PHỐI" if m["role"] == "user" else "BẠN"} ===\n{m["content"]}')
     return '\n\n'.join(parts) + f'\n\n=== LƯỢT {n}: BẠN (chỉ in một đối tượng JSON) ==='
 
-USAGE = []   # mỗi lần gọi LLM thật: dict token/chi phí (claude, api)
+USAGE = []   # mỗi lần gọi LLM thật: dict token/chi phí (api: số thật; CLI không báo usage: ước lượng ký tự/4, EST=True)
+PB, EST = [0], [False]   # tổng byte prompt của lần run này; có số ước lượng không
+UKEYS = ('cost_usd', 'input', 'cache_write', 'cache_read', 'output')
+def usage_sum(): return {k: round(sum(x[k] for x in USAGE), 4) for k in UKEYS}
+
+def now_s(): return datetime.datetime.now().isoformat(timespec='seconds')
+
+def ledger(c, k, be, status, usage=None):
+    """Sổ usage của mọi lần gọi LLM (kể cả lỗi/quá hạn): work/review/usage.jsonl, mỗi dòng một lần run."""
+    d = os.path.join(c, 'work', 'review'); os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, 'usage.jsonl'), 'a', encoding='utf-8') as f:
+        f.write(json.dumps(dict(ts=now_s(), round=k, backend=be, status=status,
+                                usage=usage if usage is not None else usage_sum(), prompt_bytes=PB[0], estimated=EST[0]), ensure_ascii=False) + '\n')
+
+def spawn(argv, inp, cwd):
+    """Chạy CLI LLM, giết cả nhóm tiến trình khi im lặng (stdout lẫn stderr) quá REVIEW_IDLE giây hoặc tổng quá REVIEW_TIMEOUT.
+    Trả (mã thoát, stdout, stderr, lý do bị giết hoặc None)."""
+    p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, text=True, start_new_session=True)
+    out, err, last, t0, why = [], [], [time.time()], time.time(), None
+    def pump(s, buf):
+        for l in iter(s.readline, ''): buf.append(l); last[0] = time.time()
+    th = [threading.Thread(target=pump, args=a, daemon=True) for a in ((p.stdout, out), (p.stderr, err))]
+    for t in th: t.start()
+    try: p.stdin.write(inp); p.stdin.close()
+    except BrokenPipeError: pass
+    while p.poll() is None:
+        time.sleep(0.2)
+        if time.time() - last[0] > CFG.REVIEW_IDLE: why = f'im lặng quá {CFG.REVIEW_IDLE}s (REVIEW_IDLE)'
+        elif time.time() - t0 > CFG.REVIEW_TIMEOUT: why = f'quá hạn tổng {CFG.REVIEW_TIMEOUT}s (REVIEW_TIMEOUT)'
+        if why:
+            try: os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            break
+    p.wait()
+    for t in th: t.join(5)
+    return p.returncode, ''.join(out), ''.join(err), why
+
+def marks(ev):
+    """Dòng tiến độ CANARY/ITEM mà reviewer in giữa phiên (stream-json, khối text của assistant)."""
+    can, its = None, []
+    for e in ev:
+        if e.get('type') != 'assistant': continue
+        for b in e.get('message', {}).get('content', []):
+            for l in (b.get('text', '') if b.get('type') == 'text' else '').splitlines():
+                l = l.strip().strip('`')
+                if l.startswith('CANARY '): can = (parse(l[7:]) or {}).get('canary', can)
+                elif l.startswith('ITEM '):
+                    try: d = json.JSONDecoder().raw_decode(l[5:].strip())[0]
+                    except ValueError: continue
+                    if isinstance(d, dict) and d.get('id'): its.append(d)
+    return can, its
 
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
-                'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước, rồi kiểm từng fact, rồi trả về một đối tượng JSON duy nhất.')
+                'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước (in dòng CANARY), rồi kiểm từng fact (in dòng ITEM sau mỗi fact), rồi trả về một đối tượng JSON duy nhất.')
 
 def run_tools(c, k, ids, mech_items):
     """Backend claude: MỘT phiên agent có công cụ chỉ đọc (Read/Grep/python3 -I), prompt chỉ có danh sách id, mô hình tự đọc
@@ -284,52 +334,80 @@ def run_tools(c, k, ids, mech_items):
     iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend='claude', level='full',
                model=CFG.REVIEW_MODEL, effort=CFG.REVIEW_EFFORT, turns=0, requests=0, usage={}, valid=True, invalid_reasons=[])
     if not ids: return [], [], iso   # không còn fact cần LLM xét: không mở phiên
-    ws = tempfile.mkdtemp(prefix='rea-review-', dir=CFG.REVIEW_WS_DIR)   # ngoài cây project: agent không nạp hướng dẫn của project
-    try:
-        cur = C.load(c)
-        with open(os.path.join(ws, 'facts.jsonl'), 'w', encoding='utf-8') as f:   # chỉ fact được gửi: mô hình không đọc phần không cần
-            f.writelines(json.dumps(cur[i], ensure_ascii=False) + '\n' for i in ids)
-        shutil.copytree(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
-        for d in ('sample', 'scripts', 'extract'):
-            if os.path.isdir(os.path.join(c, 'work', d)): shutil.copytree(os.path.join(c, 'work', d), os.path.join(ws, 'work', d))
-        man = ''.join(f'{hashlib.sha256(open(p, "rb").read()).hexdigest()}  {os.path.relpath(p, ws)}\n'
-                      for p in sorted(glob.glob(ws + '/**/*', recursive=True)) if os.path.isfile(p))
-        open(os.path.join(ws, 'input_manifest.sha256'), 'w').write(man)
-        sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read()
-        prm = PROMPT_TOOLS.replace('{ROUND}', str(k)).replace('{IDS}', ' '.join(ids))
-        argv = [CFG.CLAUDE, '-p', '--no-session-persistence', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-                '--settings', '{"disableAllHooks":true}', '--disable-slash-commands', '--system-prompt', sysp,
-                '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
-                '--output-format', 'stream-json', '--verbose'] \
-               + (['--model', CFG.REVIEW_MODEL] if CFG.REVIEW_MODEL else []) + (['--effort', CFG.REVIEW_EFFORT] if CFG.REVIEW_EFFORT else [])
-        r = subprocess.run(argv, input=prm, cwd=ws, capture_output=True, text=True, timeout=1800)
-    finally: shutil.rmtree(ws, ignore_errors=True)
-    rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True)
-    open(os.path.join(rd, 'stream.jsonl'), 'w').write(r.stdout)
-    if r.returncode: raise RuntimeError(f'claude thoát mã {r.returncode}: {(r.stderr or r.stdout)[-400:]}')   # lỗi hạ tầng không tính là một lần review
-    ev = [json.loads(l) for l in r.stdout.splitlines() if l.startswith('{')]
-    init = next((e for e in ev if e.get('subtype') == 'init'), {})
-    res = next((e for e in reversed(ev) if e.get('type') == 'result'), {})
-    data, u = parse(res.get('result', '')) or {}, res.get('usage', {})
-    why = []
-    if 'items' not in data: why.append('không đọc được JSON kết luận (xem stream.jsonl)')
-    if not init.get('session_id'): why.append('không đọc được sự kiện init')
-    if not os.path.realpath(init.get('cwd') or '/nonexistent').startswith(os.path.realpath(CFG.REVIEW_WS_DIR)): why.append('cwd không nằm trong thư mục làm việc tách riêng')
-    if init.get('mcp_servers') or init.get('skills') or init.get('slash_commands'): why.append('còn MCP/skill/slash command')
-    if {'Write', 'Edit', 'Agent'} & set(init.get('tools', [])): why.append('còn công cụ ghi/Agent')
-    if any(str(e.get('subtype', '')).startswith('hook') for e in ev): why.append('có sự kiện hook')
+    sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
+    rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True); sal = os.path.join(rd, 'salvage.jsonl')
+    # kết luận từng fact của phiên trước bị ngắt ở cùng vòng: chỉ dùng khi cùng system prompt và fact + evidence chưa đổi
+    done, sess = {}, []
+    for d in (json.loads(l) for l in open(sal, encoding='utf-8')) if os.path.exists(sal) else ():
+        if d.get('sys') != ssha: continue
+        if 'session' in d: sess.append(d)
+        elif d.get('id') in ids and dig.get(d['id']) == d.get('digest'): done.setdefault(d['id'], []).append(d['item'])
+    todo = [i for i in ids if i not in done]
     names = {os.path.basename(os.path.abspath(c)).lower()} | {t.lower() for f in C.load(c).values() if f['kind'] in ('c2', 'mutex') for t in f['value'].split()[:1]}
-    if data.get('canary') is None: why.append('thiếu canary')
-    elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
-    items = [dict(i, layer='llm') for i in data.get('items', []) if i.get('id') in ids]
+    data, why, init, res, ev, items, u = {'canary': sess[-1]['canary'] if sess else None, 'items': []}, [], {}, {}, [], [], {}
+    if todo:
+        ws = tempfile.mkdtemp(prefix='rea-review-', dir=CFG.REVIEW_WS_DIR)   # ngoài cây project: agent không nạp hướng dẫn của project
+        try:
+            cur = C.load(c)
+            with open(os.path.join(ws, 'facts.jsonl'), 'w', encoding='utf-8') as f:   # chỉ fact được gửi: mô hình không đọc phần không cần
+                f.writelines(json.dumps(cur[i], ensure_ascii=False) + '\n' for i in todo)
+            shutil.copytree(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
+            for d in ('sample', 'scripts', 'extract'):
+                if os.path.isdir(os.path.join(c, 'work', d)): shutil.copytree(os.path.join(c, 'work', d), os.path.join(ws, 'work', d))
+            man = ''.join(f'{hashlib.sha256(open(p, "rb").read()).hexdigest()}  {os.path.relpath(p, ws)}\n'
+                          for p in sorted(glob.glob(ws + '/**/*', recursive=True)) if os.path.isfile(p))
+            open(os.path.join(ws, 'input_manifest.sha256'), 'w').write(man)
+            prm = PROMPT_TOOLS.replace('{ROUND}', str(k)).replace('{IDS}', ' '.join(todo))
+            argv = [CFG.CLAUDE, '-p', '--no-session-persistence', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+                    '--settings', '{"disableAllHooks":true}', '--disable-slash-commands', '--system-prompt', sysp,
+                    '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
+                    '--output-format', 'stream-json', '--verbose'] \
+                   + (['--model', CFG.REVIEW_MODEL] if CFG.REVIEW_MODEL else []) + (['--effort', CFG.REVIEW_EFFORT] if CFG.REVIEW_EFFORT else [])
+            rc, out, err, killed = spawn(argv, prm, ws)
+        finally: shutil.rmtree(ws, ignore_errors=True)
+        open(os.path.join(rd, 'stream.jsonl'), 'w').write(out)
+        ev = []
+        for l in out.splitlines():
+            try: ev.append(json.loads(l)) if l.startswith('{') else None
+            except ValueError: pass
+        init = next((e for e in ev if e.get('subtype') == 'init'), {})
+        res = next((e for e in reversed(ev) if e.get('type') == 'result'), {})
+        if not init.get('session_id'): why.append('không đọc được sự kiện init')
+        if not os.path.realpath(init.get('cwd') or '/nonexistent').startswith(os.path.realpath(CFG.REVIEW_WS_DIR)): why.append('cwd không nằm trong thư mục làm việc tách riêng')
+        if init.get('mcp_servers') or init.get('skills') or init.get('slash_commands'): why.append('còn MCP/skill/slash command')
+        if {'Write', 'Edit', 'Agent'} & set(init.get('tools', [])): why.append('còn công cụ ghi/Agent')
+        if any(str(e.get('subtype', '')).startswith('hook') for e in ev): why.append('có sự kiện hook')
+        can, part = marks(ev)
+        if killed or rc:   # phiên dở (bị ngắt/lỗi hạ tầng): không tính một lần review; giữ kết luận từng fact nếu phiên qua kiểm cô lập
+            for e in ev:
+                m = e.get('message', {}).get('usage') if e.get('type') == 'assistant' else None
+                if m: USAGE.append(dict(cost_usd=0, input=m.get('input_tokens', 0), cache_write=m.get('cache_creation_input_tokens', 0), cache_read=m.get('cache_read_input_tokens', 0), output=m.get('output_tokens', 0)))
+            if can is None: why.append('thiếu dòng CANARY')
+            elif any(n and n in json.dumps(can, ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
+            part = [i for i in part if i['id'] in todo]
+            kept = 0 if why else len({i['id'] for i in part})
+            if kept:
+                with open(sal, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(dict(sys=ssha, session=init['session_id'], canary=can, ts=now_s()), ensure_ascii=False) + '\n')
+                    f.writelines(json.dumps(dict(sys=ssha, id=i['id'], digest=dig[i['id']], item=i), ensure_ascii=False) + '\n' for i in part)
+            head = killed or f'claude thoát mã {rc}: {(err or out)[-300:]}'
+            raise RuntimeError(f'{head}; giữ {kept}/{len(todo)} kết luận ở {sal}' + (f' (bỏ phiên dở: {"; ".join(why)})' if why else '')
+                               + f'; chạy lại chỉ gửi {len(todo) - kept} fact còn lại. Stream dở: {rd}/stream.jsonl')
+        data, u = parse(res.get('result', '')) or {}, res.get('usage', {})
+        if 'items' not in data: why.append('không đọc được JSON kết luận (xem stream.jsonl)')
+        if data.get('canary') is None: why.append('thiếu canary')
+        elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
+        items = [dict(i, layer='llm') for i in data.get('items', []) if i.get('id') in todo]
+    items += [dict(i, layer='llm') for v in done.values() for i in v if i.get('verdict') in ('fail', 'weak') or i.get('check')]
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
     apply_severity(c, items)
     iso.update(canary=data.get('canary'), turns=res.get('num_turns', 0), session_id=init.get('session_id'), cwd=init.get('cwd'), tools=init.get('tools', []),
+               sessions=[s['session'] for s in sess] + ([init.get('session_id')] if todo else []), salvaged=sorted(done),
                requests=sum(b.get('type') == 'tool_use' for e in ev if e.get('type') == 'assistant' for b in e['message'].get('content', [])),
                usage=dict(cost_usd=res.get('total_cost_usd', 0) or 0, input=u.get('input_tokens', 0), cache_write=u.get('cache_creation_input_tokens', 0),
                           cache_read=u.get('cache_read_input_tokens', 0), output=u.get('output_tokens', 0)),
-               system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), prompt_sha256=hashlib.sha256(prm.encode()).hexdigest(), valid=not why, invalid_reasons=why)
+               system_sha256=ssha, prompt_sha256=hashlib.sha256((PROMPT_TOOLS + ' '.join(todo)).encode()).hexdigest(), valid=not why, invalid_reasons=why)
     return items, data.get('missing', []), iso
 
 def apply_severity(c, items):
@@ -341,7 +419,7 @@ def apply_severity(c, items):
 
 def ask(be, msgs, cache):
     """Một lượt hỏi (backend không có công cụ). Câu trả lời lưu theo hash của prompt: chạy lại (hoặc manual) dùng lại, không gọi lại LLM."""
-    text = render(msgs, True)
+    text = render(msgs, True); PB[0] += len(text.encode())
     key = hashlib.sha256((be + '\0' + json.dumps(msgs, ensure_ascii=False)).encode()).hexdigest()[:16]
     pp, ap = os.path.join(cache, key + '.prompt.md'), os.path.join(cache, key + '.answer.md')
     os.makedirs(cache, exist_ok=True)
@@ -353,7 +431,7 @@ def ask(be, msgs, cache):
         body = json.dumps({'model': CFG.REVIEW_MODEL, 'temperature': 0, 'messages': msgs}).encode()
         rq = urllib.request.Request(CFG.REVIEW_API_BASE.rstrip('/') + '/chat/completions', body,
                                     {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + CFG.REVIEW_API_KEY})
-        with urllib.request.urlopen(rq, timeout=900) as r: e = json.load(r)
+        with urllib.request.urlopen(rq, timeout=CFG.REVIEW_TIMEOUT) as r: e = json.load(r)
         out, u = e['choices'][0]['message']['content'], e.get('usage', {})   # OpenAI/DeepSeek tự cache tiền tố của mảng messages
         USAGE.append(dict(cost_usd=0, input=u.get('prompt_tokens', 0), cache_write=0, cache_read=(u.get('prompt_tokens_details') or {}).get('cached_tokens', 0),
                           output=u.get('completion_tokens', 0)))
@@ -362,10 +440,11 @@ def ask(be, msgs, cache):
         ws = tempfile.mkdtemp(prefix='rea-review-', dir=CFG.REVIEW_WS_DIR)   # thư mục rỗng ngoài project: agent không nạp hướng dẫn của project
         try:
             open(os.path.join(ws, 'REVIEW_TURN.md'), 'w', encoding='utf-8').write(text)
-            r = subprocess.run(argv(msgs[0]['content']), input=text if stdin else '', cwd=ws, capture_output=True, text=True, timeout=1800)
+            rc, out, err, killed = spawn(argv(msgs[0]['content']), text if stdin else '', ws)
         finally: shutil.rmtree(ws, ignore_errors=True)
-        out = r.stdout
-        if r.returncode: raise RuntimeError(f'{be} thoát mã {r.returncode}: {r.stderr[-400:]}')
+        if killed: raise RuntimeError(f'{be} {killed}; các lượt trước đã lưu ở llm_cache, chạy lại chỉ gọi lại lượt này')
+        if rc: raise RuntimeError(f'{be} thoát mã {rc}: {err[-400:]}')
+        USAGE.append(dict(cost_usd=0, input=len(text) // 4, cache_write=0, cache_read=0, output=len(out) // 4)); EST[0] = True
         try:   # gemini --output-format json bọc câu trả lời trong .response
             w = json.loads(out)
             if isinstance(w, dict) and isinstance(w.get('response'), str): out = w['response']
@@ -384,6 +463,15 @@ def parse(text):
 
 # ---------- vòng phản biện ----------
 def run(c, k, ids, mech_items):
+    """Gọi lớp 2 và ghi sổ usage cho mọi kết cục (ok, không hợp lệ, lỗi/quá hạn). Pending (manual) chưa tốn gì nên không ghi."""
+    del USAGE[:]; PB[0] = 0; EST[0] = False; be = CFG.review_backend()
+    try: r = _run(c, k, ids, mech_items)
+    except Pending: raise
+    except BaseException as e:
+        ledger(c, k, be, f'lỗi: {type(e).__name__}: {str(e)[:200]}'); raise
+    ledger(c, k, be, 'ok' if r[2]['valid'] else 'không hợp lệ', r[2].get('usage') or None); return r
+
+def _run(c, k, ids, mech_items):
     be = CFG.review_backend()
     if be == 'claude': return run_tools(c, k, ids, mech_items)
     rd = os.path.join(c, 'work', 'review', f'r{k}'); cache = os.path.join(c, 'work', 'review', 'llm_cache')
@@ -430,7 +518,7 @@ def run(c, k, ids, mech_items):
     os.makedirs(rd, exist_ok=True)
     json.dump(log, open(os.path.join(rd, 'llm_lots.json'), 'w'), ensure_ascii=False, indent=1)
     iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend=be, level='harness', model=CFG.REVIEW_MODEL if be == 'api' else '', canary=can.get('canary'), lots=len(lots), turns=turns,
-               requests=nreq, cache=os.path.relpath(cache, c), usage={k: round(sum(x[k] for x in USAGE), 4) for k in ('cost_usd', 'input', 'cache_write', 'cache_read', 'output')}, dossier_sha256=hashlib.sha256((head + json.dumps(body, ensure_ascii=False)).encode()).hexdigest(),
+               requests=nreq, cache=os.path.relpath(cache, c), usage=usage_sum(), estimated=EST[0], dossier_sha256=hashlib.sha256((head + json.dumps(body, ensure_ascii=False)).encode()).hexdigest(),
                system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), valid=not why, invalid_reasons=why)
     return items, missing, iso
 
@@ -490,6 +578,37 @@ def selftest():
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
     assert iso['valid'] and iso['sent'] == 2 and iso['turns'] == 2 and iso['requests'] == 1 and iso['usage']['cache_read'] == 5, iso
     assert miss[0] == dict(topic='c2 m', why='medium') and its[0]['severity'] == 'low' and not os.listdir(wsd), (miss, its)
+    # sổ usage: lần run claude ở trên ghi 1 dòng ok với usage thật
+    led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
+    assert led[-1]['status'] == 'ok' and led[-1]['backend'] == 'claude' and led[-1]['usage']['cache_read'] == 5, led
+    # phiên đứng im bị giết: giữ stream dở, cộng usage từng message vào sổ, giữ kết luận từng fact đã in (ITEM) để chạy lại chỉ gửi phần còn lại
+    def slow_stub(name, canary):
+        p = os.path.join(c, name)
+        open(p, 'w').write('#!/usr/bin/env python3\nimport json, time, os\n'
+            'print(json.dumps({"type": "system", "subtype": "init", "session_id": "s0", "cwd": os.getcwd(), "tools": ["Read"]}), flush=True)\n'
+            'txt = "CANARY " + json.dumps({"canary": %r}) + "\\nITEM " + json.dumps({"id": "c2", "verdict": "weak", "check": "source", "where": "e.txt#L2", "redo": "x"})\n'
+            'print(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 7, "cache_read_input_tokens": 100, "output_tokens": 3}, "content": [{"type": "text", "text": txt}]}}), flush=True)\n'
+            'time.sleep(30)\n' % (canary,))
+        os.chmod(p, 0o755); return p
+    CFG.CLAUDE, CFG.REVIEW_IDLE = slow_stub('slow.py', []), 1
+    try: run(c, 3, ['c2', 'm'], []); raise AssertionError('phải báo đứng im')
+    except RuntimeError as e: assert 'im lặng' in str(e) and 'giữ 1/2' in str(e), e
+    led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
+    assert led[-1]['status'].startswith('lỗi') and led[-1]['usage']['cache_read'] == 100 and led[-1]['usage']['output'] == 3, led[-1]
+    assert '"cache_read_input_tokens": 100' in open(os.path.join(c, 'work', 'review', 'r3', 'stream.jsonl')).read()
+    CFG.CLAUDE, CFG.REVIEW_IDLE = stub, 300   # chạy lại cùng vòng: chỉ gửi m, gộp kết luận c2 đã giữ
+    its, miss, iso = run(c, 3, ['c2', 'm'], [])
+    assert miss[0]['topic'] == 'm' and {i['id'] for i in its} == {'c2', 'm'} and iso['salvaged'] == ['c2'] and iso['sessions'] == ['s0', 's1'] and iso['valid'], (miss, its, iso)
+    # phiên dở có canary lộ IOC: không giữ gì
+    CFG.CLAUDE, CFG.REVIEW_IDLE = slow_stub('leak.py', ['evil2.example.com']), 1
+    try: run(c, 4, ['c2', 'm'], []); raise AssertionError('phải báo đứng im')
+    except RuntimeError as e: assert 'giữ 0/2' in str(e) and 'canary lộ' in str(e), e
+    assert not os.path.exists(os.path.join(c, 'work', 'review', 'r4', 'salvage.jsonl'))
+    # trần tổng: tiến trình vẫn in đều nhưng quá REVIEW_TIMEOUT thì bị giết
+    CFG.REVIEW_IDLE, CFG.REVIEW_TIMEOUT = 5, 1
+    rc, out, err, why = spawn([sys.executable, '-c', 'import time\nwhile 1: print(1, flush=True); time.sleep(0.1)'], '', c)
+    assert why and why.startswith('quá hạn tổng') and out.startswith('1'), why
+    CFG.REVIEW_IDLE, CFG.REVIEW_TIMEOUT = 300, 3600
     CFG.CLAUDE = shutil.which('false')   # bị gọi thì thoát mã 1 -> RuntimeError
     assert run(c, 2, ['h'], [])[2]['sent'] == 0   # không còn fact cần xét: không gọi LLM
     shutil.rmtree(wsd); shutil.rmtree(c); print('OK reviewer selftest')

@@ -104,11 +104,33 @@ def stop_report(c, s):
     open(os.path.join(DIR(c), 'STOP_REPORT.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
     return fl
 
+def rescore(c, s, h):
+    """Tính lại severity/verdict của các vòng đã lưu theo luật hiện tại (0 lời gọi LLM). None = không áp dụng được."""
+    rs = s.get('rounds') or []
+    if not rs or rs[-1].get('facts_sha256') != h: return None   # facts đã đổi: verdict cũ hết hiệu lực
+    P = [os.path.join(DIR(c), f"r{r['n']}", 'review.json') for r in rs]
+    if not all(os.path.exists(p) for p in P): return None
+    R = [json.load(open(p)) for p in P]
+    if not all(r.get('items') for r in R): return None
+    cur = C.load(c)
+    for r, p, rd in zip(R, P, rs):
+        for i in r['items']: i['severity'] = severity(cur.get(i['id'], {}).get('kind'), i['verdict'], i.get('check'))
+        iso = r.get('isolation')
+        r['verdict'] = 'FAIL' if (iso and not iso.get('valid')) else verdict(r['items'])
+        json.dump(r, open(p, 'w'), ensure_ascii=False, indent=1)
+        rd['verdict'], rd['weak'] = r['verdict'], sum(1 for i in r['items'] if i['verdict'] == 'weak')
+    last = rs[-1]
+    s = dict(s, rounds=rs, stopped=False)
+    if last['verdict'] == 'FAIL' and last['n'] >= MAX_ROUNDS and len(R) >= MAX_ROUNDS: s.update(stopped=True, reset_for=h)
+    print(f"re-score theo luật v{C.REVIEW_RULE_VERSION}: review {last['n']} {last['verdict']} (không gọi LLM)")
+    return s
+
 def review(c, llm=False, force=False):
     s, h = state(c), facts_sha(c)
-    if s.get('rule_version') != C.REVIEW_RULE_VERSION:   # luật cổng đổi: review cũ hết hiệu lực, mở bộ đếm mới
-        s = {'rounds': [], 'stopped': False, 'reset_for': None}
+    if s.get('rule_version') != C.REVIEW_RULE_VERSION:   # luật cổng đổi: tính lại verdict từ review.json, không có thì mở bộ đếm mới
+        s = rescore(c, s, h) or {'rounds': [], 'stopped': False, 'reset_for': None}
         save_state(c, s)
+        if s['stopped']: stop_report(c, s)
     if s['stopped'] and not (os.path.exists(os.path.join(DIR(c), 'OVERRIDE')) or s.get('reset_for') != h):
         print(f'STOPPED: xem {DIR(c)}/STOP_REPORT.md'); return 2
     if s['stopped'] and s.get('reset_for') != h: s.update(stopped=False, rounds=[])

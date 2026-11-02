@@ -315,13 +315,20 @@ def run_tools(c, k, ids, mech_items):
     items = [dict(i, layer='llm') for i in data.get('items', []) if i.get('id') in ids]
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
-        i.setdefault('severity', 'low')
+    apply_severity(c, items)
     iso.update(canary=data.get('canary'), turns=res.get('num_turns', 0), session_id=init.get('session_id'), cwd=init.get('cwd'), tools=init.get('tools', []),
                requests=sum(b.get('type') == 'tool_use' for e in ev if e.get('type') == 'assistant' for b in e['message'].get('content', [])),
                usage=dict(cost_usd=res.get('total_cost_usd', 0) or 0, input=u.get('input_tokens', 0), cache_write=u.get('cache_creation_input_tokens', 0),
                           cache_read=u.get('cache_read_input_tokens', 0), output=u.get('output_tokens', 0)),
                system_sha256=hashlib.sha256(sysp.encode()).hexdigest(), prompt_sha256=hashlib.sha256(prm.encode()).hexdigest(), valid=not why, invalid_reasons=why)
     return items, data.get('missing', []), iso
+
+def apply_severity(c, items):
+    """Mức high/low do luật của cổng quyết định, không tin severity do model trả."""
+    import review as R
+    cur = C.load(c)
+    for i in items:
+        i['severity'] = R.severity(cur.get(i.get('id'), {}).get('kind', ''), i.get('verdict'), i.get('check', ''))
 
 def ask(be, msgs, cache):
     """Một lượt hỏi (backend không có công cụ). Câu trả lời lưu theo hash của prompt: chạy lại (hoặc manual) dùng lại, không gọi lại LLM."""
@@ -407,7 +414,7 @@ def run(c, k, ids, mech_items):
         missing += final.get('missing', [])
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
-        i.setdefault('severity', 'low')
+    apply_severity(c, items)
     names = {os.path.basename(os.path.abspath(c)).lower()} | {t.lower() for f in C.load(c).values() if f['kind'] in ('c2', 'mutex') for t in f['value'].split()[:1]}
     if can.get('canary') is None: why.append('thiếu canary')
     elif any(n and n in json.dumps(can['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')

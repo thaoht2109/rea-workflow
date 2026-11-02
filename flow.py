@@ -10,12 +10,12 @@
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
-#   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code gọn cho phiên phân tích (--safe-mode + quy tắc/skill nạp thẳng), chạy ở workspace
+#   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-flow; chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
 #   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
-import sys, os, re, json, shlex, shutil, datetime, subprocess
+import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: reacfg.py
@@ -186,26 +186,71 @@ def shell_hook(a):
     if '--install' in a: print(f'mở terminal mới (hoặc: source {rcs[0]}), rồi gõ claude trong {ws}')
     return 0
 
+RE_TOOL = re.compile(r'\brea\b|\brea[-_]|reverse|ghidra|\bida\b|ida[-_ ]?pro|binja|binary.?ninja|radare|\br2\b|rizin|cutter|frida|jadx|apktool'
+                     r'|\bjeb\b|hopper|decompil|disassembl|malware|yara|\bcapa\b|x64dbg|\blief\b|unicorn|capstone', re.I)
+
+def jload(p):
+    try: return json.load(open(p, encoding='utf-8'))
+    except (OSError, ValueError): return {}
+
+def session_tools(ws):
+    """MCP và plugin giữ lại cho phiên phân tích: những thứ phục vụ dịch ngược (khớp RE_TOOL theo tên/lệnh) cộng danh sách
+    tự khai REA_SESSION_MCP / REA_SESSION_PLUGINS (rea.env, phân cách dấu phẩy). Trả (mcp giữ, plugin tắt)."""
+    cd = os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude')
+    uj = jload(os.path.join(os.path.dirname(cd), '.claude.json') if not os.environ.get('CLAUDE_CONFIG_DIR') else os.path.join(cd, '.claude.json'))
+    srv = {**(uj.get('mcpServers') or {}), **((uj.get('projects') or {}).get(ws, {}).get('mcpServers') or {}), **(jload(os.path.join(ws, '.mcp.json')).get('mcpServers') or {})}
+    want_m = {x.strip() for x in CFG.get('REA_SESSION_MCP', '', path=False).split(',') if x.strip()}
+    want_p = {x.strip() for x in CFG.get('REA_SESSION_PLUGINS', '', path=False).split(',') if x.strip()}
+    mcp = {n: v for n, v in srv.items() if n in want_m or RE_TOOL.search(n + ' ' + json.dumps(v))}
+    en = {**(jload(os.path.join(cd, 'settings.json')).get('enabledPlugins') or {}), **(jload(os.path.join(ws, '.claude', 'settings.json')).get('enabledPlugins') or {})}
+    off = sorted(p for p, on in en.items() if on and p not in want_p and p.split('@')[0] not in want_p and not RE_TOOL.search(p))
+    return mcp, off
+
+def re_skills(ws):
+    """Skill dịch ngược khác trên máy mà Claude Code không tự nạp (vd cài cho mọi agent ở ~/.agents/skills): (tên, mô tả, thư mục)."""
+    native = {os.path.expanduser('~/.claude/skills'), os.path.join(ws, '.claude', 'skills')}
+    out = []
+    for base in (os.path.expanduser('~/.agents/skills'), os.path.join(ws, '.agents', 'skills')):
+        for d in sorted(glob.glob(os.path.join(base, '*', 'SKILL.md'))):
+            fm = open(d, encoding='utf-8', errors='replace').read(4000)
+            name = (re.search(r'^name:\s*(.+)$', fm, re.M) or [None, os.path.basename(os.path.dirname(d))])[1].strip()
+            desc = (re.search(r'^description:\s*(.+)$', fm, re.M) or [None, ''])[1].strip().strip('"')
+            if name != 'rea-flow' and RE_TOOL.search(name + ' ' + desc) and not any(os.path.exists(os.path.join(n, name)) for n in native):
+                out.append((name, desc[:240], os.path.dirname(d)))
+    return out
+
 def session(a):
-    """Phiên phân tích gọn, không phụ thuộc máy: --safe-mode bỏ mọi tùy biến của máy (CLAUDE.md, skill, plugin, hook, MCP, output style),
-    rồi nạp lại đúng những gì phân tích cần (SKILL.md của rea-flow + ghi chú của workspace) qua --append-system-prompt-file.
-    Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ. Đo trên một máy: ngữ cảnh nền 43k -> 23k token mỗi lượt."""
+    """Phiên phân tích gọn, không phụ thuộc máy: bỏ phần không phục vụ dịch ngược (MCP và plugin không liên quan, hook), giữ skill và
+    MCP/plugin dịch ngược của máy (vd skill REA, MCP Ghidra/IDA), nạp SKILL.md của rea-flow + ghi chú workspace qua
+    --append-system-prompt-file. Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ."""
     if '--install' in a or '--uninstall' in a: return shell_hook(a)
-    T = os.path.realpath(TOOLS)
+    T, ws = os.path.realpath(TOOLS), os.path.realpath(os.getcwd())
     sk = re.sub(r'^---\n.*?\n---\n', '', open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read(), flags=re.S).replace('$SKILL', T)
     pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)
     notes = []
     for f in ('CLAUDE.md', 'AGENTS.md'):   # ghi chú riêng của workspace (bỏ khối quy tắc do flow.py rules sinh, đã có trong SKILL.md)
-        p = os.path.join(os.getcwd(), f)
+        p = os.path.join(ws, f)
         t = pat.sub('', open(p, encoding='utf-8').read()).strip() if os.path.exists(p) else ''
         if t and t not in notes: notes.append(t)
     os.makedirs(TMP, exist_ok=True); out = os.path.abspath(os.path.join(TMP, 'rea_session.md'))
-    open(out, 'w', encoding='utf-8').write(f'# Phiên phân tích mã độc theo skill rea-flow (`{T}`)\n\n{sk}\n' + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
+    head = (f'# Phiên phân tích mã độc theo skill rea-flow (`{T}`)\n\nSkill, MCP và công cụ dịch ngược khác trên máy (vd skill REA, MCP Ghidra/IDA) '
+            'được phép dùng cho phân tích tĩnh. Khi hướng dẫn của chúng mâu thuẫn với rea-flow thì quy tắc rea-flow thắng: không chạy mẫu, '
+            'không dùng lệnh chạy target (`rea capture-*`, `debug-*`, `cutter-command`, chạy qua wine/qemu/gdb), mọi kết luận ghi thành fact.\n\n')
+    extra = ''.join(f'- **{n}**: {d} Đọc `{p}/SKILL.md` khi cần (đường dẫn tương đối trong skill tính từ `{p}`).\n' for n, d, p in re_skills(ws))
+    if extra: extra = '\n## Skill dịch ngược khác trên máy (Claude Code không tự nạp; đọc file khi cần)\n\n' + extra
+    open(out, 'w', encoding='utf-8').write(head + sk + '\n' + extra + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
     cl = shutil.which('claude')
     if not cl: print('flow.py session chỉ hỗ trợ Claude Code. Agent khác: mở phiên mới như bình thường; quy tắc đã nằm trong AGENTS.md (flow.py rules).'); return 2
-    safe = '--safe-mode' in subprocess.run([cl, '--help'], capture_output=True, text=True).stdout
-    if not safe: print('cảnh báo: bản claude này chưa có --safe-mode: chỉ nạp thêm quy tắc, ngữ cảnh nền không giảm (cập nhật Claude Code)')
-    argv = [cl] + (['--safe-mode'] if safe else []) + ['--append-system-prompt-file', out] + [x for x in a if x != '--print']
+    if '--strict' in a:   # chặt nhất: --safe-mode bỏ mọi tùy biến của máy (cả skill/MCP dịch ngược), chỉ còn rea-flow; nền thấp nhất
+        argv = [cl, '--safe-mode', '--append-system-prompt-file', out] + [x for x in a if x not in ('--print', '--strict')]
+        if '--print' in a: print(shlex.join(argv)); return 0
+        os.execv(cl, argv)
+    mcp, off = session_tools(ws)
+    mf = os.path.abspath(os.path.join(TMP, 'rea_session_mcp.json'))   # có thể chứa token của MCP: chỉ chủ sở hữu đọc được
+    fd = os.open(mf, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.write(fd, json.dumps({'mcpServers': mcp}).encode()); os.close(fd)
+    argv = [cl, '--strict-mcp-config', '--mcp-config', mf, '--settings', json.dumps({'disableAllHooks': True, 'enabledPlugins': {p: False for p in off}}),
+            '--append-system-prompt-file', out] + [x for x in a if x not in ('--print', '--strict')]
+    print(f"rea-flow session: giữ MCP dịch ngược [{', '.join(mcp) or 'không có'}], tắt {len(off)} plugin không liên quan, tắt hook; skill giữ nguyên", file=sys.stderr)
     if '--print' in a: print(shlex.join(argv)); return 0
     os.execv(cl, argv)
 

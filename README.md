@@ -142,7 +142,7 @@ Thêm một khối hàm shell vào `~/.bashrc`/`~/.zshrc` (hoặc các file tron
 
 | Gõ | Kết quả |
 |---|---|
-| `claude` | phiên gọn: `claude --safe-mode` (bỏ CLAUDE.md, skill, plugin, hook, MCP của máy) + nạp lại SKILL.md và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace bằng `--append-system-prompt-file`. Settings người dùng (quyền, model, ngôn ngữ, sandbox) giữ nguyên. Đo trên một máy: ngữ cảnh nền 43,7k → 23,6k token mỗi lượt |
+| `claude` | phiên phân tích: **giữ** mọi skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh: rea, Ghidra, IDA, Binary Ninja, radare/rizin, Frida, jadx, YARA, capa…, hoặc khai `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`); **tắt** MCP và plugin không liên quan, tắt hook; skill dịch ngược cài cho agent khác (vd `reverse-engineer-anything` ở `~/.agents/skills`) được trỏ tới để đọc khi cần; nạp SKILL.md rea-flow + ghi chú workspace bằng `--append-system-prompt-file`. Khi skill/MCP khác mâu thuẫn, quy tắc rea-flow thắng (không chạy target). Đo trên một máy: ngữ cảnh nền 44,6k → 35,4k token. `flow.py session --strict`: `--safe-mode`, chỉ còn rea-flow (23,6k) |
 | `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode` | cập nhật khối quy tắc vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` rồi chạy agent như thường (chưa có chế độ giảm ngữ cảnh nền) |
 
 Ngoài workspace, mọi lệnh chạy như cũ với đủ skill, MCP, plugin. Không cài hàm shell thì mở phiên gọn bằng `python3 $SKILL/flow.py session [tham số claude…]`.
@@ -174,6 +174,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REVIEW_LLM_CMD` | trống | backend `cmd`: lệnh không tương tác, prompt qua stdin, text ra stdout |
 | `COPILOT_MODEL` | trống | model cho backend `copilot` (model mặc định của tài khoản có thể không được hỗ trợ) |
 | `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `flow.py session --install` ghi hàm shell |
+| `REA_SESSION_MCP`, `REA_SESSION_PLUGINS` | trống | MCP server / plugin giữ thêm trong `flow.py session` (tên, phân cách dấu phẩy) ngoài những cái tự nhận là dịch ngược |
 | `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude`; trống thì agent đang chạy tự sửa |
 
 ### Cập nhật và gỡ

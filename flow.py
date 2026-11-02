@@ -5,6 +5,7 @@
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
+#   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
@@ -118,6 +119,26 @@ def status(c):
         if d.startswith('triage_') and os.path.exists(p):
             R = json.load(open(p)); print(f"triage {R['file']}: {R['type']} {' '.join(R['flags'])} -> {R['next']}")
 
+def resume(c):
+    """Working state tính lại từ nguồn chân lý (facts.jsonl, checklist, cổng): không có file state riêng nên không thể lệch."""
+    import review
+    F, acc, (ok, why) = case.load(c), review.accepted(c), review.gate(c)
+    act = [f for f in F.values() if f['status'] == 'active']; hyp = [f for f in F.values() if f['status'] == 'hypothesis']
+    print(f'# resume {c}: {len(act)} fact active, {len(hyp)} hypothesis. Nguồn chân lý: {c}/facts.jsonl; tra lại: case.py show {c} --id ID | case.py search {c} TỪ')
+    todo = [(k, v, n) for k, v, n in case.check(c) if not (v == 'ok' or v.startswith('n/a')) and k.split()[0] not in acc]
+    print('## Việc kế tiếp' + ('' if todo else ': checklist đủ'))
+    for k, v, n in todo[:6]: print(f'- {k} ({v}): {n}')
+    print(f"## Cổng phản biện: {'OK' if ok else 'CHẶN'} ({why})")
+    for k, w in acc.items(): print(f'- chấp nhận hạn chế {k}: {w}')
+    key = [f for f in act if f['kind'] in review.GATING | {'family'} and f['kind'] != 'hash']   # hash chỉ đếm: dài, ít khi cần để suy luận
+    nh = sum(f['kind'] == 'hash' for f in act)
+    print(f'## Fact kết luận (nguyên văn, {len(key)})' + (f'; {nh} hash: case.py show {c} hash' if nh else ''))
+    for f in key[:25]: print(f"- {f['id']} [{f['kind']} {f['src']}] {f['value'][:200]} @ {f['evidence']}")
+    if len(key) > 25: print(f'- (+{len(key) - 25}: case.py show {c} <kind>)')
+    print(f'## Giả thuyết còn mở ({len(hyp)})')
+    for f in hyp[:12]: print(f"- {f['id']} [{f['kind']}] {f['value'][:160]}")
+    if len(hyp) > 12: print(f'- (+{len(hyp) - 12}: case.py search {c} --all)')
+
 # ---------- chép "Quy tắc bắt buộc" của SKILL.md vào file hướng dẫn agent ----------
 RB, RE_ = '<!-- rea-flow:rules:begin (sinh bởi flow.py rules; sửa SKILL.md rồi chạy lại) -->', '<!-- rea-flow:rules:end -->'
 
@@ -170,6 +191,7 @@ if __name__ == '__main__':
     elif cmd == 'triage': triage(c, a[2:] or samples(c))
     elif cmd == 'dec': dec(c, a[2], a[3:])
     elif cmd == 'status': status(c)
+    elif cmd == 'resume': resume(c)
     elif cmd == 'report':
         if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (review.py)
             import review; ok, why = review.gate(c)

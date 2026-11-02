@@ -161,6 +161,7 @@ def checkpoint(c):
     print(f'OK checkpoint {c}: {len(H)} bản ghi fact. Mở phiên mới (Claude Code: /clear) rồi chạy: python3 $SKILL/flow.py resume {c}'); return 0
 
 SB, SE = '# >>> rea-flow session >>>', '# <<< rea-flow session <<<'
+AGENT_CLIS = ('codex', 'gemini', 'copilot', 'cursor-agent', 'opencode')   # đọc AGENTS.md/GEMINI.md lúc mở; chưa có chế độ gọn, chỉ giữ quy tắc luôn mới
 
 def shell_hook(a):
     """Hàm shell `claude`: trong workspace -> flow.py session, nơi khác -> claude thường. Ghi vào ~/.bashrc, ~/.zshrc (file thường)
@@ -168,10 +169,12 @@ def shell_hook(a):
     rcs = [p for p in (os.environ.get('REA_SHELL_RC') or '').split(':') if p] or [os.path.expanduser(f) for f in ('~/.bashrc', '~/.zshrc')]
     rcs = [p for p in rcs if os.path.isfile(p)]
     ws, T = os.path.realpath(next((x for x in a if not x.startswith('--')), os.getcwd())), os.path.realpath(TOOLS)
-    blk = (f'{SB}\n# gõ claude trong {ws} -> phiên phân tích gọn (flow.py session); nơi khác -> claude thường.'
-           f' Gỡ: python3 {shlex.quote(T)}/flow.py session --uninstall\n'
-           f'claude() {{ case "$PWD/" in {shlex.quote(ws)}/*) (cd {shlex.quote(ws)} && python3 {shlex.quote(T + "/flow.py")} session "$@") ;;'
-           f' *) command claude "$@" ;; esac; }}\n{SE}\n')
+    W, F = shlex.quote(ws), shlex.quote(T + '/flow.py')
+    blk = (f'{SB}\n# trong {ws}: claude -> phiên phân tích gọn (flow.py session); agent khác -> cập nhật quy tắc rea-flow vào'
+           f' AGENTS.md/CLAUDE.md/GEMINI.md rồi chạy như thường. Nơi khác: không đổi. Gỡ: python3 {F} session --uninstall\n'
+           f'claude() {{ case "$PWD/" in {W}/*) (cd {W} && python3 {F} session "$@") ;; *) command claude "$@" ;; esac; }}\n'
+           + ''.join(f'{x}() {{ case "$PWD/" in {W}/*) python3 {F} rules --project {W} >/dev/null 2>&1 ;; esac; command {x} "$@"; }}\n'
+                     for x in AGENT_CLIS) + f'{SE}\n')
     pat = re.compile(re.escape(SB) + r'.*?' + re.escape(SE) + r'\n?', re.S)
     for p in rcs:
         s = open(p, encoding='utf-8').read(); new = pat.sub('', s).rstrip('\n') + '\n'
@@ -215,8 +218,10 @@ def rules_scope():
     return None if not m else ('global', home) if m.group(1) == home else ('project', m.group(1))
 
 def rules_targets(scope, root):
-    if scope == 'project':   # AGENTS.md: Codex, Cursor, Copilot…; CLAUDE.md: Claude Code; GEMINI.md chỉ khi project đã dùng
-        return [os.path.join(root, f) for f in ('AGENTS.md', 'CLAUDE.md')] + [p for p in [os.path.join(root, 'GEMINI.md')] if os.path.exists(p)]
+    if scope == 'project':   # AGENTS.md: Codex, Cursor, Copilot…; CLAUDE.md: Claude Code; GEMINI.md khi project đã dùng hoặc máy có Gemini CLI
+        gem = os.path.join(root, 'GEMINI.md')
+        return [os.path.join(root, f) for f in ('AGENTS.md', 'CLAUDE.md')] + \
+               ([gem] if os.path.exists(gem) or shutil.which('gemini') or os.path.isdir(os.path.expanduser('~/.gemini')) else [])
     return [os.path.join(root, d, f) for d, f in (('.claude', 'CLAUDE.md'), ('.codex', 'AGENTS.md'), ('.gemini', 'GEMINI.md'))
             if os.path.isdir(os.path.join(root, d))]   # chỉ agent đã cài trên máy
 

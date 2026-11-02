@@ -5,7 +5,7 @@ description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, 
 
 # rea-flow: dịch ngược mã độc theo fact có kiểm chứng
 
-`$SKILL` dưới đây là thư mục chứa file này. Chạy mọi lệnh từ **workspace**: thư mục chứa các case (thường là thư mục hiện tại của người dùng). Không cần bước cài đặt nào; nếu thiếu công cụ, chạy `python3 $SKILL/flow.py doctor` và làm theo gợi ý. Quy trình đầy đủ: `$SKILL/FLOW.md`.
+`$SKILL` dưới đây là thư mục chứa file này. Chạy mọi lệnh từ **workspace**: thư mục chứa các case (thường là thư mục hiện tại của người dùng). Trước case đầu tiên trên một máy, kiểm công cụ phân tích: `python3 $SKILL/flow.py setup` (chỉ kiểm, in kế hoạch). Thiếu thì báo người dùng và đề nghị `flow.py setup --yes` (cài bằng apt/sudo, tải Ghidra); không tự cài khi chưa được đồng ý. Cấu hình máy: `python3 $SKILL/flow.py doctor`. Quy trình đầy đủ: `$SKILL/FLOW.md`.
 
 **Lần đầu dùng skill:** chạy `python3 $SKILL/flow.py rules --check`. Nếu báo `THIẾU`, chạy `python3 $SKILL/flow.py rules` để chép mục "Quy tắc bắt buộc" dưới đây vào file hướng dẫn của agent (skill cài toàn máy: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`…; cài theo project: `AGENTS.md` và `CLAUDE.md` của chính project đó), rồi báo người dùng đã ghi file nào. Nếu lệnh báo không đoán được phạm vi thì bỏ qua.
 
@@ -36,7 +36,7 @@ python3 $SKILL/flow.py next <CASE> [--accept 'C4=lý do;...']   # DONE khi check
 python3 $SKILL/flow.py report <CASE> --final && python3 $SKILL/flow.py audit <CASE>
 ```
 
-Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`.
+Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`. Lệnh `rea` được phép theo loại mẫu và lệnh bị cấm: `$SKILL/FLOW.md` mục 4a.
 
 ## Vòng phản biện (agent tự làm, không chờ người xác nhận giữa chừng)
 

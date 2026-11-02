@@ -37,7 +37,7 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 |---|---|---|
 | `REA_TMP` | `.tmp` (trong workspace) | `TMPDIR` khi gọi rea/Ghidra. `/tmp` dạng tmpfs nhỏ làm Ghidra chết khi khởi động |
 | `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện lớp 2; phải ghi được và nằm ngoài workspace và mọi thư mục có file hướng dẫn agent (`CLAUDE.md`, `AGENTS.md`…) |
-| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless khi rea không hỗ trợ kiến trúc (tùy chọn) |
+| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra headless khi rea không hỗ trợ kiến trúc (tùy chọn); `flow.py setup --yes` tải Ghidra đã kiểm và ghi biến này |
 | `REA_PYLIB` | `$SKILL/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` | unicorn cho winemu (tự thêm vào `sys.path`, không cần `PYTHONPATH`) |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | winemu đọc tên export DLL builtin (không chạy wine) |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài; tên trên `PATH` hoặc đường dẫn tuyệt đối |
@@ -120,12 +120,31 @@ Dòng `next:` của triage sinh ra từ bảng này.
 | OLE, PDF | `rea inspect-artifact`; macro/JS nhúng phải tách thủ công (chưa cài olevba/pdf-parser) |
 | DEX/APK | `rea inspect-android-package` / `inspect-android-method` |
 
+### 4a. Lệnh `rea` được phép (chỉ đọc file mẫu, không chạy)
+
+Đã đối chiếu với `rea --help` bản 6.7.0. Xem tham số: `rea <lệnh> --help`. Hướng dẫn chi tiết theo loại mẫu (đọc khi cần, quy tắc ở đây thắng khi mâu thuẫn): skill `reverse-engineer-anything`, mục `references/native-and-artifacts.md`, `android-applications.md`, `javascript-applications.md`.
+
+| Loại mẫu | Lệnh |
+|---|---|
+| Chung | `inspect-artifact`, `inspect`, `analyze`, `extract-artifact`, `inspect-binary-layout`, `inspect-signature`, `list-architectures`, `read-bytes`, `search`, `search-bytes`, `address-to-file-offset` |
+| Mã máy (PE/ELF/Mach-O) | `decompile` (hoặc `flow.py dec`), `function`, `xrefs`, `inspect-native-instruction`, `inspect-native-api`, `inspect-native-data-type`, `inspect-native-load-image`, `resolve-native-call-targets`, `inspect-with-objdump`, `inspect-pe-resources`, `inspect-macho`, `demangle-swift` |
+| Go, Rust, Dart/Flutter | `inspect-go-binary`, `inspect-rust-binary`, `inspect-dart-aot`, `identify-flutter-build` |
+| .NET | `inspect-managed-artifact`, `inspect-managed-members`, `inspect-managed-native-boundaries`, `compare-managed-members`, `project-managed-application-graph` |
+| Android | `inspect-android-package`, `decode-android-resources`, `inspect-android-class`, `inspect-android-method`, `search-android-classes`, `trace-android-references`, `project-android-application-graph` |
+| JavaScript/Electron/WASM (file có sẵn) | `analyze-javascript-application`, `recover-javascript-sources`, `trace-javascript-semantics`, `compare-javascript-export-shapes`, `inspect-electron-fuses`, `inspect-wasm-artifact`, `compare-wasm-interfaces` |
+| Firmware | `extract-firmware`, `inspect-firmware-regions` |
+| Apple khác | `inspect-plist`, `inspect-keyed-archive`, `inspect-asset-catalog`, `decode-interface-builder` |
+| PCAP do người dùng cung cấp | `inspect-pcap-capture`, `inspect-packet-capture`, `inspect-packet-fields` |
+| So sánh hai bản | `compare`, `compare-application-versions` |
+
+**Cấm trên mẫu:** mọi lệnh chạy target, gắn vào tiến trình, điều khiển thiết bị hoặc truy cập mạng/trang của mẫu: `capture-*`, `debug-with-*`, `observe-*`, `instrument-with-frida`, `trace-native-ui-action`, `cutter-command`, `execute-rizin-command`, `list-frida-*`, mọi lệnh `*-adb-*`, `analyze-web-bundle`, `inspect-web-*`, `export-web-scripts`. Lệnh không có trong bảng trên: đọc `rea <lệnh> --help`; có chạy target, thiết bị hay mạng thì không dùng và hỏi người dùng.
+
 ## 5. Kỷ luật token
 
 - Mỗi file chỉ đọc tóm tắt triage, mã giả của **những hàm đã chọn** và `status`. Không đọc toàn bộ danh sách hàm, strings hay disassembly.
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
-- **Mở phiên phân tích bằng `flow.py session`** (Claude Code): `--safe-mode` bỏ CLAUDE.md, skill, plugin, hook, MCP của máy; SKILL.md của rea-flow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace được nạp lại bằng `--append-system-prompt-file`. Không chứa tên plugin hay MCP của máy nào nên dùng được ở mọi máy; settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
+- **Mở phiên phân tích bằng `flow.py session`** (Claude Code): giữ skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh, hoặc `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`), tắt MCP/plugin không liên quan và hook; skill dịch ngược cài cho agent khác (`~/.agents/skills`) được trỏ tới để đọc khi cần; SKILL.md rea-flow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace nạp bằng `--append-system-prompt-file`. Quy tắc rea-flow thắng khi mâu thuẫn. Danh sách lọc tính lúc chạy nên dùng được ở mọi máy; settings người dùng vẫn giữ. `--strict`: `--safe-mode`, chỉ còn rea-flow. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
 - **Tách phiên theo mốc** (sau triage/bóc vỏ, mỗi cụm decompile, mỗi đợt giả lập, trước cổng phản biện, trước báo cáo): mỗi lần gọi model đọc lại cả ngữ cảnh, nên phiên dài ở 200k+ tốn hơn nhiều so với phiên mới ở mức nền (mô phỏng trên phiên cũ: ít hơn 20–40%). Phiên mới hoà vốn sau khoảng 5 lượt, nên không tách cho bước nhỏ. Trước khi tách: ghi fact/hypothesis, chép đoạn chứng minh vào evidence, `flow.py checkpoint CASE` phải OK (kiểm lint fail, thư mục `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới).
 - Sau khi hội thoại bị nén hoặc `/clear`: chạy `flow.py resume CASE` (việc kế tiếp, cổng, fact kết luận nguyên văn, giả thuyết; tính lại từ `facts.jsonl` nên không lệch), tra chi tiết bằng `case.py show CASE --id ID` / `case.py search CASE TỪ`. Không đọc lại log.
 

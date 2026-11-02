@@ -351,6 +351,10 @@ def marks(ev):
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
                 'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước (in dòng CANARY), rồi kiểm từng fact (in dòng ITEM sau mỗi fact), rồi trả về một đối tượng JSON duy nhất.')
 
+def knowledge():
+    """Kiến thức RE chung cho mọi backend: nằm trong repo (có phiên bản, vào system_sha256), không dựa vào skill cài trên máy."""
+    return '\n\n' + open(os.path.join(HERE, 'review', 're-knowledge.md'), encoding='utf-8').read()
+
 def run_tools(c, k, ids, mech_items):
     """Backend claude: MỘT phiên agent có công cụ chỉ đọc (Read/Grep/python3 -I), prompt chỉ có danh sách id, mô hình tự đọc
     evidence/mẫu khi cần. Cả lần review là một phiên nên mỗi lượt chỉ ghi phần mới vào prompt cache, phần cũ đọc lại ~10% giá.
@@ -359,7 +363,7 @@ def run_tools(c, k, ids, mech_items):
     iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend='claude', level='full',
                model=CFG.REVIEW_MODEL, effort=CFG.REVIEW_EFFORT, turns=0, requests=0, usage={}, valid=True, invalid_reasons=[])
     if not ids: return [], [], iso   # không còn fact cần LLM xét: không mở phiên
-    sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
+    sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read() + knowledge(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
     rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True); sal = os.path.join(rd, 'salvage.jsonl')
     # kết luận từng fact của phiên trước bị ngắt ở cùng vòng: chỉ dùng khi cùng system prompt và fact + evidence chưa đổi
     done, sess = {}, []
@@ -506,7 +510,7 @@ def _run(c, k, ids, mech_items):
     be = CFG.review_backend()
     if be == 'claude': return run_tools(c, k, ids, mech_items)
     rd = os.path.join(c, 'work', 'review', f'r{k}'); cache = os.path.join(c, 'work', 'review', 'llm_cache')
-    sysp = open(os.path.join(HERE, 'review', 're-reviewer.md'), encoding='utf-8').read().replace('{MAX_TURNS}', str(CFG.REVIEW_MAX_TURNS)).replace('{REQ_MAX}', str(REQ_MAX))
+    sysp = open(os.path.join(HERE, 'review', 're-reviewer.md'), encoding='utf-8').read().replace('{MAX_TURNS}', str(CFG.REVIEW_MAX_TURNS)).replace('{REQ_MAX}', str(REQ_MAX)) + knowledge()
     sysp += '\n\nThao tác được phép trong "requests":\n' + '\n'.join('- ' + d for _, d in OPS.values())
     tmpl = open(os.path.join(HERE, 'review', 'prompt.tmpl'), encoding='utf-8').read()
     # canary: hỏi trước khi gửi dữ liệu, phát hiện ngữ cảnh cũ (bộ nhớ của dịch vụ, hướng dẫn hệ thống khác)
@@ -584,6 +588,7 @@ def selftest():
     its, miss, iso = run(c, 1, ['c2'], [])
     assert iso['valid'] and iso['turns'] == 2 and iso['requests'] == 1 and its[0]['verdict'] == 'pass', (its, iso)
     assert any('sha256' in open(p).read() and 'Kết quả thao tác' in open(p).read() for p in glob.glob(cache + '/*.prompt.md'))
+    assert all('Bẫy thường gặp' in open(p).read() for p in glob.glob(cache + '/*.prompt.md'))   # harness cũng nhận kiến thức RE
     # chọn fact: hash lớp 1 sạch thì bỏ; review 2 bỏ fact không đổi, gửi lại fact bị chỉ ra hoặc đã đổi
     C.add(c, id='h', kind='hash', value='x', src='S', evidence='report/evidence/e.txt')
     C.add(c, id='m', kind='mutex', value='Mutex1', src='S', evidence='report/evidence/e.txt')
@@ -600,6 +605,7 @@ def selftest():
     # backend claude: một phiên có công cụ (claude giả), chỉ chép fact được chọn, truyền --effort, đọc usage/tool_use từ stream
     stub, wsd = os.path.join(c, 'claude_stub.py'), tempfile.mkdtemp()
     open(stub, 'w').write('#!/usr/bin/env python3\nimport sys, os, json\n'
+        'assert "Bẫy thường gặp" in sys.argv[sys.argv.index("--system-prompt") + 1]\n'
         'assert all(f in sys.argv for f in ("--safe-mode", "--setting-sources=", "--tools")), sys.argv\n'
         'ids = sorted(json.loads(l)["id"] for l in open("facts.jsonl"))\n'
         'eff = sys.argv[sys.argv.index("--effort") + 1] if "--effort" in sys.argv else ""\n'

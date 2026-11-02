@@ -15,6 +15,7 @@ description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, 
 - Mỗi case bắt đầu bằng `flow.py new`. Mỗi kết luận là một fact trong `<CASE>/facts.jsonl` (ghi qua `case.py add`), có nguồn `src=S|E|V` (tĩnh / giả lập / VM) và evidence nằm trong `<CASE>/report/evidence/`. Sửa fact bằng fact mới có `supersedes=<id cũ>`, không sửa hay xóa dòng cũ.
 - Báo cáo viết tiếng Việt, có bảng đính chính và mục hạn chế/OPSEC. Mỗi mẫu hoặc chiến dịch có báo cáo riêng, không quy kết chéo giữa các case.
 - Đọc tóm tắt, không đọc log thô (dùng `grep`, `sed -n`, `head`).
+- Tách phiên theo mốc để không đọc lại ngữ cảnh cũ: sau triage/bóc vỏ, sau mỗi cụm decompile (giải chuỗi, loader…), sau mỗi đợt giả lập, trước cổng phản biện, trước khi viết báo cáo. Ở mốc: ghi hết kết luận thành fact (ý còn nghi thì `status=hypothesis`), chép đoạn chứng minh vào `report/evidence/` kèm `#L`, chạy `flow.py checkpoint <CASE>`; OK thì đề nghị người dùng `/clear` (hoặc mở phiên mới). Không tách giữa chừng một bước chưa ghi.
 - Sau khi ngữ cảnh bị nén hoặc `/clear`: chạy `flow.py resume <CASE>` trước khi làm tiếp. `facts.jsonl` là nguồn chân lý; fact không còn trong ngữ cảnh không có nghĩa là không tồn tại: tra `case.py show <CASE> --id ID` hoặc `case.py search <CASE> TỪ` trước khi kết luận.
 - Trước khi đóng case phải qua cổng phản biện: `flow.py review` tối đa 2 lần; lần 2 vẫn FAIL thì dừng và báo người dùng (`work/review/STOP_REPORT.md`), không tự tạo `OVERRIDE`.
 
@@ -23,6 +24,7 @@ description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, 
 ```bash
 python3 $SKILL/flow.py new <CASE> <mẫu|zip>...     # tạo case, chép mẫu (0400), triage
 python3 $SKILL/flow.py status <CASE>               # checklist C0-C11 và gợi ý bước kế
+python3 $SKILL/flow.py checkpoint <CASE>           # chốt mốc: mọi kết quả đã thành fact/evidence chưa (mã 1 = còn việc)
 python3 $SKILL/flow.py resume <CASE>               # làm tiếp sau khi ngữ cảnh bị nén: việc kế, cổng, fact kết luận, giả thuyết
 python3 $SKILL/case.py search <CASE> TỪ... [--src S] | show <CASE> --id ID   # tra lại fact
 python3 $SKILL/flow.py dec <CASE> <FILE> <hàm|list:chuỗi>...   # decompile (rea, hoặc Ghidra)

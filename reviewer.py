@@ -383,9 +383,11 @@ def run_tools(c, k, ids, mech_items):
                           for p in sorted(glob.glob(ws + '/**/*', recursive=True)) if os.path.isfile(p))
             open(os.path.join(ws, 'input_manifest.sha256'), 'w').write(man)
             prm = PROMPT_TOOLS.replace('{ROUND}', str(k)).replace('{IDS}', ' '.join(todo))
-            argv = [CFG.CLAUDE, '-p', '--no-session-persistence', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-                    '--settings', '{"disableAllHooks":true}', '--disable-slash-commands', '--system-prompt', sysp,
-                    '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
+            # cô lập: --safe-mode tắt CLAUDE.md/skill/plugin/hook/MCP của máy, --setting-sources= bỏ settings user/project/local (ngôn ngữ, output style...),
+            # --tools giới hạn tập công cụ có mặt (không chỉ quyền). Có ANTHROPIC_API_KEY thì thêm --bare: bỏ luôn ngữ cảnh tài khoản OAuth (email)
+            argv = [CFG.CLAUDE, '-p', '--no-session-persistence', '--safe-mode', '--setting-sources=', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+                    '--settings', '{"disableAllHooks":true}', '--disable-slash-commands', '--system-prompt', sysp] + (['--bare'] if os.environ.get('ANTHROPIC_API_KEY') else []) + [
+                    '--tools', 'Read,Grep,Bash', '--allowedTools', 'Read,Grep,Bash(python3 -I:*)', '--disallowedTools', 'Write,Edit,Agent,WebFetch,WebSearch,NotebookEdit',
                     '--output-format', 'stream-json', '--verbose'] \
                    + (['--model', CFG.REVIEW_MODEL] if CFG.REVIEW_MODEL else []) + (['--effort', CFG.REVIEW_EFFORT] if CFG.REVIEW_EFFORT else [])
             rc, out, err, killed = spawn(argv, prm, ws)
@@ -400,7 +402,7 @@ def run_tools(c, k, ids, mech_items):
         if not init.get('session_id'): why.append('không đọc được sự kiện init')
         if not os.path.realpath(init.get('cwd') or '/nonexistent').startswith(os.path.realpath(CFG.REVIEW_WS_DIR)): why.append('cwd không nằm trong thư mục làm việc tách riêng')
         if init.get('mcp_servers') or init.get('skills') or init.get('slash_commands'): why.append('còn MCP/skill/slash command')
-        if {'Write', 'Edit', 'Agent'} & set(init.get('tools', [])): why.append('còn công cụ ghi/Agent')
+        if set(init.get('tools', [])) - {'Read', 'Grep', 'Bash'}: why.append('còn công cụ ngoài Read/Grep/Bash: ' + ', '.join(sorted(set(init['tools']) - {'Read', 'Grep', 'Bash'})))
         if any(str(e.get('subtype', '')).startswith('hook') for e in ev): why.append('có sự kiện hook')
         can, part = marks(ev)
         if killed or rc:   # phiên dở (bị ngắt/lỗi hạ tầng): không tính một lần review; giữ kết luận từng fact nếu phiên qua kiểm cô lập
@@ -598,9 +600,10 @@ def selftest():
     # backend claude: một phiên có công cụ (claude giả), chỉ chép fact được chọn, truyền --effort, đọc usage/tool_use từ stream
     stub, wsd = os.path.join(c, 'claude_stub.py'), tempfile.mkdtemp()
     open(stub, 'w').write('#!/usr/bin/env python3\nimport sys, os, json\n'
+        'assert all(f in sys.argv for f in ("--safe-mode", "--setting-sources=", "--tools")), sys.argv\n'
         'ids = sorted(json.loads(l)["id"] for l in open("facts.jsonl"))\n'
         'eff = sys.argv[sys.argv.index("--effort") + 1] if "--effort" in sys.argv else ""\n'
-        'print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "cwd": os.getcwd(), "tools": ["Read", "Grep", "Bash"]}))\n'
+        'print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "cwd": os.getcwd(), "tools": ["Read", "Grep", "Bash"] + (["Monitor"] if os.environ.get("STUB_EXTRA_TOOL") else [])}))\n'
         'print(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read"}]}}))\n'
         'res = {"canary": [], "items": [{"id": "m", "verdict": "weak", "where": "report/evidence/e.txt", "redo": "x"}], "missing": [{"topic": " ".join(ids), "why": eff}]}\n'
         'print(json.dumps({"type": "result", "num_turns": 2, "result": json.dumps(res), "usage": {"cache_read_input_tokens": 5}, "total_cost_usd": 0.01}))\n')
@@ -609,9 +612,12 @@ def selftest():
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
     assert iso['valid'] and iso['sent'] == 2 and iso['turns'] == 2 and iso['requests'] == 1 and iso['usage']['cache_read'] == 5, iso
     assert miss[0] == dict(topic='c2 m', why='medium') and its[0]['severity'] == 'low' and not os.listdir(wsd), (miss, its)
+    os.environ['STUB_EXTRA_TOOL'] = '1'   # phiên có công cụ ngoài Read/Grep/Bash -> không hợp lệ
+    assert not run(c, 2, ['c2', 'h', 'm'], [])[2]['valid']
+    del os.environ['STUB_EXTRA_TOOL']
     # sổ usage: lần run claude ở trên ghi 1 dòng ok với usage thật
     led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
-    assert led[-1]['status'] == 'ok' and led[-1]['backend'] == 'claude' and led[-1]['usage']['cache_read'] == 5, led
+    assert led[-2]['status'] == 'ok' and led[-2]['backend'] == 'claude' and led[-2]['usage']['cache_read'] == 5 and led[-1]['status'] == 'không hợp lệ', led
     # phiên đứng im bị giết: giữ stream dở, cộng usage từng message vào sổ, giữ kết luận từng fact đã in (ITEM) để chạy lại chỉ gửi phần còn lại
     def slow_stub(name, canary):
         p = os.path.join(c, name)

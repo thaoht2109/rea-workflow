@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C11, sinh bảng báo cáo, đối chiếu evidence.
-#   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [--strict]
+#   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [recompute=..] [--strict]
+#   recompute: phép đếm lại con số trong value, máy chạy lại mỗi lần lint/review: '<count|distinct> <regex> report/evidence/F[#La-Lb] = <N>',
+#   nhiều phép nối bằng ' && '. count = số dòng khớp; distinct = số giá trị khác nhau (nhóm 1 nếu có). N phải có trong value.
 #   case.py show CASE [kind]     case.py check CASE     case.py report CASE     case.py audit CASE     case.py --selftest
 #   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
@@ -77,10 +79,33 @@ def lint_fact(case, f):
             bad('fail', 'value_in_evidence', f'không token nào của value xuất hiện trong {where}',
                 'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else
                 'chép đoạn chứa giá trị vào evidence hoặc sửa giá trị')
+    for p, r in recompute(case, f): bad('fail', 'recompute', p, r)
     miss = [n for n in NUMTOK.findall(_normnum(DATE.sub(' ', f['value']))) if n.lower() not in scope]
     if miss:
         bad('warn', 'number_in_evidence', f'số {", ".join(miss[:5])} không có trong evidence',
             'đưa output script chứa đúng con số vào evidence, hoặc sửa số')
+    return out
+
+RECOMPUTE = re.compile(r'^(count|distinct)\s+(.+?)\s+(\S+)\s*=\s*(\d+)$')
+
+def recompute(case, f):
+    """Chạy lại các phép đếm trong f['recompute']. Trả list (problem, redo) cho mỗi phép sai; rỗng nếu khớp hoặc không có."""
+    out, val = [], _normnum(f['value'])
+    for spec in filter(None, (s.strip() for s in (f.get('recompute') or '').split(' && '))):
+        m = RECOMPUTE.match(spec)
+        if not m: out.append((f'cú pháp recompute sai: {spec}', "viết '<count|distinct> <regex> report/evidence/F[#La-Lb] = N'")); continue
+        op, rx, ev, n = m.groups()
+        rel, full = ev_path(case, ev)
+        if not rel.startswith(EV) or not os.path.isfile(full): out.append((f'recompute trỏ tới file không có trong {EV}: {rel}', 'chép output vào evidence')); continue
+        try: R = re.compile(rx)
+        except re.error as e: out.append((f'regex lỗi trong recompute: {e}', 'sửa regex')); continue
+        L = open(full, encoding='utf-8', errors='replace').read().splitlines()
+        r = re.search(r'#L(\d+)(?:-L?(\d+))?$', ev)
+        if r: L = L[int(r.group(1)) - 1:int(r.group(2) or r.group(1))]
+        got = sum(1 for l in L if R.search(l)) if op == 'count' else \
+              len({(x.group(1) if R.groups else x.group(0)) for l in L for x in R.finditer(l)})
+        if got != int(n): out.append((f'{op} {rx} trên {ev} ra {got}, fact ghi {n}', f'sửa con số trong value thành {got} (và recompute) hoặc sửa phép đếm'))
+        elif not re.search(rf'(?<![\d.]){n}(?![\d])', val): out.append((f'value không chứa con số {n} của recompute', 'ghi con số bằng chữ số trong value'))
     return out
 
 def ev_path(case, ev):
@@ -230,6 +255,15 @@ def selftest():
     add(c, id='k1', kind='payload_key', value='old', src='E', evidence=EV + 'a.log')
     add(c, id='k2', kind='payload_key', value='new', src='E', evidence=EV + 'a.log', supersedes='k1')
     add(c, id='u1', kind='url', value='http://a', src='E', evidence=EV + 'a.log', status='retracted')
+    # recompute: đếm lại con số trong value; sai số hoặc thiếu số trong value -> fail
+    open(os.path.join(c, EV, 'scan.txt'), 'w').write('host WIN-A ok\nhost WIN-B ok\nhost WIN-A fail\nnoise\n')
+    rc = lambda v, r: [i['check'] for i in lint_fact(c, dict(id='n', kind='string', value=v, src='S', evidence=EV + 'scan.txt', recompute=r)) if i['level'] == 'fail']
+    assert rc('2 máy WIN-*', r'distinct WIN-\w+ report/evidence/scan.txt = 2') == []
+    assert rc('3 máy WIN-*', r'distinct WIN-\w+ report/evidence/scan.txt = 3') == ['recompute']          # thật ra 2
+    assert rc('hai máy', r'distinct WIN-\w+ report/evidence/scan.txt = 2') == ['recompute']              # số phải viết bằng chữ số
+    assert rc('2 dòng ok', r'count \bok$ report/evidence/scan.txt#L1-L2 = 2') == []
+    assert rc('3 dòng ok', r'count ok report/evidence/scan.txt#L1-L2 = 3') == ['recompute']
+    assert rc('1 x', 'count x /etc/passwd = 1') == ['recompute'] and rc('1 x', 'đếm x') == ['recompute']
     cur, ck = load(c), dict((k.split()[0], v) for k, v, _ in check(c))
     assert cur['u1']['status'] == 'retracted' and cur['k1']['status'] == 'retracted', cur
     assert ck['C5'] == 'missing' and ck['C6'] == 'partial' and ck['C8'] == 'partial' and ck['C11'] == 'missing', ck

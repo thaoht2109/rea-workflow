@@ -46,6 +46,7 @@ def mech(c):
         m = re.search(r'#L(\d+)$', f['evidence'])
         if m and int(m.group(1)) > txt.count('\n') + 1:
             bad('fail', 'evidence_line', f'dòng {m.group(1)} vượt quá file ({txt.count(chr(10)) + 1} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+        for p, r in C.recompute(c, f): bad('fail', 'recompute', p, r)   # con số đếm lại được: máy kiểm, không cần LLM
         base = os.path.basename(rel)
         if f['src'] == 'S' and base.startswith(('emu_', 'vm_')): bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM', 'đổi src hoặc dẫn evidence tĩnh')
         if f['src'] == 'V' and not base.startswith('vm_'): bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM', 'đổi src hoặc dẫn evidence vm_*')

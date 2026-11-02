@@ -9,6 +9,7 @@
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
+#   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
 #   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code gọn cho phiên phân tích (--safe-mode + quy tắc/skill nạp thẳng), chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
@@ -255,6 +256,7 @@ def rules(a):
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['doctor']: sys.exit(CFG.doctor())
+    if a[:1] == ['setup']: import install_tools; sys.exit(install_tools.main(a[1:]))
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if len(a) < 2: raise SystemExit(__doc__ or open(__file__).read().split('import')[0])

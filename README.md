@@ -60,14 +60,14 @@ mẫu ─► T0 triage tĩnh ─► T1 bóc vỏ ─► T2 decompile có mục t
 
 ## Thiết lập
 
-Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → cài công cụ phân tích → kiểm tra. Bước 5 (phiên gọn) tùy chọn.
+Bốn bước, mỗi bước một lệnh: chuẩn bị máy → cài skill → cài công cụ phân tích (`flow.py setup`) → kiểm tra. Bước 5 (phiên gọn) tùy chọn.
 
 ### 1. Chuẩn bị máy
 
 | Thành phần | Bắt buộc | Dùng cho |
 |---|---|---|
 | Linux x86-64, `python3` ≥ 3.9 | có | mọi script của skill |
-| Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài và [skills CLI](https://github.com/vercel-labs/skills) |
+| Node.js ≥ 22.20 (`npx`) | khi cài | chạy bộ cài, [skills CLI](https://github.com/vercel-labs/skills) và `rea` |
 | Một coding agent | có | Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI… |
 | Một LLM cho lớp 2 phản biện | không bắt buộc | CLI `claude`/`codex`/`gemini`/`copilot`/`cursor-agent` đã đăng nhập, hoặc API key chuẩn OpenAI (ChatGPT, DeepSeek…). Không có gì thì dùng chế độ `manual` (dán vào chat web). Xem [Cổng phản biện](#cổng-phản-biện) |
 
@@ -97,23 +97,30 @@ Cách cài khác:
 
 ### 3. Cài công cụ phân tích
 
-Ví dụ trên Debian / Ubuntu / Kali:
+Một lệnh kiểm và cài (Debian / Ubuntu / Kali):
 
 ```bash
-sudo apt install 7zip python3-pefile python3-capstone upx-ucl      # 7zip: bản cũ là p7zip-full
-python3 -m pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4
+python3 <thư mục skill>/flow.py setup            # chỉ kiểm, in kế hoạch cài; không thay đổi gì
+python3 <thư mục skill>/flow.py setup --yes      # cài phần thiếu (apt cần sudo); --no-ghidra để bỏ Ghidra (~550 MiB)
 ```
 
-| Công cụ | Bắt buộc | Dùng cho |
-|---|---|---|
-| `7z`, `pefile` | có | giải nén mẫu, triage PE |
-| `capstone`, `unicorn` 2.1.4 | không | giả lập CPU (`winemu`) và disassembly; thiếu thì không có tầng T3 |
-| `upx` | không | tự bóc vỏ UPX |
-| `rea` | không | decompile nhanh x86/x86-64/ARM (T2); thiếu thì dùng Ghidra |
-| Ghidra 12 + JDK 21 | không | decompile kiến trúc `rea` không hỗ trợ (MIPS, PPC…); khai `GHIDRA_INSTALL_DIR`, `JAVA_HOME` |
-| DLL builtin của wine (`WINE_DLL_DIR`) | không | `winemu` chỉ đọc **tên export** của DLL giả. Không bao giờ chạy wine; nếu đã cài wine, `update-binfmts --display wine` phải báo "not in database" để file .exe không tự chạy |
+| Công cụ | Bắt buộc | Dùng cho | `setup --yes` cài bằng |
+|---|---|---|---|
+| `7z` | có | giải nén mẫu, file nén có mật khẩu | `apt-get install 7zip` (bản cũ: `p7zip-full`) |
+| `pefile` | có | triage PE | `apt-get install python3-pefile` (không có apt: `pip --target`) |
+| `capstone` | không | disassembly, `winemu` | `apt-get install python3-capstone` |
+| `unicorn` 2.1.4 | không | giả lập CPU (`winemu`, tầng T3); thiếu thì không có T3 | `pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4` |
+| `upx` | không | tự bóc vỏ UPX | `apt-get install upx-ucl` |
+| JDK 21 | không | chạy Ghidra | `apt-get install openjdk-21-jdk-headless` |
+| **Ghidra 12.1.4** | không | decompile: `rea` dùng Ghidra làm engine trên Linux; `flow.py dec` gọi Ghidra headless cho kiến trúc `rea` không hỗ trợ (MIPS, PPC…) | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố, giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `rea.env` |
+| Node.js ≥ 22.20 | không | chạy `rea` và bộ cài skill | cài tay (nodejs.org hoặc nvm): apt của nhiều bản phân phối còn bản cũ |
+| **`rea`** ([rea-agents](https://github.com/morluto/rea), CLI "reverse engineer anything") | không | `flow.py dec`: decompile nhanh x86/x86-64/ARM (T2); thiếu thì dùng Ghidra headless | `npm install -g rea-agents@6.7.0` (prefix không ghi được thì `--prefix ~/.local`); kiểm bằng `rea doctor` |
+| DLL builtin của wine (`WINE_DLL_DIR`) | không | `winemu` chỉ đọc **tên export** của DLL giả | **không tự cài.** Không bao giờ chạy wine; nếu đã cài wine, `update-binfmts --display wine` phải báo "not in database" để file .exe không tự chạy |
 
-`unicorn` cài vào `~/.local/share/rea-flow/pylib` (ngoài thư mục skill) nên cập nhật skill không làm mất; `pip --target` cũng chạy được trên hệ có PEP 668.
+- Phiên bản Ghidra và `rea` được ghim ở bản đã kiểm với `flow.py dec` (`install_tools.py`: `GHIDRA_VER`, `REA_PKG`).
+- `unicorn` cài vào `~/.local/share/rea-flow/pylib` (ngoài thư mục skill) nên cập nhật skill không làm mất; `pip --target` chạy được cả trên hệ có PEP 668.
+- `rea` có chế độ chạy target (`capture-*`, `debug-with-gdb`, …): rea-flow **cấm** dùng các lệnh đó trên mẫu; chỉ dùng `decompile`, `inspect-artifact` và lệnh tĩnh.
+- Cài tay không qua `setup` vẫn được; sau đó khai đường dẫn trong `rea.env` nếu không nằm trên `PATH` (xem [Cấu hình](#cấu-hình-tùy-chọn)).
 
 ### 4. Kiểm tra
 
@@ -293,9 +300,10 @@ SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (a
 FLOW.md             quy trình thao tác chi tiết (agent đọc khi cần)
 reacfg.py           cấu hình theo máy + doctor
 rea.env.example     mẫu ~/.config/rea-flow/rea.env
+install_tools.py    kiểm và cài công cụ phân tích (flow.py setup)
 install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow): skills add + flow.py rules
 package.json        khai báo bin cho npx
-flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, next, report, audit, doctor, rules, session
+flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, next, report, audit, doctor, setup, rules, session
 case.py             kho fact (add + lint + recompute, show, search), checklist C0–C11, sinh báo cáo
 review.py           cổng phản biện (lớp 1), review-loop, gate, next
 reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết nối mọi LLM
@@ -311,5 +319,6 @@ templates/          khung báo cáo
 python3 $SKILL/case.py --selftest
 python3 $SKILL/review.py --selftest
 python3 $SKILL/reviewer.py --selftest
+python3 $SKILL/install_tools.py --selftest
 python3 $SKILL/flow.py doctor
 ```

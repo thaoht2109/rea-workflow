@@ -216,11 +216,29 @@ CASE/
 | `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
 | `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực (copilot: `COPILOT_MODEL` để chọn model) |
 | `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
-| `api` | API chat completions chuẩn OpenAI: ChatGPT, DeepSeek, vLLM… (`REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL`) |
+| `api` | API chat completions chuẩn OpenAI: ChatGPT, DeepSeek, hoặc **LLM local** (Ollama, vLLM, llama.cpp, LM Studio…) (`REVIEW_API_BASE`, `REVIEW_MODEL`, `REVIEW_API_KEY`) |
 | `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
 | `manual` | script ghi `…prompt.md`; dán vào một cuộc chat **mới**, lưu câu trả lời vào `…answer.md`, chạy lại (mã 4 = đang chờ) |
 
 Với backend không có công cụ, script gửi hồ sơ tự chứa (fact, đoạn evidence, kết quả lớp 1, phép dò sẵn trên mẫu); mô hình xin thêm dữ liệu bằng các thao tác chỉ đọc (`read`, `grep`, `hex`, `strings`, `find`, `disasm`, `xrefs`, `pe`, `sha256`, `xor`). Mỗi lượt lưu ở `work/review/llm_cache/` nên chạy lại không gọi lại LLM.
+
+### 4.1. Dùng LLM local (Ollama, Qwen, vLLM… trên server tự dựng)
+
+Dữ liệu mẫu, evidence và IOC không rời mạng nội bộ. Ghi vào `~/.config/rea-flow/rea.env`:
+
+```bash
+REVIEW_LLM=api
+REVIEW_API_BASE=http://10.0.0.5:11434/v1    # Ollama; vLLM / llama.cpp server thường là http://HOST:8000/v1
+REVIEW_MODEL=qwen2.5-coder:32b              # đúng tên server khai (GET /v1/models)
+REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
+# REVIEW_API_KEY: không cần với server tự dựng (chỉ bắt buộc với OpenAI/DeepSeek)
+```
+
+- `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
+- **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
+- **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
+
+**Agent phân tích chính chạy model local:** chọn agent cho phép trỏ tới endpoint riêng và đọc `AGENTS.md`: OpenCode (Ollama/endpoint chuẩn OpenAI), GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL=http://HOST:11434/v1`), Codex CLI (provider tùy chỉnh). Vòng phân tích dài, gọi nhiều công cụ nên model local nhỏ dễ lạc hướng; cấu hình nên dùng: agent chính model mạnh, phản biện lớp 2 model local. Nếu cả hai đều local: nên từ 70B.
 
 ---
 
@@ -243,7 +261,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để `winemu` đọc tên export DLL; wine không bao giờ được chạy |
 | `REVIEW_LLM` | `auto` | backend lớp 2 (mục 4) |
 | `REVIEW_MODEL`, `REVIEW_EFFORT` | trống, `medium` | model lớp 2 (bắt buộc với `api`; với `claude` là `--model`); mức suy nghĩ của claude |
-| `REVIEW_API_BASE`, `REVIEW_API_KEY` | OpenAI, `$OPENAI_API_KEY` | backend `api`; đặt key bằng biến môi trường, không ghi vào file |
+| `REVIEW_API_BASE`, `REVIEW_API_KEY` | OpenAI, `$OPENAI_API_KEY` | backend `api`; key bắt buộc với OpenAI/DeepSeek, không cần với LLM local (mục 4.1); đặt key bằng biến môi trường |
 | `REVIEW_LLM_CMD`, `COPILOT_MODEL` | trống | backend `cmd`; model cho `copilot` |
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | backend không công cụ: số fact mỗi lô, số lượt mỗi lô |
 | `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giây im lặng / tổng tối đa của một lần gọi LLM |

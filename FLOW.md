@@ -80,9 +80,10 @@ Với Go bị strip, Ghidra không tự khôi phục tên hàm trên MIPS. Khi �
 
 ```bash
 python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá trị>' src=S|E|V evidence=report/evidence/<file>[#Ln] \
-        [status=active|hypothesis|retracted] [verified_by=S,E] [supersedes=<id cũ>] [note='...']
+        [status=active|hypothesis|retracted] [verified_by=S,E] [supersedes=<id cũ>] [note='...'] [--strict]
 ```
 
+- **Lint ngay khi ghi:** `add` kiểm trước khi ghi và in `lint warn|fail`: evidence tồn tại/đúng dòng; `src` khớp loại evidence; hash tính lại được; với kind literal, một token của `value` phải nằm trong **±5 dòng quanh `#L`** (nếu có) hoặc trong file; số ≥3 chữ số và `0x…` phải có trong evidence; evidence `.txt/.log` dài >40 dòng mà không có `#L` thì cảnh báo nên tách đoạn trích. `--strict` từ chối ghi nếu có mức `fail`.
 - **Evidence:** trước khi ghi fact, chép đoạn bằng chứng (mã giả, log rút gọn, file đã giải mã) từ `work/` sang `report/evidence/`. `case.py` từ chối fact trỏ ra ngoài thư mục này hoặc trỏ tới file không tồn tại.
 - **`kind`:** xem biến `KINDS` trong `case.py`.
 - **Mục không áp dụng:** ghi fact có giá trị bắt đầu bằng `n/a:` kèm lý do và bằng chứng, ví dụ `kind=payload_fmt value='n/a: không tải payload, mọi hàm mạng đã duyệt'`.

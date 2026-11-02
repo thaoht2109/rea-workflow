@@ -120,6 +120,25 @@ Dòng `next:` của triage sinh ra từ bảng này.
 | OLE, PDF | `rea inspect-artifact`; macro/JS nhúng phải tách thủ công (chưa cài olevba/pdf-parser) |
 | DEX/APK | `rea inspect-android-package` / `inspect-android-method` |
 
+### 4a. Lệnh `rea` được phép (chỉ đọc file mẫu, không chạy)
+
+Đã đối chiếu với `rea --help` bản 6.7.0. Xem tham số: `rea <lệnh> --help`. Hướng dẫn chi tiết theo loại mẫu (đọc khi cần, quy tắc ở đây thắng khi mâu thuẫn): skill `reverse-engineer-anything`, mục `references/native-and-artifacts.md`, `android-applications.md`, `javascript-applications.md`.
+
+| Loại mẫu | Lệnh |
+|---|---|
+| Chung | `inspect-artifact`, `inspect`, `analyze`, `extract-artifact`, `inspect-binary-layout`, `inspect-signature`, `list-architectures`, `read-bytes`, `search`, `search-bytes`, `address-to-file-offset` |
+| Mã máy (PE/ELF/Mach-O) | `decompile` (hoặc `flow.py dec`), `function`, `xrefs`, `inspect-native-instruction`, `inspect-native-api`, `inspect-native-data-type`, `inspect-native-load-image`, `resolve-native-call-targets`, `inspect-with-objdump`, `inspect-pe-resources`, `inspect-macho`, `demangle-swift` |
+| Go, Rust, Dart/Flutter | `inspect-go-binary`, `inspect-rust-binary`, `inspect-dart-aot`, `identify-flutter-build` |
+| .NET | `inspect-managed-artifact`, `inspect-managed-members`, `inspect-managed-native-boundaries`, `compare-managed-members`, `project-managed-application-graph` |
+| Android | `inspect-android-package`, `decode-android-resources`, `inspect-android-class`, `inspect-android-method`, `search-android-classes`, `trace-android-references`, `project-android-application-graph` |
+| JavaScript/Electron/WASM (file có sẵn) | `analyze-javascript-application`, `recover-javascript-sources`, `trace-javascript-semantics`, `compare-javascript-export-shapes`, `inspect-electron-fuses`, `inspect-wasm-artifact`, `compare-wasm-interfaces` |
+| Firmware | `extract-firmware`, `inspect-firmware-regions` |
+| Apple khác | `inspect-plist`, `inspect-keyed-archive`, `inspect-asset-catalog`, `decode-interface-builder` |
+| PCAP do người dùng cung cấp | `inspect-pcap-capture`, `inspect-packet-capture`, `inspect-packet-fields` |
+| So sánh hai bản | `compare`, `compare-application-versions` |
+
+**Cấm trên mẫu:** mọi lệnh chạy target, gắn vào tiến trình, điều khiển thiết bị hoặc truy cập mạng/trang của mẫu: `capture-*`, `debug-with-*`, `observe-*`, `instrument-with-frida`, `trace-native-ui-action`, `cutter-command`, `execute-rizin-command`, `list-frida-*`, mọi lệnh `*-adb-*`, `analyze-web-bundle`, `inspect-web-*`, `export-web-scripts`. Lệnh không có trong bảng trên: đọc `rea <lệnh> --help`; có chạy target, thiết bị hay mạng thì không dùng và hỏi người dùng.
+
 ## 5. Kỷ luật token
 
 - Mỗi file chỉ đọc tóm tắt triage, mã giả của **những hàm đã chọn** và `status`. Không đọc toàn bộ danh sách hàm, strings hay disassembly.

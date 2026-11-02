@@ -36,7 +36,7 @@ python3 $SKILL/flow.py next <CASE> [--accept 'C4=lý do;...']   # DONE khi check
 python3 $SKILL/flow.py report <CASE> --final && python3 $SKILL/flow.py audit <CASE>
 ```
 
-Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`.
+Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`. Lệnh `rea` được phép theo loại mẫu và lệnh bị cấm: `$SKILL/FLOW.md` mục 4a.
 
 ## Vòng phản biện (agent tự làm, không chờ người xác nhận giữa chừng)
 

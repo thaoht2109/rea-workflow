@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C11, sinh bảng báo cáo, đối chiếu evidence.
-#   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..]
+#   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [--strict]
 #   case.py show CASE [kind]     case.py check CASE     case.py report CASE     case.py audit CASE     case.py --selftest
-import sys, os, json, re, hashlib, datetime
+#   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
+#   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
+#   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
+import sys, os, json, re, glob, hashlib, datetime
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
@@ -10,12 +13,80 @@ KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 PERSIST_API = re.compile(r'Reg(Set|Create)|CopyFile|MoveFile|CreateService|SchTask|Startup', re.I)
 EV = 'report/evidence/'
+# lint khi ghi fact (xem lint_fact)
+LITERAL_KINDS = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence',
+                 'str_key', 'payload_key', 'config', 'string'}
+TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')
+NUMTOK = re.compile(r'(?<![0-9A-Za-z])(0x[0-9a-fA-F]{4,}|\d{3,})(?![0-9A-Za-z])')
+DATE = re.compile(r'\b\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+)?\b')
+LOG_LINES = 40   # evidence dài hơn mức này phải trỏ #L hoặc tách đoạn trích
+WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh đó
+
+def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
+
+def _work_hashes(case):
+    hs = set()
+    for d in ('sample', 'extract'):
+        for p in glob.glob(os.path.join(case, 'work', d, '**', '*'), recursive=True):
+            if os.path.isfile(p) and os.path.getsize(p) < 64 << 20:
+                hs.add(hashlib.sha256(open(p, 'rb').read()).hexdigest())
+    return hs
+
+def lint_fact(case, f):
+    """Kiểm tra lớp 1 ngay khi ghi fact. Trả list {level, check, problem, redo}.
+    level 'fail' = mâu thuẫn rõ; 'warn' = nên sửa nhưng chưa chắc sai."""
+    out = []
+    def bad(level, check, problem, redo): out.append(dict(level=level, check=check, problem=problem, redo=redo))
+    rel, full = ev_path(case, f['evidence'])
+    if not os.path.isfile(full):
+        bad('fail', 'evidence_exists', f'file evidence không tồn tại: {rel}', 'chép bằng chứng vào report/evidence/')
+        return out
+    lines = open(full, encoding='utf-8', errors='replace').read().splitlines()
+    whole = _normnum('\n'.join(lines)).replace('\\\\', '\\').lower()
+    base = os.path.basename(rel)
+    if f['src'] == 'S' and base.startswith(('emu_', 'vm_')):
+        bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM', 'đổi src hoặc dẫn evidence tĩnh')
+    if f['src'] == 'V' and not base.startswith('vm_'):
+        bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM', 'dẫn evidence vm_* hoặc đổi src')
+    scope, anchor = whole, None
+    m = re.search(r'#L(\d+)$', f['evidence'])
+    if m:
+        ln = int(m.group(1))
+        if ln > len(lines):
+            bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(lines)} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+        else:
+            anchor = ln
+            scope = _normnum('\n'.join(lines[max(0, ln - 1 - WINDOW): ln + WINDOW])).replace('\\\\', '\\').lower()
+    elif len(lines) > LOG_LINES and rel.lower().endswith(('.txt', '.log')):
+        bad('warn', 'evidence_scope', f'evidence dài {len(lines)} dòng: dẫn cả file nên không neo được đoạn chứng minh',
+            'thêm #L<dòng> hoặc tách đoạn trích vào file riêng')
+    if f['kind'] in ('hash', 'payload_hash'):
+        hs = None
+        for h in re.findall(r'\b[0-9a-f]{64}\b', f['value']):
+            if h in whole: continue
+            hs = hs if hs is not None else _work_hashes(case)
+            if h not in hs:
+                bad('fail', 'hash_recompute', f'sha256 {h[:12]}… không có trong evidence và không khớp file nào trong work/sample|extract',
+                    'tính lại sha256 từ file gốc rồi chép vào evidence')
+    elif f['kind'] in LITERAL_KINDS and not f['value'].startswith('n/a'):
+        toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
+        toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
+        if toks and not any(t in scope for t in toks):
+            where = f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'
+            bad('fail', 'value_in_evidence', f'không token nào của value xuất hiện trong {where}',
+                'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else
+                'chép đoạn chứa giá trị vào evidence hoặc sửa giá trị')
+    miss = [n for n in NUMTOK.findall(_normnum(DATE.sub(' ', f['value']))) if n.lower() not in scope]
+    if miss:
+        bad('warn', 'number_in_evidence', f'số {", ".join(miss[:5])} không có trong evidence',
+            'đưa output script chứa đúng con số vào evidence, hoặc sửa số')
+    return out
 
 def ev_path(case, ev):
     rel = os.path.normpath(ev.split('#')[0])
     return rel, os.path.join(case, rel)
 
-def add(case, **f):
+def add(case, strict=False, lint=False, **f):
     for k in ('id', 'kind', 'value', 'src', 'evidence'):
         if not f.get(k): raise ValueError(f'thiếu {k}')
     if f['kind'] not in KINDS: raise ValueError(f'kind lạ: {f["kind"]} (thêm vào KINDS nếu thật sự cần)')
@@ -29,7 +100,13 @@ def add(case, **f):
     f['verified_by'] = sorted(set(vb.split(',') if isinstance(vb, str) else vb))
     f.setdefault('supersedes', None); f.setdefault('stage', ''); f.setdefault('note', '')
     f['ts'] = datetime.datetime.now().isoformat(timespec='seconds')
+    issues = lint_fact(case, f) if lint else []
+    fails = [i for i in issues if i['level'] == 'fail']
+    if strict and fails:
+        raise ValueError('lint từ chối fact: ' + '; '.join(f"{i['check']}: {i['problem']}" for i in fails))
     with open(os.path.join(case, 'facts.jsonl'), 'a') as fh: fh.write(json.dumps(f, ensure_ascii=False) + '\n')
+    for i in issues:
+        print(f"lint {i['level']}: {i['check']}: {i['problem']} -> {i['redo']}")
 
 def history(case):
     p = os.path.join(case, 'facts.jsonl')
@@ -162,7 +239,10 @@ if __name__ == '__main__':
     a = sys.argv[1:]
     if not a or a[0] == '--selftest': selftest(); sys.exit()
     cmd, case = a[0], a[1]
-    if cmd == 'add': add(case, **dict(x.split('=', 1) for x in a[2:])); print('OK')
+    if cmd == 'add':
+        rest = a[2:]
+        add(case, strict='--strict' in rest, lint=True,
+            **dict(x.split('=', 1) for x in rest if not x.startswith('--'))); print('OK')
     elif cmd == 'show':
         for f in load(case).values():
             if len(a) < 3 or f['kind'] == a[2]: print(f"{f['id']:<18} {f['kind']:<13} {f['status']:<10} {f['src']} {f['value'][:90]}")

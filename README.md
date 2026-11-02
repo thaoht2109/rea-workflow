@@ -33,26 +33,33 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | `upx` | không | tự bóc vỏ UPX |
 | Một LLM cho phản biện lớp 2 | không | CLI `claude`/`codex`/`copilot`/`gemini`/`cursor-agent` đã đăng nhập, hoặc API chuẩn OpenAI (ChatGPT, DeepSeek…). Không có thì dùng chế độ `manual` (dán vào chat web) |
 
-Mọi công cụ phân tích ở trên cài được bằng một lệnh: `flow.py setup --yes` (mục 2.2). Không cần, và **không được**, cài wine để chạy mẫu.
+Lệnh cài skill (mục 2.1) kiểm và cài luôn các công cụ phân tích ở trên; chỉ cần có sẵn Node.js, Python và agent. Không cần, và **không được**, cài wine để chạy mẫu.
 
 ---
 
 ## 2. Cài đặt
 
-### 2.1. Cài skill
+### 2.1. Cài skill và công cụ phân tích: một lệnh
 
 ```bash
-npx github:thaoht2109/rea-workflow -g      # cài toàn máy
-npx github:thaoht2109/rea-workflow         # hoặc: chỉ cho project hiện tại (chạy trong thư mục project)
+npx github:thaoht2109/rea-workflow -g        # cài toàn máy; hỏi trước khi cài công cụ còn thiếu
+npx github:thaoht2109/rea-workflow -g -y     # không hỏi gì: cài skill cho mọi agent và cài luôn công cụ thiếu
+npx github:thaoht2109/rea-workflow           # chỉ cho project hiện tại (chạy trong thư mục project)
 ```
 
-Bộ cài gọi [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex` để chọn sẵn, `-y` để không hỏi), rồi chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md` (toàn máy) hoặc `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` của project. Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
+Lệnh làm ba việc:
+
+1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex` để chọn sẵn).
+2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md` (toàn máy) hoặc `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` của project. Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
+3. Chạy `flow.py setup` (mục 2.2): in công cụ còn thiếu và kế hoạch cài, hỏi `[Y/n]` rồi cài (apt cần sudo). `-y` cài luôn không hỏi; `--no-tools` chỉ kiểm; `--no-ghidra` bỏ Ghidra. Chạy không có terminal tương tác mà không `-y` thì chỉ kiểm và in lệnh cài.
 
 Dưới đây `$SKILL` là thư mục skill vừa cài (xem bằng `npx skills list -g`; thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`).
 
 Không có Node: `git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules --global`.
 
-### 2.2. Cài công cụ phân tích
+### 2.2. Công cụ phân tích (`flow.py setup`)
+
+Bước 3 của lệnh cài ở trên. Chạy riêng khi cần kiểm lại hoặc cài sau:
 
 ```bash
 python3 $SKILL/flow.py setup          # chỉ kiểm, in kế hoạch cài (mã 1 nếu thiếu); không thay đổi gì
@@ -267,7 +274,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 ## 8. Cập nhật và gỡ
 
 ```bash
-npx github:thaoht2109/rea-workflow [-g]            # cập nhật: chạy lại lệnh cài (skill và khối quy tắc đều làm mới)
+npx github:thaoht2109/rea-workflow [-g]            # cập nhật: chạy lại lệnh cài (skill, khối quy tắc và kiểm công cụ)
 python3 $SKILL/flow.py session --uninstall         # gỡ hàm shell (nếu đã cài)
 npx github:thaoht2109/rea-workflow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
 ```
@@ -287,7 +294,7 @@ reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết
 review/             prompt phản biện, kiến thức RE chung (re-knowledge.md), prompt sửa fact
 install_tools.py    kiểm và cài công cụ phân tích (flow.py setup)
 reacfg.py           cấu hình theo máy + doctor;  rea.env.example: mẫu cấu hình
-install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow); package.json khai bin
+install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow): skills add + flow.py rules + flow.py setup
 static/             triage, gopclntab, NSIS, script Ghidra
 winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc
 templates/          khung báo cáo

@@ -9,10 +9,11 @@
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
+#   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code gọn cho phiên phân tích (--safe-mode + quy tắc/skill nạp thẳng), chạy ở workspace
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
 #   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
-import sys, os, re, json, shutil, datetime, subprocess
+import sys, os, re, json, shlex, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: reacfg.py
@@ -158,6 +159,28 @@ def checkpoint(c):
     json.dump({'ts': datetime.datetime.now().isoformat(timespec='seconds'), 'facts': len(H)}, open(os.path.join(c, 'work', 'checkpoint.json'), 'w'))
     print(f'OK checkpoint {c}: {len(H)} bản ghi fact. Mở phiên mới (Claude Code: /clear) rồi chạy: python3 $SKILL/flow.py resume {c}'); return 0
 
+def session(a):
+    """Phiên phân tích gọn, không phụ thuộc máy: --safe-mode bỏ mọi tùy biến của máy (CLAUDE.md, skill, plugin, hook, MCP, output style),
+    rồi nạp lại đúng những gì phân tích cần (SKILL.md của rea-flow + ghi chú của workspace) qua --append-system-prompt-file.
+    Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ. Đo trên một máy: ngữ cảnh nền 43k -> 23k token mỗi lượt."""
+    T = os.path.realpath(TOOLS)
+    sk = re.sub(r'^---\n.*?\n---\n', '', open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read(), flags=re.S).replace('$SKILL', T)
+    pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)
+    notes = []
+    for f in ('CLAUDE.md', 'AGENTS.md'):   # ghi chú riêng của workspace (bỏ khối quy tắc do flow.py rules sinh, đã có trong SKILL.md)
+        p = os.path.join(os.getcwd(), f)
+        t = pat.sub('', open(p, encoding='utf-8').read()).strip() if os.path.exists(p) else ''
+        if t and t not in notes: notes.append(t)
+    os.makedirs(TMP, exist_ok=True); out = os.path.abspath(os.path.join(TMP, 'rea_session.md'))
+    open(out, 'w', encoding='utf-8').write(f'# Phiên phân tích mã độc theo skill rea-flow (`{T}`)\n\n{sk}\n' + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
+    cl = shutil.which('claude')
+    if not cl: print('flow.py session chỉ hỗ trợ Claude Code. Agent khác: mở phiên mới như bình thường; quy tắc đã nằm trong AGENTS.md (flow.py rules).'); return 2
+    safe = '--safe-mode' in subprocess.run([cl, '--help'], capture_output=True, text=True).stdout
+    if not safe: print('cảnh báo: bản claude này chưa có --safe-mode: chỉ nạp thêm quy tắc, ngữ cảnh nền không giảm (cập nhật Claude Code)')
+    argv = [cl] + (['--safe-mode'] if safe else []) + ['--append-system-prompt-file', out] + [x for x in a if x != '--print']
+    if '--print' in a: print(shlex.join(argv)); return 0
+    os.execv(cl, argv)
+
 # ---------- chép "Quy tắc bắt buộc" của SKILL.md vào file hướng dẫn agent ----------
 RB, RE_ = '<!-- rea-flow:rules:begin (sinh bởi flow.py rules; sửa SKILL.md rồi chạy lại) -->', '<!-- rea-flow:rules:end -->'
 
@@ -203,6 +226,7 @@ def rules(a):
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['doctor']: sys.exit(CFG.doctor())
+    if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if len(a) < 2: raise SystemExit(__doc__ or open(__file__).read().split('import')[0])
     cmd, c = a[0], a[1]

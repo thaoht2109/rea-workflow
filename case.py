@@ -13,6 +13,7 @@ KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 PERSIST_API = re.compile(r'Reg(Set|Create)|CopyFile|MoveFile|CreateService|SchTask|Startup', re.I)
 EV = 'report/evidence/'
+REVIEW_RULE_VERSION = 2   # 2: fail ở check bằng chứng cứng luôn high; state.json cũ hết hiệu lực
 # lint khi ghi fact (xem lint_fact)
 LITERAL_KINDS = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence',
                  'str_key', 'payload_key', 'config', 'string'}
@@ -126,6 +127,7 @@ def review_status(case):
     s = json.load(open(sp)); cur = hashlib.sha256(open(os.path.join(case, 'facts.jsonl'), 'rb').read()).hexdigest()
     ov = os.path.join(case, 'work', 'review', 'OVERRIDE')
     if os.path.exists(ov) and f'facts_sha256={cur}' in open(ov).read(): return 'ok(override)'
+    if s.get('rule_version') != REVIEW_RULE_VERSION: return 'missing'   # state theo luật cũ: phải review lại
     if s.get('stopped') and s.get('reset_for') == cur: return 'fail(stopped)'
     last = s['rounds'][-1] if s['rounds'] else None
     if not last or last['facts_sha256'] != cur: return 'missing'     # review đã cũ: facts đổi sau lần review cuối

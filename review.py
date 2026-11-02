@@ -11,6 +11,8 @@ import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
+HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
+               'value_in_evidence', 'value_vs_evidence', 'source', 'recompute'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')
@@ -36,7 +38,7 @@ def mech(c):
         if f['status'] == 'retracted': continue
         i, k = f['id'], f['kind']
         def bad(v, check, problem, redo, where=None):
-            items.append(dict(id=i, verdict=v, severity='high' if k in GATING and v == 'fail' else 'low', check=check, claim=f['value'][:160],
+            items.append(dict(id=i, verdict=v, severity=severity(k, v, check), check=check, claim=f['value'][:160],
                               problem=problem, where=where or f['evidence'], redo=redo, layer='mech'))
         rel, full = C.ev_path(c, f['evidence'])
         if not os.path.isfile(full): bad('fail', 'evidence_exists', 'file evidence không tồn tại', 'chép bằng chứng vào report/evidence/'); continue
@@ -72,7 +74,13 @@ def state(c):
     return json.load(open(p)) if os.path.exists(p) else {'rounds': [], 'stopped': False}
 
 def save_state(c, s):
+    s['rule_version'] = C.REVIEW_RULE_VERSION
     os.makedirs(DIR(c), exist_ok=True); json.dump(s, open(os.path.join(DIR(c), 'state.json'), 'w'), ensure_ascii=False, indent=1)
+
+def severity(kind, v, check):
+    """Mức high/low do luật quyết định, không tin severity do model trả."""
+    if v != 'fail': return 'low'
+    return 'high' if (kind in GATING or check in HARD_CHECKS) else 'low'
 
 def verdict(items): return 'FAIL' if any(i['verdict'] == 'fail' and i['severity'] == 'high' for i in items) else 'PASS'
 
@@ -98,6 +106,9 @@ def stop_report(c, s):
 
 def review(c, llm=False, force=False):
     s, h = state(c), facts_sha(c)
+    if s.get('rule_version') != C.REVIEW_RULE_VERSION:   # luật cổng đổi: review cũ hết hiệu lực, mở bộ đếm mới
+        s = {'rounds': [], 'stopped': False, 'reset_for': None}
+        save_state(c, s)
     if s['stopped'] and not (os.path.exists(os.path.join(DIR(c), 'OVERRIDE')) or s.get('reset_for') != h):
         print(f'STOPPED: xem {DIR(c)}/STOP_REPORT.md'); return 2
     if s['stopped'] and s.get('reset_for') != h: s.update(stopped=False, rounds=[])
@@ -179,6 +190,7 @@ def gate(c):
     h = facts_sha(c)
     ov = os.path.join(DIR(c), 'OVERRIDE')
     if os.path.exists(ov) and f'facts_sha256={h}' in open(ov).read(): return True, 'OVERRIDE do người dùng duyệt'
+    if s.get('rule_version') != C.REVIEW_RULE_VERSION: return False, 'cổng đổi luật severity: chạy lại review'
     if s['stopped'] and s.get('reset_for') == h: return False, 'đã STOPPED sau 2 lần review'
     if s['rounds'] and s['rounds'][-1]['facts_sha256'] == h and s['rounds'][-1]['verdict'] == 'PASS': return True, f"review {s['rounds'][-1]['n']} PASS"
     return False, 'chưa có review PASS khớp facts.jsonl hiện tại'
@@ -211,7 +223,7 @@ def selftest():
     open(os.path.join(c, 'work', 'sample', 'a.bin'), 'wb').write(b'abc')
     real = hashlib.sha256(b'abc').hexdigest()
     open(os.path.join(E, 'emu_x.txt'), 'w').write('host evil-c2.example.com:443\nHKCU\\\\Software\\\\Run\n')
-    open(os.path.join(E, 'tri.txt'), 'w').write('nothing relevant\n')
+    open(os.path.join(E, 'tri.txt'), 'w').write('nothing relevant\nfixed\n')
     A = lambda **kw: C.add(c, **kw)
     A(id='ok1', kind='c2', value='evil-c2.example.com:443', src='E', evidence='report/evidence/emu_x.txt#L1')
     A(id='h1', kind='hash', value=real + ' a.bin', src='S', evidence='report/evidence/tri.txt')
@@ -219,11 +231,13 @@ def selftest():
     A(id='bad_c2', kind='c2', value='other-host.example.net', src='E', evidence='report/evidence/emu_x.txt')   # không có trong evidence
     A(id='bad_src', kind='file', value='whatever.dat', src='S', evidence='report/evidence/emu_x.txt')   # S dẫn evidence giả lập
     A(id='bad_line', kind='c2', value='evil-c2.example.com', src='E', evidence='report/evidence/emu_x.txt#L99')
+    A(id='bad_low', kind='string', value='lowkind-token-zzz', src='S', evidence='report/evidence/tri.txt')   # kind không gating
     A(id='weak1', kind='family', value='x', src='S', evidence='report/evidence/tri.txt', note='có thể là họ X')
     its = mech(c); by = {i['id'] for i in its}; ck = {(i['id'], i['check']) for i in its}
     assert 'ok1' not in by and 'h1' not in by, its
     assert ('bad_h', 'hash_recompute') in ck and all(i['severity'] == 'high' for i in its if i['id'] == 'bad_h'), its
     assert {('bad_c2', 'value_in_evidence'), ('bad_src', 'src_vs_evidence'), ('bad_line', 'evidence_line')} <= ck, its
+    assert all(i['severity'] == 'high' for i in its if i['id'] == 'bad_low'), its   # fail check cứng luôn high
     assert ('weak1', 'status_vs_note') in ck
     assert review(c) == 1 and review(c) == 1                      # facts chưa đổi: không tính thêm lần
     assert len(state(c)['rounds']) == 1 and not gate(c)[0]
@@ -231,10 +245,15 @@ def selftest():
     assert review(c) == 2 and state(c)['stopped'] and os.path.exists(os.path.join(DIR(c), 'STOP_REPORT.md'))
     assert not gate(c)[0] and review(c) == 2
     assert dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'].startswith('fail(stopped)')
-    for i in ('bad_h', 'bad_c2', 'bad_src', 'bad_line'): A(id=i + '2', kind='string', value='fixed', src='S', evidence='report/evidence/tri.txt', supersedes=i)
+    for i in ('bad_h', 'bad_c2', 'bad_src', 'bad_line', 'bad_low'): A(id=i + '2', kind='string', value='fixed', src='S', evidence='report/evidence/tri.txt', supersedes=i)
     assert review(c) == 0 and gate(c)[0], mech(c)                  # sửa hết -> bộ đếm mới, PASS
     assert dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'] in ('ok', 'partial')
     assert next_step(c) == 1                                       # checklist còn thiếu nhiều mục
+
+    # luật cũ (state không có rule_version) phải bị coi là chưa review
+    st = state(c); st.pop('rule_version', None); json.dump(st, open(os.path.join(DIR(c), 'state.json'), 'w'))
+    assert not gate(c)[0] and dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'] == 'missing'
+    assert review(c, force=True) == 0 and gate(c)[0]               # review mở bộ đếm mới theo luật hiện tại
     print('OK selftest')
 
 if __name__ == '__main__':

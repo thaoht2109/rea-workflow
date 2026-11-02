@@ -246,6 +246,7 @@ def dossier(c, ids, mech_items):
         mi = [m for m in mech_items if m['id'] == i]
         s = [f'### {i}  [kind={f["kind"]} src={f["src"]} status={f["status"]}]', f'value: {f["value"]}', f'evidence: {f["evidence"]}']
         if f.get('note'): s.append(f'note: {f["note"]}')
+        if f.get('recompute'): s.append(f'recompute (lớp 1 đã đếm lại, khớp nếu không có lỗi lớp 1): {f["recompute"]}')
         if old: s.append(f'thay cho {old["id"]}: {old["value"][:200]}')
         s += [f'lớp 1: {m["verdict"]} {m["check"]}: {m["problem"]}' for m in mi]
         s += ['trích evidence:', '```', excerpt(c, f['evidence'], f['value']), '```']

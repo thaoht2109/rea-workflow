@@ -25,6 +25,7 @@ description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, 
 python3 $SKILL/flow.py new <CASE> <mẫu|zip>...     # tạo case, chép mẫu (0400), triage
 python3 $SKILL/flow.py status <CASE>               # checklist C0-C11 và gợi ý bước kế
 python3 $SKILL/flow.py session                     # (Claude Code) mở phiên phân tích gọn: bỏ tùy biến của máy, chỉ nạp rea-flow
+python3 $SKILL/flow.py session --install [WS]      # một lần: sau đó gõ `claude` trong workspace là tự mở phiên gọn (--uninstall để gỡ)
 python3 $SKILL/flow.py checkpoint <CASE>           # chốt mốc: mọi kết quả đã thành fact/evidence chưa (mã 1 = còn việc)
 python3 $SKILL/flow.py resume <CASE>               # làm tiếp sau khi ngữ cảnh bị nén: việc kế, cổng, fact kết luận, giả thuyết
 python3 $SKILL/case.py search <CASE> TỪ... [--src S] | show <CASE> --id ID   # tra lại fact

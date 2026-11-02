@@ -125,6 +125,7 @@ Dòng `next:` của triage sinh ra từ bảng này.
 - Mỗi file chỉ đọc tóm tắt triage, mã giả của **những hàm đã chọn** và `status`. Không đọc toàn bộ danh sách hàm, strings hay disassembly.
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
+- **Tách phiên theo mốc** (sau triage/bóc vỏ, mỗi cụm decompile, mỗi đợt giả lập, trước cổng phản biện, trước báo cáo): mỗi lần gọi model đọc lại cả ngữ cảnh, nên phiên dài ở 200k+ tốn hơn nhiều so với phiên mới ở mức nền (mô phỏng trên phiên cũ: ít hơn 20–40%). Phiên mới hoà vốn sau khoảng 5 lượt, nên không tách cho bước nhỏ. Trước khi tách: ghi fact/hypothesis, chép đoạn chứng minh vào evidence, `flow.py checkpoint CASE` phải OK (kiểm lint fail, thư mục `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới).
 - Sau khi hội thoại bị nén hoặc `/clear`: chạy `flow.py resume CASE` (việc kế tiếp, cổng, fact kết luận nguyên văn, giả thuyết; tính lại từ `facts.jsonl` nên không lệch), tra chi tiết bằng `case.py show CASE --id ID` / `case.py search CASE TỪ`. Không đọc lại log.
 
 ## 6. Kiểm tra công cụ (sau khi sửa)

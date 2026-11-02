@@ -6,6 +6,7 @@
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
+#   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
@@ -139,6 +140,24 @@ def resume(c):
     for f in hyp[:12]: print(f"- {f['id']} [{f['kind']}] {f['value'][:160]}")
     if len(hyp) > 12: print(f'- (+{len(hyp) - 12}: case.py search {c} --all)')
 
+def checkpoint(c):
+    """Chốt mốc trước khi mở phiên mới: phiên mới chỉ biết những gì nằm trên đĩa, nên mọi kết quả phải đã thành fact/evidence."""
+    H, cur = case.history(c), case.load(c)
+    last = max((h['ts'] for h in H), default='')
+    bad = [(i, x) for i, f in cur.items() if f['status'] != 'retracted' for x in case.lint_fact(c, f) if x['level'] == 'fail']
+    for i, x in bad[:10]: print(f"FAIL fact {i}: {x['check']}: {x['problem']} -> {x['redo']}")
+    runs = os.path.join(c, 'work', 'runs'); newer = []
+    if last and os.path.isdir(runs):   # kết quả chạy mới hơn fact cuối cùng: rất có thể chưa ghi kết luận
+        t = datetime.datetime.fromisoformat(last).timestamp()
+        newer = sorted({os.path.relpath(r, runs).split(os.sep)[0] for r, _, fs in os.walk(runs) for f in fs if os.path.getmtime(os.path.join(r, f)) > t + 60})
+    for d in newer[:10]: print(f'CHƯA GHI? work/runs/{d} mới hơn fact cuối ({last}): ghi kết luận bằng case.py add (hoặc hypothesis), chép đoạn chứng minh vào report/evidence/ kèm #L')
+    ev = os.path.join(c, 'report', 'evidence'); used = {os.path.basename(f['evidence'].split('#')[0]) for f in cur.values()}
+    orphan = [f for f in sorted(os.listdir(ev)) if f not in used] if os.path.isdir(ev) else []
+    if orphan: print(f"lưu ý: {len(orphan)} file evidence chưa có fact nào trỏ tới: {', '.join(orphan[:8])}")
+    if bad or newer: print('CHƯA CHỐT ĐƯỢC: xử lý các mục trên rồi chạy lại checkpoint. Tách phiên lúc này sẽ mất kết quả chưa ghi.'); return 1
+    json.dump({'ts': datetime.datetime.now().isoformat(timespec='seconds'), 'facts': len(H)}, open(os.path.join(c, 'work', 'checkpoint.json'), 'w'))
+    print(f'OK checkpoint {c}: {len(H)} bản ghi fact. Mở phiên mới (Claude Code: /clear) rồi chạy: python3 $SKILL/flow.py resume {c}'); return 0
+
 # ---------- chép "Quy tắc bắt buộc" của SKILL.md vào file hướng dẫn agent ----------
 RB, RE_ = '<!-- rea-flow:rules:begin (sinh bởi flow.py rules; sửa SKILL.md rồi chạy lại) -->', '<!-- rea-flow:rules:end -->'
 
@@ -192,6 +211,7 @@ if __name__ == '__main__':
     elif cmd == 'dec': dec(c, a[2], a[3:])
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
+    elif cmd == 'checkpoint': sys.exit(checkpoint(c))
     elif cmd == 'report':
         if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (review.py)
             import review; ok, why = review.gate(c)

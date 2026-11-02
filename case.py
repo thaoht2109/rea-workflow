@@ -74,7 +74,10 @@ def lint_fact(case, f):
     elif f['kind'] in LITERAL_KINDS and not f['value'].startswith('n/a'):
         toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
         toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
-        if toks and not any(t in scope for t in toks):
+        if toks and not any(t in scope for t in toks) and b'\0' in open(full, 'rb').read(4096):   # evidence nhị phân (khóa, blob)
+            if hashlib.sha256(open(full, 'rb').read()).hexdigest() not in f['value'].lower():
+                bad('warn', 'value_in_evidence', 'evidence nhị phân: không so được token; value nên ghi sha256 của file evidence', 'ghi sha256 của file vào value hoặc dẫn evidence dạng text')
+        elif toks and not any(t in scope for t in toks):
             where = f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'
             bad('fail', 'value_in_evidence', f'không token nào của value xuất hiện trong {where}',
                 'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else

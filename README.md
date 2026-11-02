@@ -222,7 +222,9 @@ reviewer.py ── hồ sơ tự chứa + danh sách thao tác ──► LLM (ch
 | Backend (`REVIEW_LLM`) | Kết nối |
 |---|---|
 | `claude` | `claude -p --no-session-persistence --allowedTools Read,Grep,Bash(python3 -I:*) --effort $REVIEW_EFFORT` (một phiên có công cụ chỉ đọc, xem trên) |
-| `codex`, `gemini`, `copilot`, `cursor` | CLI tương ứng ở chế độ không tương tác, thư mục tạm rỗng ngoài project |
+| `copilot` | không tương tác, `HOME` tạm (không AGENTS.md/skill/plugin/MCP của máy), `--no-custom-instructions --disable-builtin-mcps`; xác thực bằng `COPILOT_GITHUB_TOKEN`/`GH_TOKEN` hoặc `gh auth token`; chọn model bằng `COPILOT_MODEL` |
+| `codex` | `codex exec --sandbox read-only`, `HOME` và `CODEX_HOME` tạm chỉ chứa `auth.json` (bỏ AGENTS.md, memories, hooks, MCP trong config.toml) |
+| `gemini`, `cursor` | CLI không tương tác, thư mục tạm rỗng; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
 | `api` | API chat completions chuẩn OpenAI: ChatGPT/OpenAI, DeepSeek, GitHub Models, vLLM… (`REVIEW_API_BASE`, `REVIEW_API_KEY`, `REVIEW_MODEL`) |
 | `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
 | `manual` | không cần gì: script ghi `…prompt.md`, người dùng dán vào một cuộc chat **mới** trên giao diện web bất kỳ, lưu câu trả lời vào `…answer.md` rồi chạy lại lệnh (mã thoát 4 = đang chờ) |

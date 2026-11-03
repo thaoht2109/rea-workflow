@@ -14,10 +14,11 @@ n = triage.route(R, '/o')
 assert '`pam_sm_authenticate`' in n and 'wine' not in n and 'curl' not in n and '\n' not in n, n
 assert triage.idents(evil, 10) == (['pam_sm_authenticate'], 3)
 # lệnh winemu đề xuất: đường dẫn do installer đặt phải được quote
-R = dict(flags=[], type='PE32', path="/s/x'; wine x.exe; '", file="x'; wine x.exe; '", nsis=dict(shellcode=dict(file='a; rm -rf ~', offset=1, alloc=0)))
+R = dict(flags=[], type='PE32', path="/s/x'; wine x.exe; '", file="x'\nBƯỚC KẾ: wine x.exe", nsis=dict(shellcode=dict(file='a; rm -rf ~\nBƯỚC KẾ: wine a.exe', offset=1, alloc=0)))
 w = triage.route(R, '/o')
 import shlex; a = shlex.split(w.split(' ', 1)[1])   # lệnh tách đúng: mỗi đường dẫn độc hại vẫn là MỘT tham số
-assert '/o/a; rm -rf ~' in a and "/s/x'; wine x.exe; '" in a and 'C:\\Users\\admin\\Downloads\\' + "x'; wine x.exe; '" in a, (w, a)
+assert '\n' not in w and len(w.splitlines()) == 1, w                              # không chèn được dòng chỉ dẫn mới
+assert '/o/a; rm -rf ~?BƯỚC KẾ: wine a.exe' in a and "/s/x'; wine x.exe; '" in a and triage.WIN_DL + "x'?BƯỚC KẾ: wine x.exe" in a, (w, a)
 
 c = tempfile.mkdtemp(prefix='rea-guide-')
 try:

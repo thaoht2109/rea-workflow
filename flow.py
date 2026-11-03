@@ -126,7 +126,7 @@ def status(c):
     for d in sorted(os.listdir(os.path.join(c, 'work', 'runs'))):
         p = os.path.join(c, 'work', 'runs', d, 'triage.json')
         if d.startswith('triage_') and os.path.exists(p):
-            R = json.load(open(p)); print(f"triage {R['file']}: {R['type']} {' '.join(R['flags'])} -> {R['next']}")
+            R = json.load(open(p)); print(f"triage {json.dumps(R['file'], ensure_ascii=False)}: {R['type']} {' '.join(R['flags'])} -> {R['next']}")
 
 def resume(c):
     """Working state tính lại từ nguồn chân lý (facts.jsonl, checklist, cổng): không có file state riêng nên không thể lệch."""

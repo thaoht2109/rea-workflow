@@ -5,6 +5,8 @@
 //   npx github:thaoht2109/rea-workflow [-g] [-a claude-code -a codex ...] [-y] [--no-tools] [--no-ghidra]
 //     tham số khác chuyển nguyên cho `skills add`. Công cụ thiếu: hỏi trước khi cài (apt cần sudo, Ghidra ~550 MiB);
 //     -y cài luôn không hỏi; --no-tools chỉ kiểm; không có terminal tương tác mà không -y thì chỉ kiểm.
+//   npx github:thaoht2109/rea-workflow update [-g] [-y] [--no-tools] [--no-ghidra]  kéo bản mới (skills update, hoặc git pull
+//     nếu skill là bản clone git), chép lại quy tắc, kiểm công cụ như lúc cài
 //   npx github:thaoht2109/rea-workflow remove [-g]                               gỡ quy tắc rồi gỡ skill
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
@@ -14,10 +16,11 @@ import { createInterface } from 'node:readline/promises';
 
 const REPO = 'thaoht2109/rea-workflow', SKILLS = 'skills@1.7.4';   // bản skills CLI đã kiểm
 const OWN = ['--no-tools', '--no-ghidra'];   // tham số của bộ cài này, không chuyển cho skills CLI
-const all = process.argv.slice(2), args = all.filter(a => !OWN.includes(a)), remove = args[0] === 'remove', rest = remove ? args.slice(1) : args;
+const all = process.argv.slice(2), args = all.filter(a => !OWN.includes(a));
+const sub = ['remove', 'update'].includes(args[0]) ? args[0] : 'add', rest = sub === 'add' ? args : args.slice(1);
 const yes = rest.includes('-y') || rest.includes('--yes'), noTools = all.includes('--no-tools'), noGhidra = all.includes('--no-ghidra');
 const global = rest.includes('-g') || rest.includes('--global');
-const run = (cmd, a) => { const r = spawnSync(cmd, a, { stdio: 'inherit', env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
+const run = (cmd, a, stdio = 'inherit') => { const r = spawnSync(cmd, a, { stdio, env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
 const roots = global ? [homedir()] : [process.cwd(), homedir()];   // không -g: CLI có thể vẫn hỏi và cài toàn máy
 const skillDir = () => roots.flatMap(r => ['.agents', '.claude'].map(d => join(r, d, 'skills', 'rea-flow')))
   .filter(p => existsSync(join(p, 'flow.py'))).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
@@ -25,18 +28,26 @@ const rules = (dir, extra) => {
   if (run('python3', [join(dir, 'flow.py'), 'rules', ...extra]) === 127) console.error('Cần python3 để chép quy tắc.');
 };
 
-if (remove) {
+if (sub === 'remove') {
   const dir = skillDir();
   if (dir) rules(dir, ['--remove']);
   process.exit(run('npx', ['-y', SKILLS, 'remove', 'rea-flow', ...rest]));
 }
-const rc = run('npx', ['-y', SKILLS, 'add', REPO, ...rest]);
-if (rc) process.exit(rc);
+if (sub === 'update') {
+  const dir = skillDir();   // skills update báo "không thấy" mà vẫn trả 0, nên kiểm trước
+  if (!dir) { console.error(`Chưa cài rea-flow${global ? ' toàn máy' : ''}: npx github:${REPO} ${global ? '-g' : ''}`); process.exit(1); }
+  const git = run('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0;   // clone git: skills CLI không quản
+  const rc = git ? run('git', ['-C', dir, 'pull', '--ff-only']) : run('npx', ['-y', SKILLS, 'update', 'rea-flow', ...rest]);
+  if (rc) process.exit(rc);
+} else {
+  const rc = run('npx', ['-y', SKILLS, 'add', REPO, ...rest]);
+  if (rc) process.exit(rc);
+}
 const dir = skillDir();
 if (!dir) { console.error('Không tìm thấy skill vừa cài: chạy tay `python3 <thư mục skill>/flow.py rules`.'); process.exit(1); }
 rules(dir, []);   // phạm vi tự theo nơi skill nằm: ~/.<agent>/skills -> toàn máy, <project>/.<agent>/skills -> project
 const flow = join(dir, 'flow.py'), extra = noGhidra ? ['--no-ghidra'] : [];
-console.log(`\nrea-flow đã cài tại ${dir}. Kiểm công cụ phân tích:\n`);
+console.log(`\nrea-flow đã ${sub === 'update' ? 'cập nhật' : 'cài'} tại ${dir}. Kiểm công cụ phân tích:\n`);
 if (run('python3', [flow, 'setup', ...extra]) !== 0) {   // mã 1 = còn thiếu, đã in kế hoạch cài
   let go = !noTools && yes;
   if (!noTools && !yes && process.stdin.isTTY) {

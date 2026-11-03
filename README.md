@@ -294,10 +294,12 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 ## 8. Cập nhật và gỡ
 
 ```bash
-npx github:thaoht2109/rea-workflow [-g]            # cập nhật: chạy lại lệnh cài (skill, khối quy tắc và kiểm công cụ)
+npx github:thaoht2109/rea-workflow update [-g]     # cập nhật bản mới từ GitHub: skill, khối quy tắc, kiểm công cụ (-y cài luôn công cụ thiếu)
 python3 $SKILL/flow.py session --uninstall         # gỡ hàm shell (nếu đã cài)
 npx github:thaoht2109/rea-workflow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
 ```
+
+`update` không tải lại cả bộ: skill cài bằng `npx` được `skills update` kéo phần thay đổi (giữ các agent đã chọn); skill là bản clone git (thư mục hoặc symlink tới clone) thì `git pull --ff-only`. Sau đó chép lại khối quy tắc và kiểm công cụ (bản Ghidra/rea ghim có thể đổi theo phiên bản); thiếu thì hỏi trước khi cài như lúc cài đặt.
 
 Gỡ không xoá `~/.config/rea-flow`, `~/.local/share/rea-flow` (Ghidra, unicorn) và các case trong workspace.
 
@@ -314,7 +316,7 @@ reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết
 review/             prompt phản biện, kiến thức RE chung (re-knowledge.md), prompt sửa fact
 install_tools.py    kiểm và cài công cụ phân tích (flow.py setup)
 reacfg.py           cấu hình theo máy + doctor;  rea.env.example: mẫu cấu hình
-install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow): skills add + flow.py rules + flow.py setup
+install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow [update|remove]): skills add/update + flow.py rules + flow.py setup
 static/             triage, gopclntab, NSIS, script Ghidra
 winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc
 templates/          khung báo cáo

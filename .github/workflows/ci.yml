@@ -1,0 +1,17 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ci:
+    uses: thaoht2109/ci-central/.github/workflows/python-ci.yml@684bb030307dd716f031e48f88bd8977e637d62d # v1
+    with:
+      install-req: "requirements-dev.txt"
+      packages: "."
+      test-dirs: "tests"

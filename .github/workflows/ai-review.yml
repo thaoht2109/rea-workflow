@@ -1,0 +1,23 @@
+name: AI review
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+jobs:
+  review:
+    uses: thaoht2109/ci-central/.github/workflows/ai-review.yml@684bb030307dd716f031e48f88bd8977e637d62d # v1
+    with:
+      review-context: |
+        Repo công khai: skill dịch ngược mã độc (rea-flow), Python thuần, mã viết nén.
+        - Không đưa tên case, mẫu, IOC hay đường dẫn máy cá nhân vào mã, test, commit hay PR.
+        - Không bao giờ thêm đường thực thi mẫu (wine, qemu, chạy script mẫu); chỉ phân tích tĩnh và giả lập CPU.
+        - Test trong tests/ phải dùng dữ liệu tổng hợp, không cần mẫu thật.
+      extra-gate-files: '^(review/|reviewer\.py|review\.py|install_tools\.py|install\.mjs)'
+    secrets:
+      BOT_PUSH_TOKEN: ${{ secrets.BOT_PUSH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

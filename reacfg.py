@@ -2,7 +2,7 @@
 # Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
 # Không bắt buộc: mặc định đủ cho máy có công cụ trên PATH. Kiểm bằng `python3 <skill>/flow.py doctor`.
 # Workspace (nơi chứa các case) là thư mục hiện tại, hoặc $REA_WORKSPACE.
-import os, re, sys, shlex, shutil, tempfile, importlib.util
+import os, re, sys, shutil, tempfile, importlib.util
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REA = os.path.abspath(os.environ.get('REA_WORKSPACE') or os.getcwd())

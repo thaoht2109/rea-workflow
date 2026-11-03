@@ -81,7 +81,7 @@ def ghidra_dec(c, f, funcs, od, tag):
     with open(log, 'w') as lf:
         r = subprocess.run([os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless'), pd, tag, *mode, '-scriptPath',
                             os.path.join(TOOLS, 'static', 'ghidra'), *pre, '-postScript', 'ExportDecomp.java', out, *funcs],
-                           stdout=lf, stderr=subprocess.STDOUT, env=CFG.tmpenv(JAVA_TOOL_OPTIONS=f'-Djava.io.tmpdir={TMP}', **({'JAVA_HOME': CFG.JAVA_HOME} if CFG.JAVA_HOME else {})))
+                           stdout=lf, stderr=subprocess.STDOUT, env=CFG.tmpenv(JAVA_TOOL_OPTIONS=f'-Djava.io.tmpdir={TMP}' + CFG.ghidra_home_args(), **({'JAVA_HOME': CFG.JAVA_HOME} if CFG.JAVA_HOME else {})))
     if r.returncode or not os.path.exists(out): print(f'Ghidra lỗi (rc={r.returncode}), xem {os.path.relpath(log, c)}'); return
     body = ''.join(l for l in open(out) if not l.startswith('// fn '))
     for part in body.split('// ===== ')[1:]:
@@ -96,7 +96,9 @@ def dec(c, f, funcs):
     tag = re.sub(r'\W+', '_', os.path.basename(f))
     snap = os.path.join(c, 'work', 'rea_' + tag + '.snapshot')
     env = CFG.tmpenv()
-    if not any(x.startswith('list:') for x in funcs):
+    use_rea = CFG.unix_socket_ok()
+    if not use_rea: print('AF_UNIX bị chặn (sandbox): bỏ qua rea, dùng Ghidra headless (lần đầu phân tích cả file nên chậm)')
+    if use_rea and not any(x.startswith('list:') for x in funcs):
         run = lambda fn: subprocess.run([CFG.REA_BIN, 'decompile', f, '--procedure=' + fn, '--snapshot', snap, '--format', 'json'],
                                         capture_output=True, text=True, env=env)
         from concurrent.futures import ThreadPoolExecutor   # mỗi lần rea phân tích lại cả file (~30 s, 2 lõi): chạy song song
@@ -114,7 +116,7 @@ def dec(c, f, funcs):
             show(fn, code, p, c)
         funcs = left
     if funcs:
-        print(f'rea không hỗ trợ kiến trúc này hoặc cần list: -> Ghidra headless cho: {" ".join(funcs)}')
+        print(f'Ghidra headless (rea không hỗ trợ kiến trúc, cần list:, hoặc AF_UNIX bị chặn) cho: {" ".join(funcs)}')
         ghidra_dec(c, f, funcs, od, tag)
 
 def status(c):

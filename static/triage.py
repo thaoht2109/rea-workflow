@@ -142,14 +142,14 @@ def route(R, out):
     if t == 'dex': return 'T2: rea inspect-android-package / inspect-android-method'
     if t.startswith('script'): return 'T2: khử làm rối script tĩnh (base64/eval/char-code) bằng Python, không chạy script'
     if '.NET' in f: return 'T2: rea inspect-managed-members (chuỗi ldstr, PInvoke) rồi decompile lớp/hàm đáng ngờ'
-    if 'Go' in f: return 'T2: rea inspect-go-binary + flow.py dec main.main (và các hàm main.*)'
+    if 'Go' in f: return 'T2: rea inspect-go-binary + flow.py dec CASE FILE main.main (và các hàm main.*)'
     hi = R.get('overlay', {}).get('entropy', 0) > 7.5 or any(s['entropy'] > 7.5 and s['raw'] > 4096 for s in R.get('sections', []))
     if t.startswith('PE'):
-        return ('T2 tìm stub giải mã (flow.py dec entry) -> T3 winemu nếu là x86-32' if hi else
-                'T2: flow.py dec <export/hàm theo import đáng ngờ>')
+        return ('T2 tìm stub giải mã (flow.py dec CASE FILE entry) -> T3 winemu nếu là x86-32' if hi else
+                'T2: flow.py dec CASE FILE <export/hàm theo import đáng ngờ>')
     if t.startswith('ELF'):
         tgt = ', '.join(e for e in R.get('exports', []) if not e.startswith('_'))[:120] or 'main/entry'
-        return ('T2: flow.py dec ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
+        return ('T2: flow.py dec CASE FILE ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
                ' | không có T3 cho ELF trên server (thiếu qemu-user): giải mã bằng tái hiện tĩnh'
     return 'T2: xem strings/hexdump có giới hạn; xác định định dạng thủ công'
 

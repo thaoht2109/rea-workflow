@@ -60,6 +60,18 @@ if os.path.isdir(PYLIB) and PYLIB not in sys.path: sys.path.insert(0, PYLIB)
 
 def tmpenv(**kw): return dict(os.environ, TMPDIR=TMP, **kw)
 
+def unix_socket_ok():
+    """rea mở bridge Ghidra qua Unix socket; sandbox của một số agent chặn socket(AF_UNIX)."""
+    import socket
+    try: socket.socket(socket.AF_UNIX).close(); return True
+    except OSError: return False
+
+def ghidra_home_args():
+    """Ghidra ghi cấu hình ở ~/.config/ghidra; nếu không ghi được (sandbox) thì chuyển user.home sang thư mục tạm."""
+    d = os.path.expanduser('~/.config/ghidra')
+    if os.access(d, os.W_OK) or (not os.path.exists(d) and os.access(os.path.dirname(d), os.W_OK)): return ''
+    h = os.path.join(TMP, 'ghidra_home'); os.makedirs(h, exist_ok=True); return f' -Duser.home={h}'
+
 def api_probe(timeout=5):
     """Backend api: gọi GET {base}/models (chuẩn OpenAI, Ollama/vLLM/llama.cpp đều có). Trả (ok, mô tả)."""
     import urllib.request, json
@@ -96,6 +108,8 @@ def doctor():
         row(bool(shutil.which(b)), k, shutil.which(b) or b, use, req)
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,
         'engine decompile của rea trên Linux + Ghidra headless cho MIPS/PPC', True)
+    row(True, 'AF_UNIX', 'tạo được' if unix_socket_ok() else 'bị chặn (sandbox): flow.py dec tự dùng Ghidra headless, chậm hơn lần đầu',
+        'bridge Ghidra của rea', False)
     row(not JAVA_HOME or os.path.exists(os.path.join(JAVA_HOME, 'bin', 'java')), 'JAVA_HOME', JAVA_HOME, 'JDK 21 cho Ghidra', True)
     for m, req in (('pefile', True), ('unicorn', True), ('capstone', True)):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',

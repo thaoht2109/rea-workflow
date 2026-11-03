@@ -15,8 +15,9 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | Mẫu hỗ trợ | PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK |
 | Đầu ra | `CASE/facts.jsonl` + `CASE/report/README.md`, `GENERATED.md`, `evidence/` |
 | Nền tảng | Linux x86-64 (Debian/Ubuntu/Kali đã kiểm) |
+| Phiên bản | tag `vX.Y.Z`; xem, cập nhật, lên/hạ bản: mục 8 |
 
-**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Cập nhật và gỡ](#8-cập-nhật-và-gỡ) · [9. Phát triển skill](#9-phát-triển-skill)
+**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
 
 ---
 
@@ -55,6 +56,8 @@ Lệnh làm ba việc:
 3. Chạy `flow.py setup` (mục 2.2): in công cụ còn thiếu và kế hoạch cài, hỏi `[Y/n]` rồi cài (apt cần sudo). `-y` cài luôn không hỏi; `--no-tools` chỉ kiểm; `--no-ghidra` bỏ Ghidra. Chạy không có terminal tương tác mà không `-y` thì chỉ kiểm và in lệnh cài.
 
 Dưới đây `$SKILL` là thư mục skill vừa cài (xem bằng `npx skills list -g`; thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`).
+
+Cập nhật về sau: `npx github:thaoht2109/rea-workflow update -g` (mục 8).
 
 Không có Node: `git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules --global`.
 
@@ -291,17 +294,57 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 - LLM local: chất lượng phản biện phụ thuộc model (nên từ khoảng 32B) và ngữ cảnh của server (≥ 32k token).
 - Phần nhận định trong báo cáo do agent/người viết; script sinh bảng và kiểm bằng chứng.
 
-## 8. Cập nhật và gỡ
+## 8. Phiên bản, cập nhật và gỡ
+
+Mỗi bản phát hành là một tag `vX.Y.Z` trên GitHub, lấy theo `version` trong `package.json` ([danh sách tag](https://github.com/thaoht2109/rea-workflow/tags)). Bộ cài `npx github:thaoht2109/rea-workflow` luôn lấy từ `main`, nên các lệnh dưới đây dùng được dù skill đang ở bản nào.
+
+### 8.1. Xem phiên bản
 
 ```bash
-npx github:thaoht2109/rea-workflow version [-g]    # bản đang cài và các bản có trên GitHub (hoặc: python3 $SKILL/flow.py version)
-npx github:thaoht2109/rea-workflow update [-g]     # cập nhật bản mới từ GitHub: skill, khối quy tắc, kiểm công cụ (-y cài luôn công cụ thiếu)
-npx github:thaoht2109/rea-workflow update [-g] --to v1.0.0   # đổi sang đúng một bản đã gắn tag (lên hoặc hạ)
+npx github:thaoht2109/rea-workflow version [-g]   # hoặc: python3 $SKILL/flow.py version
+```
+
+```
+rea-flow 1.1.0 (skills CLI, theo main) tại ~/.claude/skills/rea-flow
+các bản: v1.0.0, [v1.1.0]
+```
+
+Dòng đầu: bản đang cài và nguồn cài: `skills CLI, theo main`, `skills CLI, ghim vX.Y.Z` (đọc từ lock của skills CLI), hoặc `clone git <git describe>`. Dòng hai: các bản trên GitHub, bản đang dùng trong `[...]`; có bản mới hơn thì báo `có bản mới vX.Y.Z`. Không có mạng thì in dòng đầu và báo không lấy được danh sách.
+
+### 8.2. Cập nhật lên bản mới nhất
+
+```bash
+npx github:thaoht2109/rea-workflow update [-g] [-y] [--no-tools] [--no-ghidra]
+```
+
+Không tải lại cả bộ:
+
+- Skill cài bằng `npx`: `skills update` kéo phần thay đổi, giữ các agent đã chọn.
+- Skill là bản clone git (thư mục hoặc symlink tới clone): `git pull --ff-only`.
+- Đang ghim một bản (mục 8.3): quay về `main` (`skills add` lại không ref, hoặc `git checkout main` rồi pull).
+
+Sau đó chép lại khối quy tắc vào `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` và kiểm công cụ (bản Ghidra/`rea` ghim có thể đổi theo phiên bản); thiếu thì hỏi trước khi cài, `-y` cài luôn, `--no-tools` chỉ kiểm. Chưa cài skill thì báo lỗi kèm lệnh cài.
+
+### 8.3. Đổi sang một bản cụ thể (lên hoặc hạ): `--to`
+
+```bash
+npx github:thaoht2109/rea-workflow update -g --to v1.0.0    # hạ xuống (hoặc lên) đúng bản v1.0.0; "1.0.0" cũng được
+npx github:thaoht2109/rea-workflow update -g                 # bỏ ghim, về bản mới nhất
+```
+
+- Skill cài bằng `npx`: `skills add` lại với ref là tag; lock của skills CLI ghi `ref`, `skills update` về sau giữ nguyên bản này cho tới khi chạy `update` không `--to`. Không có `-a` thì CLI hỏi cài cho agent nào (với `-y`: mọi agent).
+- Bản clone git: `git fetch --tags` rồi `git checkout` tag (HEAD tách rời; thay đổi chưa commit được git giữ hoặc báo lỗi nếu xung đột).
+- `--to` chỉ nhận dạng `vX.Y.Z`; tag không có thì skills CLI/git báo lỗi và bản đang cài giữ nguyên.
+- `v1.0.0` chưa có lệnh `version`; khi đang ở bản đó vẫn `update` được bình thường.
+
+Dùng khi bản mới làm hỏng một case đang làm dở, hoặc cần chạy lại đúng bản đã dùng để ra một báo cáo (ghi bản `version` vào mục hạn chế của báo cáo nếu cần tái lập).
+
+### 8.4. Gỡ
+
+```bash
 python3 $SKILL/flow.py session --uninstall         # gỡ hàm shell (nếu đã cài)
 npx github:thaoht2109/rea-workflow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
 ```
-
-`update` không tải lại cả bộ: skill cài bằng `npx` được `skills update` kéo phần thay đổi (giữ các agent đã chọn); skill là bản clone git (thư mục hoặc symlink tới clone) thì `git pull --ff-only`. Bản phát hành là tag `vX.Y.Z` theo `version` trong `package.json`. `--to` ghim đúng bản đó: bản cài bằng `npx` thì `skills add` lại với ref là tag (không có `-a` thì CLI hỏi hoặc với `-y` cài cho mọi agent); bản clone git thì `git checkout` tag. Đang ghim mà chạy `update` không `--to` thì quay về `main`. Sau đó chép lại khối quy tắc và kiểm công cụ (bản Ghidra/rea ghim có thể đổi theo phiên bản); thiếu thì hỏi trước khi cài như lúc cài đặt.
 
 Gỡ không xoá `~/.config/rea-flow`, `~/.local/share/rea-flow` (Ghidra, unicorn) và các case trong workspace.
 

@@ -333,7 +333,7 @@ if __name__ == '__main__':
     if a[:1] == ['setup']: import install_tools; sys.exit(install_tools.main(a[1:]))
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
-    if not a or a[0] in ('help', '-h', '--help'): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
+    if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])
     cmd, c = a[0], a[1]
     if cmd == 'new': new(c, a[2:])

@@ -278,7 +278,8 @@ def next_step(c, accept=''):
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
     if not ok:
-        if state(c).get('stopped'): print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không tự tạo OVERRIDE)'); return 1
+        s = state(c)
+        if s.get('stopped') and s.get('reset_for') == facts_sha(c): print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không tự tạo OVERRIDE)'); return 1
         print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
     print('DONE: checklist đủ và phản biện đạt -> flow.py report --final rồi đóng case. KHÔNG cần chạy VM.' + (' Ghi các mục chấp nhận vào mục hạn chế.' if acc else ''))
     return 0

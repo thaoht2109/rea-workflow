@@ -43,7 +43,13 @@ try:
     assert run('review', c).returncode == 2
     r = run('next', c, '--accept', acc).stdout
     assert 'STOPPED' in r and 'STOP_REPORT.md' in r and 'flow.py review' not in r, r
-    # 6. help liệt kê next và help
+    # facts đổi sau khi dừng (sửa bằng supersedes) -> review lại được: next in NEED_REVIEW, không STOPPED
+    C.add(c, id='u3', kind='url', value='http://evil.example/x', src='S', evidence='report/evidence/e.txt#L2', supersedes='u2')
+    r = run('next', c, '--accept', acc).stdout
+    assert 'NEED_REVIEW' in r and f'flow.py review {c} --llm --detach' in r and 'STOPPED' not in r, r
+    # 6. help liệt kê next và help; không tham số là lỗi
+    assert run().returncode != 0 and run('help').returncode == 0
+
     h = run('help').stdout
     assert 'flow.py next CASE' in h and 'flow.py help' in h, h
     print('OK check_guidance')

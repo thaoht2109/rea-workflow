@@ -209,10 +209,7 @@ CASE/
 | Cũng chạy khi | ghi fact (`case.py add`, `--strict` để từ chối) | — |
 
 - **Tối đa 2 lần.** Lần 1 FAIL thì sửa đúng fact bị chỉ ra; lần 2 vẫn FAIL thì `STOPPED`, sinh `STOP_REPORT.md`, chặn báo cáo cuối. Chỉ người dùng mở lại (sửa tay, hoặc `work/review/OVERRIDE` có `facts_sha256` khớp).
-- **Mức high/low do luật quyết định,** không do model: fail ở kiểm bằng chứng cứng hoặc ở fact IOC/kết luận luôn chặn.
-- **Chỉ gửi fact cần LLM:** hash/filetype sạch không gửi; từ review 2 chỉ gửi fact đã đổi hoặc bị chỉ ra. Facts không đổi thì không tính thêm lần.
-- **Cô lập:** phiên phản biện không nạp CLAUDE.md, skill, plugin, hook, MCP của máy; canary hỏi trước để phát hiện ngữ cảnh cũ. Kiến thức RE chung cho mọi backend nằm ở `review/re-knowledge.md`.
-- **Chạy lâu:** `--detach` chạy nền; tiến trình LLM chỉ bị giết khi im lặng quá `REVIEW_IDLE` hoặc tổng quá `REVIEW_TIMEOUT`; phiên bị ngắt giữ kết luận từng fact đã xong, chạy lại chỉ gửi phần còn lại. Mọi lần gọi ghi token/chi phí vào `work/review/usage.jsonl`.
+- Luật mức high/low, cách chọn fact gửi LLM, cô lập phiên, chạy nền (`--detach`) và ghi usage: chi tiết ở `FLOW.md` mục 3b.
 
 | Backend (`REVIEW_LLM`) | Cách chạy |
 |---|---|
@@ -224,7 +221,7 @@ CASE/
 | `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
 | `manual` | script ghi `…prompt.md`; dán vào một cuộc chat **mới**, lưu câu trả lời vào `…answer.md`, chạy lại (mã 4 = đang chờ) |
 
-Với backend không có công cụ, script gửi hồ sơ tự chứa (fact, đoạn evidence, kết quả lớp 1, phép dò sẵn trên mẫu); mô hình xin thêm dữ liệu bằng các thao tác chỉ đọc (`read`, `grep`, `hex`, `strings`, `find`, `disasm`, `xrefs`, `pe`, `sha256`, `xor`). Mỗi lượt lưu ở `work/review/llm_cache/` nên chạy lại không gọi lại LLM.
+Backend không có công cụ nhận hồ sơ tự chứa và xin thêm dữ liệu bằng thao tác chỉ đọc; chi tiết ở `FLOW.md` mục 3b.
 
 ### 4.1. Dùng LLM local (Ollama, Qwen, vLLM… trên server tự dựng)
 
@@ -278,8 +275,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 
 ## 6. An toàn và OPSEC
 
-- **Không thực thi mẫu dưới bất kỳ hình thức nào:** không chạy trực tiếp, không wine/qemu, không chạy script mẫu, không dùng lệnh `rea` chạy target (`capture-*`, `debug-*`, `observe-*`…; danh sách được phép/bị cấm ở `FLOW.md` mục 4a).
-- **Không chạm hạ tầng của kẻ tấn công:** không kết nối C2, không tra mẫu trên dịch vụ ngoài. Tải payload thật chỉ khi người dùng cho phép.
+- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công:** quy tắc đầy đủ ở `SKILL.md` ("Quy tắc bắt buộc"), lệnh `rea` được phép/bị cấm ở `FLOW.md` mục 4a. Tải payload thật chỉ khi người dùng cho phép.
 - `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại.
 - Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1).
 - Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo, commit message hay mô tả PR.

@@ -11,14 +11,12 @@ File này là quy trình thao tác; quy tắc bắt buộc tóm tắt ở `SKILL
 
 ## 0. OPSEC: kiểm tra trước mỗi case
 
-- **Không bao giờ thực thi mẫu.** Cụ thể:
-  - không chạy file mẫu trực tiếp, không chạy qua `wine`, `qemu-*`, `bash`/`python` (với script);
-  - không dùng các lệnh `rea` có chạy target: `capture-process`, `debug-with-gdb`, `capture-*-scenario`, `capture-adb-*`.
+- Quy tắc bắt buộc (không thực thi mẫu, không chạm C2, không tra mẫu ngoài) nằm ở `SKILL.md`, mục "Quy tắc bắt buộc". Lệnh `rea` có chạy target bị cấm: `capture-process`, `debug-with-gdb`, `capture-*-scenario`, `capture-adb-*`.
 - Được phép:
   - đọc byte, `pefile`, `readelf`, `go version -m`, `7z x`, `upx -d` (giải nén tĩnh);
   - `rea` decompile/inspect, Ghidra headless;
   - giả lập CPU bằng `winemu`.
-- **Không chạm C2 hay hạ tầng phát tán**, không tra cứu mẫu trên dịch vụ ngoài. Muốn tải payload thì phải hỏi người dùng trước.
+- Muốn tải payload thật thì phải hỏi người dùng trước.
 - Mẫu đặt ở `work/sample/` với quyền `0400`. Không đưa mẫu và thư mục case lên git.
 
 ## 1. Môi trường
@@ -145,8 +143,7 @@ Dòng `next:` của triage sinh ra từ bảng này.
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
 - **Mở phiên phân tích bằng `flow.py session`** (Claude Code): giữ skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh, hoặc `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`), tắt MCP/plugin không liên quan và hook; skill dịch ngược cài cho agent khác (`~/.agents/skills`) được trỏ tới để đọc khi cần; SKILL.md rea-flow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace nạp bằng `--append-system-prompt-file`. Quy tắc rea-flow thắng khi mâu thuẫn. Danh sách lọc tính lúc chạy nên dùng được ở mọi máy; settings người dùng vẫn giữ. `--strict`: `--safe-mode`, chỉ còn rea-flow. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
-- **Tách phiên theo mốc** (sau triage/bóc vỏ, mỗi cụm decompile, mỗi đợt giả lập, trước cổng phản biện, trước báo cáo): mỗi lần gọi model đọc lại cả ngữ cảnh, nên phiên dài ở 200k+ tốn hơn nhiều so với phiên mới ở mức nền (mô phỏng trên phiên cũ: ít hơn 20–40%). Phiên mới hoà vốn sau khoảng 5 lượt, nên không tách cho bước nhỏ. Trước khi tách: ghi fact/hypothesis, chép đoạn chứng minh vào evidence, `flow.py checkpoint CASE` phải OK (kiểm lint fail, thư mục `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới).
-- Sau khi hội thoại bị nén hoặc `/clear`: chạy `flow.py resume CASE` (việc kế tiếp, cổng, fact kết luận nguyên văn, giả thuyết; tính lại từ `facts.jsonl` nên không lệch), tra chi tiết bằng `case.py show CASE --id ID` / `case.py search CASE TỪ`. Không đọc lại log.
+- Tách phiên theo mốc (`checkpoint`) và làm tiếp sau khi ngữ cảnh bị nén (`resume`): quy tắc ở `SKILL.md`, lý do và chi phí ở `README.md` mục 3.4. `checkpoint` kiểm lint fail, `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới.
 
 ## 6. Kiểm tra công cụ (sau khi sửa)
 

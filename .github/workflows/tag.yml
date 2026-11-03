@@ -1,0 +1,17 @@
+# Gắn tag vX.Y.Z khi version trong package.json đổi trên main (npx ... update --to / flow.py version dùng các tag này).
+name: tag
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+permissions:
+  contents: write
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          v="v$(node -p "require('./package.json').version")"
+          if git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null; then echo "đã có $v"; exit 0; fi
+          git tag "$v" && git push origin "$v"

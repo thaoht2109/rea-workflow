@@ -9,6 +9,7 @@
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
+#   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
 #   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
 #   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-flow; chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
@@ -189,6 +190,29 @@ def shell_hook(a):
 RE_TOOL = re.compile(r'\brea\b|\brea[-_]|reverse|ghidra|\bida\b|ida[-_ ]?pro|binja|binary.?ninja|radare|\br2\b|rizin|cutter|frida|jadx|apktool'
                      r'|\bjeb\b|hopper|decompil|disassembl|malware|yara|\bcapa\b|x64dbg|\blief\b|unicorn|capstone', re.I)
 
+REPO = 'thaoht2109/rea-workflow'
+def vkey(t): return tuple(int(x) for x in re.findall(r'\d+', t)[:3])
+
+def version():
+    """In bản đang cài và nguồn (clone git / skills CLI ghim tag hay theo main), rồi các bản vX.Y.Z trên GitHub (git ls-remote)."""
+    v = jload(os.path.join(TOOLS, 'package.json')).get('version', '?')
+    q = lambda *a: subprocess.run(['git', '-C', TOOLS, *a], capture_output=True, text=True).stdout.strip()
+    if os.path.realpath(q('rev-parse', '--show-toplevel') or '/nonexistent') == os.path.realpath(TOOLS):
+        src = f"clone git {q('describe', '--tags', '--always', '--dirty')}"
+    else:   # lock của skills CLI: project (<project>/skills-lock.json) hoặc toàn máy (~/.agents/.skill-lock.json)
+        e = next((x for x in ((jload(p).get('skills') or {}).get('rea-flow') for p in (os.path.join(TOOLS, '..', '..', '..', 'skills-lock.json'),
+                 os.path.expanduser('~/.agents/.skill-lock.json'))) if x), {})
+        src = f"skills CLI, ghim {e['ref']}" if e.get('ref') else 'skills CLI, theo main'
+    print(f'rea-flow {v} ({src}) tại {TOOLS}')
+    try: r = subprocess.run(['git', 'ls-remote', '--tags', '--refs', f'https://github.com/{REPO}'], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired): r = None
+    tags = sorted({l.rsplit('/', 1)[1] for l in (r.stdout if r else '').splitlines() if re.search(r'refs/tags/v\d+\.\d+\.\d+$', l)}, key=vkey)
+    if not tags: print('chưa có bản nào gắn tag trên GitHub' if r and r.returncode == 0 else 'không lấy được danh sách bản trên GitHub (mạng?)'); return 0 if r and r.returncode == 0 else 1
+    print('các bản: ' + ', '.join(f'[{t}]' if vkey(t) == vkey(v) else t for t in tags))
+    if vkey(tags[-1]) > vkey(v): print(f'có bản mới {tags[-1]}')
+    print(f'cập nhật lên main: npx github:{REPO} update [-g]; đổi sang bản cụ thể (lên hoặc hạ): ... update [-g] --to vX.Y.Z')
+    return 0
+
 def jload(p):
     try: return json.load(open(p, encoding='utf-8'))
     except (OSError, ValueError): return {}
@@ -301,6 +325,7 @@ def rules(a):
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['doctor']: sys.exit(CFG.doctor())
+    if a[:1] == ['version']: sys.exit(version())
     if a[:1] == ['setup']: import install_tools; sys.exit(install_tools.main(a[1:]))
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))

@@ -2,7 +2,7 @@
 # Kiểm `flow.py rules`: phạm vi global/project theo nơi cài skill, ghi idempotent, --check, --remove giữ nội dung người dùng.
 #   python3 tests/check_rules.py
 import os, sys, shutil, subprocess, tempfile
-SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'tools')
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = tempfile.mkdtemp(dir='/var/tmp'); env = dict(os.environ, HOME=H)
 ign = shutil.ignore_patterns('.git', 'pylib', '__pycache__')
 run = lambda sk, *a, cwd=H: subprocess.run([sys.executable, os.path.join(sk, 'flow.py'), 'rules', *a], cwd=cwd, env=env, capture_output=True, text=True)

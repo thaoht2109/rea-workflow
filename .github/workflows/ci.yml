@@ -123,9 +123,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Đỏ nếu có stage không xanh
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      # Stage sớm đỏ thì có thể chưa có artifact nào: không để bước tải làm hỏng báo cáo.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: reports-*
+          path: reports
+      - name: Gom báo cáo (đỏ nếu có stage không xanh)
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: |
-          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$NEEDS_JSON" | jq -e 'all(.[]; .result == "success")' >/dev/null
+        run: python3 .github/ci/ci_report.py reports ci-report
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: ci-report
+          path: ci-report/
+          if-no-files-found: warn
+          retention-days: 14

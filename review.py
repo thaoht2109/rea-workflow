@@ -5,7 +5,7 @@
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
 #   review.py next CASE [--accept C4=lý do,...]   DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
-import sys, os, re, json, glob, shlex, shutil, hashlib, tempfile, subprocess, datetime
+import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -196,7 +196,6 @@ def review(c, llm=False, force=False):
     fl = [i for i in items if i['verdict'] == 'fail']
     print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", lớp 2 {iso['backend']}: {iso['turns']} lượt, {iso['requests']} thao tác, " + ('cô lập OK' if iso['valid'] else 'KHÔNG HỢP LỆ: ' + '; '.join(iso['invalid_reasons'])) if iso else '') + ')')
     for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
-    code = 0
     if v == 'FAIL' and k >= MAX_ROUNDS:
         s['stopped'], s['reset_for'] = True, h; save_state(c, s); stop_report(c, s)
         hi = sum(1 for i in fl if i['severity'] == 'high')

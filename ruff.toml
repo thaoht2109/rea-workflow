@@ -1,0 +1,7 @@
+# Chỉ bắt lỗi thật (cú pháp, tên chưa định nghĩa); mã viết nén nên không áp E7/E4.
+[lint]
+select = ["E9", "F"]
+
+[lint.per-file-ignores]
+"winemu/winemu.py" = ["F403", "F405"]
+"winemu/plugins/*.py" = ["F405"]

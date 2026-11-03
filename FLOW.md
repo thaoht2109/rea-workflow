@@ -47,18 +47,7 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 
 ## 2. Các bước
 
-| Bước | Lệnh | Đọc gì | Ghi fact |
-|---|---|---|---|
-| 1. Tạo case | `python3 $SKILL/flow.py new <CASE> <mẫu hoặc zip>...` | tóm tắt triage, mỗi file ≤ 60 dòng | tự động: `hash`, `filetype`, `container`, `entry`. IOC ứng viên từ strings chỉ nằm trong `triage_*.json` (`ioc_candidates`, đã bỏ URL chỉ có trong vùng chữ ký Authenticode), **không** tự thành fact |
-| 2. Định tuyến | `python3 $SKILL/flow.py status <CASE>` | checklist C1–C11 và dòng `next:` của từng file | |
-| 3. Bóc vỏ (T1) | tự động: zip/7z/rar (mật khẩu `''`/`infected`/`malware`), UPX (`upx -d` ra bản sao `.unupx`), NSIS (header, giải nén file con, giải "sàng byte" để lộ `System::Call`) | `nsis_disasm.txt`, `nsis_syscalls.txt` | dạng khác thì tự viết script vào `work/` và ghi fact `container` |
-| 4. Tĩnh có mục tiêu (T2) | `python3 $SKILL/flow.py dec <CASE> <FILE> <hàm\|địa chỉ\|list:chuỗi>...` | mã giả C, in tối đa 80 dòng mỗi hàm | ghi fact cho từng kết luận (§3) |
-| 5. Giả lập (T3), chỉ cho shellcode/loader Windows x86‑32 | `winemu.py ...` rồi `summarize.py OUT/events.jsonl --facts <CASE>` (xem `winemu/README.md`) | tóm tắt vài chục dòng | tự động: `url`, `ua`, `str_key`, `inject`, `exit_reason`… với nguồn E |
-| 6. Payload offline (T4) | giải mã bằng khóa và định dạng lấy được ở bước 4/5, rồi `flow.py triage <CASE> <payload>` | quay lại bước 2 | `payload_fmt`, `payload_key`, `payload_hash` |
-| 7. VM ngoài (T5) | chỉ khi cần hành vi của payload cuối; người dùng quyết định | báo cáo sandbox | fact nguồn V |
-| 7b. Phản biện facts | `flow.py review <CASE> --llm` (tối đa 2 lần; xem dưới) | danh sách fact fail kèm `where`/`redo` | ghi vào `work/review/` |
-| 7c. Dừng sớm | `flow.py next <CASE> [--accept C4=lý do]` | `DONE` / `NEED_MORE` / `NEED_REVIEW` | |
-| 8. Đóng case | `flow.py report <CASE> --final` và `flow.py audit <CASE>`; viết phần nhận định trong `report/README.md` | | |
+Thứ tự các bước do `flow.py next CASE` dẫn (đã điền sẵn tên case và lệnh); danh sách lệnh: `flow.py help`. Tầng phân tích: T0 triage, T1 bóc vỏ (tự động: zip/7z/rar, UPX, NSIS), T2 decompile có mục tiêu (`flow.py dec`), T3 giả lập (`winemu`, chỉ shellcode/loader Windows x86-32), T4 payload offline, T5 VM ngoài (người dùng quyết định, nguồn V). IOC ứng viên từ strings chỉ nằm trong `triage_*.json` (`ioc_candidates`), không tự thành fact.
 
 **Chọn hàm cho bước 4.** Đi theo thứ tự này, dừng ngay khi đủ trả lời mục checklist còn thiếu:
 
@@ -107,18 +96,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 
 Dòng `next:` của triage sinh ra từ bảng này.
 
-| Triage thấy | Bước tiếp |
-|---|---|
-| zip, 7z, rar, gzip | `flow.py new` giải nén rồi triage từng file |
-| UPX | tự `upx -d`. Nếu thất bại (header UPX bị sửa) thì T2 tìm stub giải nén |
-| NSIS có shellcode | T3: lệnh `winemu` đề xuất sẵn `--blob`, `--blob-off`, `--size` |
-| PE .NET | T2: `rea inspect-managed-members` (chuỗi `ldstr`, PInvoke), rồi decompile lớp/hàm đáng ngờ |
-| PE native | T2 decompile export/hàm có import nhạy cảm. Nếu entropy cao thì tìm stub giải mã, rồi chuyển T3 nếu là x86‑32 |
-| ELF (mọi kiến trúc) | T2 decompile export/`main`. Không có T3 cho ELF trên server (thiếu qemu-user), nên phần giải mã phải tái hiện tĩnh bằng Python |
-| Go (PE/ELF) | `rea inspect-go-binary` (nếu kiến trúc được hỗ trợ), `flow.py dec ... list:main.` rồi `main.main` |
-| script | khử làm rối tĩnh bằng Python (base64, eval, char-code). **Không chạy script** |
-| OLE, PDF | `rea inspect-artifact`; macro/JS nhúng phải tách thủ công (chưa cài olevba/pdf-parser) |
-| DEX/APK | `rea inspect-android-package` / `inspect-android-method` |
+Định tuyến theo loại file do `static/triage.py` (`route()`) sinh và in ở dòng `next:` của `flow.py status`; không chép lại bảng ở đây. Khác biệt cần nhớ: ELF không có T3 trên server (thiếu qemu-user) nên giải mã bằng tái hiện tĩnh; script chỉ khử làm rối tĩnh, **không chạy**; OLE/PDF/APK dùng `rea inspect-*` tương ứng.
 
 ### 4a. Lệnh `rea` được phép (chỉ đọc file mẫu, không chạy)
 

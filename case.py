@@ -197,7 +197,7 @@ def check(case):
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm'}
-    return [(k, v, '' if v == 'ok' or v.startswith('n/a') else NEXT[k.split()[0]]) for k, v in R.items()]
+    return [(k, v, '' if v == 'ok' or v.startswith('n/a') else NEXT[k.split()[0]].replace('CASE', case)) for k, v in R.items()]
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 

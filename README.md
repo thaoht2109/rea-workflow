@@ -151,29 +151,14 @@ mẫu ─► T0 triage ─► T1 bóc vỏ ─► T2 decompile có mục tiêu �
 
 ### 3.3. Lệnh
 
-Agent chạy các lệnh này; bạn cũng chạy được trực tiếp từ workspace.
+Agent chạy các lệnh này; bạn cũng chạy được trực tiếp từ workspace. Danh sách đầy đủ: `python3 $SKILL/flow.py help`. Việc kế tiếp của một case: `python3 $SKILL/flow.py next CASE`.
 
 ```bash
-# case
 python3 $SKILL/flow.py new  CASE mẫu.exe [file2 ...]         # tạo case, chép mẫu, giải nén, triage
-python3 $SKILL/flow.py status CASE                            # checklist C0–C11 và gợi ý bước kế
-python3 $SKILL/flow.py dec  CASE FILE hàm|0xaddr|list:chuỗi    # decompile (rea, hoặc Ghidra)
-
-# fact
 python3 $SKILL/case.py add CASE id=c2.main kind=c2 value='host:443' src=E evidence=report/evidence/emu.txt#L12
 python3 $SKILL/case.py add CASE id=scan.hosts kind=string value='8 máy WIN-*' src=S evidence=report/evidence/scan.txt \
         recompute='distinct (WIN-[A-Z0-9]+) report/evidence/scan.txt = 8'     # con số: máy đếm lại
-python3 $SKILL/case.py search CASE TỪ... [--src S] [--all]    # tra fact
-python3 $SKILL/case.py show CASE --id ID                      # một fact + lịch sử đính chính
-
-# phiên dài
-python3 $SKILL/flow.py checkpoint CASE                        # chốt mốc trước khi /clear (mã 1 = còn kết quả chưa ghi)
-python3 $SKILL/flow.py resume CASE                            # làm tiếp sau /clear
-
-# phản biện, đóng case
-python3 $SKILL/flow.py review CASE --llm [--detach]           # cổng phản biện (--detach: chạy nền, gọi lại tới khi mã khác 6)
-python3 $SKILL/flow.py next CASE --accept 'C10=lý do;C11=lý do'   # DONE / NEED_MORE / NEED_REVIEW
-python3 $SKILL/flow.py report CASE --final && python3 $SKILL/flow.py audit CASE
+python3 $SKILL/flow.py review CASE --llm --detach            # cổng phản biện; gọi lại tới khi mã khác 6
 ```
 
 Sửa fact bằng fact mới có `supersedes=<id cũ>`; không sửa hay xoá dòng cũ trong `facts.jsonl`.

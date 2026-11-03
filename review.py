@@ -164,7 +164,7 @@ def detach(c, cmd, flags):
     open(pf, 'w').write(str(pr.pid))
     print(f'ĐÃ CHẠY NỀN {cmd} {c} (pid {pr.pid}), log {lf}. Gọi lại đúng lệnh này để xem tiến độ và lấy kết quả (mã 6 = đang chạy).'); return 6
 
-def review(c, llm=False, force=False):
+def review(c, llm=False, force=False, hint=True):
     p = bg_pid(c)
     if p and p != os.getpid(): print(f'ĐANG CÓ review chạy nền pid {p} cho case này: gọi lại lệnh với --detach để xem kết quả'); return 6
     s, h = state(c), facts_sha(c)
@@ -196,8 +196,8 @@ def review(c, llm=False, force=False):
     fl = [i for i in items if i['verdict'] == 'fail']
     print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", lớp 2 {iso['backend']}: {iso['turns']} lượt, {iso['requests']} thao tác, " + ('cô lập OK' if iso['valid'] else 'KHÔNG HỢP LỆ: ' + '; '.join(iso['invalid_reasons'])) if iso else '') + ')')
     for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
-    if v == 'FAIL' and k < MAX_ROUNDS: print(f'BƯỚC KẾ: sửa từng mục fail/weak theo where/redo (ghi fact mới có supersedes, cập nhật báo cáo), rồi chạy lại `flow.py review {c} --llm --detach`')
-    if v == 'PASS': print(f'BƯỚC KẾ: flow.py next {c}')
+    if hint and v == 'FAIL' and k < MAX_ROUNDS: print(f'BƯỚC KẾ: sửa từng mục fail/weak theo where/redo (ghi fact mới có supersedes, cập nhật báo cáo), rồi chạy lại `flow.py review {shlex.quote(c)} --llm --detach`')
+    if hint and v == 'PASS': print(f'BƯỚC KẾ: flow.py next {shlex.quote(c)}')
     if v == 'FAIL' and k >= MAX_ROUNDS:
         s['stopped'], s['reset_for'] = True, h; save_state(c, s); stop_report(c, s)
         hi = sum(1 for i in fl if i['severity'] == 'high')
@@ -234,7 +234,7 @@ def analyst(c, k):
 
 def loop(c, llm=True):
     """review -> (FAIL) phân tích lại đúng các fact lỗi -> review lần 2 -> (FAIL) dừng + STOP_REPORT. Không cần người xác nhận giữa chừng."""
-    code = review(c, llm)
+    code = review(c, llm, hint=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công
     while code == 1:
         k = len(state(c)['rounds'])
         if CFG.review_backend() != 'claude' and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
@@ -244,7 +244,7 @@ def loop(c, llm=True):
         print(f'-- phân tích lại: {n} mục, facts {"đã đổi" if changed else "KHÔNG đổi"}' + ('' if ok else ', bị hủy'))
         if not ok or not changed:   # không tiêu lần review 2 cho facts không đổi; chạy lại review-loop sẽ tiếp từ bước sửa
             print('DỪNG: phân tích lại không tạo thay đổi hợp lệ; xem work/review/r%d/analyst_out.txt rồi chạy lại review-loop' % k); return 5
-        code = review(c, llm, force=True)
+        code = review(c, llm, force=True, hint=False)
     return code
 
 def gate(c):
@@ -277,7 +277,9 @@ def next_step(c, accept=''):
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
-    if not ok: print(f'NEED_REVIEW: {why} -> flow.py review {c} --llm --detach'); return 1
+    if not ok:
+        if state(c).get('stopped'): print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không tự tạo OVERRIDE)'); return 1
+        print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
     print('DONE: checklist đủ và phản biện đạt -> flow.py report --final rồi đóng case. KHÔNG cần chạy VM.' + (' Ghi các mục chấp nhận vào mục hạn chế.' if acc else ''))
     return 0
 

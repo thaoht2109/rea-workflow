@@ -161,7 +161,7 @@ def route(R, out):
         return ('T2 tìm stub giải mã (flow.py dec CASE FILE entry) -> T3 winemu nếu là x86-32' if hi else
                 'T2: flow.py dec CASE FILE <export/hàm theo import đáng ngờ>')
     if t.startswith('ELF'):
-        tgt = ', '.join(f'`{e}`' for e in idents([e for e in R.get('exports', []) if not e.startswith('_')], 8)[0]) or 'main/entry'
+        tgt = ' '.join(q(e) for e in idents([e for e in R.get('exports', []) if not e.startswith('_')], 8)[0]) or 'main/entry'
         return ('T2: flow.py dec CASE FILE ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
                ' | không có T3 cho ELF trên server (thiếu qemu-user): giải mã bằng tái hiện tĩnh'
     return 'T2: xem strings/hexdump có giới hạn; xác định định dạng thủ công'

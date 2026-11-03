@@ -96,7 +96,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 
 Dòng `next:` của triage sinh ra từ bảng này.
 
-Định tuyến theo loại file do `static/triage.py` (`route()`) sinh và in ở dòng `next:` của `flow.py status`; không chép lại bảng ở đây. Khác biệt cần nhớ: ELF không có T3 trên server (thiếu qemu-user) nên giải mã bằng tái hiện tĩnh; script chỉ khử làm rối tĩnh, **không chạy**; OLE/PDF/APK dùng `rea inspect-*` tương ứng.
+Định tuyến theo loại file do `static/triage.py` (`route()`) sinh và in ở dòng `next:` của `flow.py status`; không chép lại bảng ở đây. Kind fact cần ghi cho từng mục checklist in ở `[fact: ...]` cuối mỗi dòng `next:` (`case.py check`); UPX bị sửa header khiến `upx -d` thất bại thì `flow.py triage` in hướng tìm stub giải nén bằng T2/T3. Khác biệt cần nhớ: ELF không có T3 trên server (thiếu qemu-user) nên giải mã bằng tái hiện tĩnh; script chỉ khử làm rối tĩnh, **không chạy**; OLE/PDF/APK dùng `rea inspect-*` tương ứng.
 
 ### 4a. Lệnh `rea` được phép (chỉ đọc file mẫu, không chạy)
 

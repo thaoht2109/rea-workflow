@@ -226,7 +226,7 @@ def analyst(c, k):
     if not CFG.ANALYST_LLM_CMD and CFG.review_backend() in NO_TOOL:
         import reviewer
         try: rc, log = reviewer.analyst(c, k, todo)
-        except (OSError, RuntimeError) as e: rc, log = 1, f'{type(e).__name__}: {e}'
+        except (OSError, RuntimeError, ValueError, KeyError, IndexError, TypeError) as e: rc, log = 1, f'{type(e).__name__}: {e}'   # gồm server trả JSON hỏng hoặc thiếu choices
         r = subprocess.CompletedProcess(cmd, rc, log, '')
         if not rc: print('Lưu ý: LLM không có công cụ chỉ sửa facts; cập nhật README và bảng đính chính theo analyst_out.txt')
     else: r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)

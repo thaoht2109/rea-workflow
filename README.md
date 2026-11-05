@@ -221,7 +221,7 @@ REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
 ```
 
 - `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
-- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`.
+- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`; giá trị nguyên văn như `c2`, `url` không có trong evidence thì phải `retracted`, vì cổng phản biện vẫn kiểm giá trị của `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`.
 - **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
 - **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
 
@@ -277,7 +277,7 @@ export OPENCODE_DISABLE_MODELS_FETCH=1                      # máy không có In
 opencode
 ```
 
-`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép công cụ của skill và các lệnh đọc; chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng; lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ.
+`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép công cụ của skill (neo đúng đường dẫn skill trên máy) và các lệnh đọc; chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng; lệnh ghép (`;`, `|`, `&`, `>`, `$(`) và lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ. Đổi chỗ cài skill thì chạy lại lệnh này.
 
 Luật này chỉ để chặn nhầm, không phải ranh giới bảo mật: cách gọi gián tiếp vẫn có thể lọt, và `--auto` tự duyệt mọi lệnh đang ở mức hỏi. Vì vậy phải chạy trong VM không có Internet và không dùng `--auto`.
 

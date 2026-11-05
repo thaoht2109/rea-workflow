@@ -28,16 +28,24 @@ assert ol['options']['baseURL'] == 'http://10.0.0.5:11434/v1' and {'qwen3-coder:
 # --print không ghi; file JSON hỏng (ví dụ JSONC) không bị ghi đè
 E = tempfile.mkdtemp(); r = run(E, '--print')
 assert r.returncode == 0 and json.loads(r.stdout)['model'] and not os.path.exists(os.path.join(E, 'opencode.json')), r.stdout
+bash = json.loads(r.stdout)['permission']['bash']
 open(P, 'w').write('{ // chú thích\n}'); r = run(W)
 assert r.returncode == 2 and open(P).read().startswith('{ //'), r.stdout
 
 # luật OpenCode: khớp mẫu, luật khớp cuối cùng thắng
-bash = json.load(open(os.path.join(SRC, 'templates', 'opencode.json'), encoding='utf-8'))['permission']['bash']
 assert next(iter(bash)) == '*', '"*" phải đứng đầu, nếu không sẽ đè mọi luật khác'
+assert not any('{SKILL}' in k for k in bash), bash
+T = os.path.realpath(SRC)
 def verdict(cmd): return [v for k, v in bash.items() if fnmatch.fnmatchcase(cmd, k)][-1]
-for cmd, want in (('python3 tools/flow.py next CASE', 'allow'), ('python3 tools/case.py add CASE id=a', 'allow'),
-                  ('python3 tools/winemu/winemu.py --blob work/sample/x --out o', 'allow'),   # 'wine' không được bắt nhầm winemu
-                  ('python3 tools/winemu/summarize.py o/events.jsonl', 'allow'), ('sed -n 1,5p a.log', 'allow'), ('grep -n x a.log', 'allow'),
+for cmd, want in ((f'python3 {T}/flow.py next CASE', 'allow'), (f'python3 {T}/case.py add CASE id=a', 'allow'),
+                  (f'python3 {T}/winemu/winemu.py --blob work/sample/x --out o', 'allow'),   # 'wine' không được bắt nhầm winemu
+                  (f'python3 {T}/winemu/summarize.py o/events.jsonl', 'allow'), ('grep -n x a.log', 'allow'),
+                  # allow phải neo đường dẫn: script mẫu mang tên flow.py hoặc tham số flow.py không được tự duyệt
+                  ('python3 work/sample/flow.py x', 'ask'), ('python3 work/sample/x.py flow.py a', 'ask'), ('python3 -c "import os" flow.py a', 'ask'),
+                  # lệnh ghép và ghi file không được đi nhờ tiền tố đã allow; sed có lệnh e/w nên không allow
+                  (f'python3 {T}/flow.py next C; python3 work/sample/x.py', 'ask'), ('grep x a | sh', 'ask'), ('head a && python3 x.py', 'ask'),
+                  ('ls $(python3 x.py)', 'ask'), ('grep x a > facts.jsonl', 'ask'), ("sed -n '1e id' f", 'ask'), ("sed -n 'w facts.jsonl' f", 'ask'),
+                  ('sed -n 1,5p a.log', 'ask'), ('grep x a; wine b.exe', 'deny'),
                   ('wine a.exe', 'deny'), ('wine64 a.exe', 'deny'), ('env wine a.exe', 'deny'), ('/usr/bin/wine a.exe', 'deny'),
                   ('qemu-x86_64 a', 'deny'), ('env qemu-arm a', 'deny'), ('rea capture-run a', 'deny'), ('npx rea capture-run a', 'deny'),
                   ('rea debug-with-gdb a', 'deny'), ('./a.out', 'deny'), ('chmod +x a', 'deny'), ('curl http://x', 'deny'), ('wget http://x', 'deny'),

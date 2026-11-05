@@ -337,7 +337,9 @@ def opencode(a):
     o = ap.parse_args(a); p = os.path.join(o.dir, 'opencode.json')
     try: cfg = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
     except ValueError as e: print(f'{p} không phải JSON thuần ({e}): sửa tay hoặc đổi tên file rồi chạy lại, không ghi đè.'); return 2
-    cfg = {**cfg, **json.load(open(os.path.join(TOOLS, 'templates', 'opencode.json'), encoding='utf-8')), 'model': f'ollama/{o.model}'}
+    t = json.load(open(os.path.join(TOOLS, 'templates', 'opencode.json'), encoding='utf-8'))
+    t['permission']['bash'] = {k.replace('{SKILL}', os.path.realpath(TOOLS)): v for k, v in t['permission']['bash'].items()}   # neo đường dẫn: `python3 *flow.py *` khớp cả script mẫu
+    cfg = {**cfg, **t, 'model': f'ollama/{o.model}'}
     ol = cfg.setdefault('provider', {}).setdefault('ollama', {'npm': '@ai-sdk/openai-compatible', 'name': 'Ollama'})
     ol['options'] = {**ol.get('options', {}), 'baseURL': o.base_url}
     ol.setdefault('models', {})[o.model] = {'name': o.model}

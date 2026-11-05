@@ -515,16 +515,19 @@ def apply_fixes(c, k, fixes, cur, ids):
             old = x.get('supersedes')
             if old not in ids or old in seen: raise ValueError(f'supersedes {old!r}: ngoài danh sách hoặc lặp')
             seen.add(old)
-            if not str(x.get('evidence', '')).startswith(C.EV): raise ValueError(f'{old}: evidence phải nằm trong {C.EV}')
-            C.add(c, strict=True, lint=True, id=f'{old}.r{k}', kind=cur[old]['kind'], src=cur[old]['src'], value=str(x.get('value') or ''), evidence=x['evidence'],
-                  supersedes=old, status=x.get('status', 'active'), note=str(x.get('note') or ''))
+            retract = x.get('status') == 'retracted'   # mech bỏ qua fact đã rút: không cần value có trong evidence. hypothesis vẫn strict vì mech vẫn kiểm
+            keep = cur[old] if retract else {}
+            ev = str(x.get('evidence') or keep.get('evidence', ''))
+            if not ev.startswith(C.EV): raise ValueError(f'{old}: evidence phải nằm trong {C.EV}')
+            C.add(c, strict=not retract, lint=not retract, id=f'{old}.r{k}', kind=cur[old]['kind'], src=cur[old]['src'], value=str(x.get('value') or keep.get('value', '')),
+                  evidence=ev, supersedes=old, status=x.get('status', 'active'), note=str(x.get('note') or ''))
     except (ValueError, AttributeError, TypeError) as e:
         open(fp, 'wb').write(before); return str(e)
     return ''
 
 def analyst(c, k, todo):
     """Như phiên analyst của claude nhưng mô hình chỉ đọc qua run_ops và trả fact sửa dạng JSON: không shell, không ghi file. Trả (mã, nhật ký)."""
-    be, cur = CFG.review_backend(), C.load(c); del USAGE[:]
+    be, cur = CFG.review_backend(), C.load(c); del USAGE[:]; PB[0] = 0; EST[0] = False
     ids = {i['id'] for i in todo if i['id'] in cur}
     if not ids: return 0, 'không có fact nào để sửa'
     sysp = open(os.path.join(HERE, 'review', 'analyst-api.md'), encoding='utf-8').read().replace('{MAX_TURNS}', str(CFG.REVIEW_MAX_TURNS)).replace('{REQ_MAX}', str(REQ_MAX)) + knowledge()
@@ -532,7 +535,7 @@ def analyst(c, k, todo):
     head, body = dossier(c, sorted(ids), [])
     msgs = [{'role': 'system', 'content': sysp},
             {'role': 'user', 'content': f'Lỗi người phản biện chỉ ra sau review {k} (JSON):\n{json.dumps(todo, ensure_ascii=False, indent=1)}\n\n{head}\n\n' + '\n\n'.join(body[i] for i in sorted(ids))}]
-    log, cache = [], os.path.join(c, 'work', 'review', 'llm_cache')
+    log, cache = [], os.path.join(c, 'work', 'review', 'llm_cache', f'analyst-r{k}-{time.time_ns()}')   # thư mục riêng mỗi lần: chạy lại không lặp câu trả lời đã thất bại
     for t in range(1, CFG.REVIEW_MAX_TURNS + 1):
         ans = ask(be, msgs, cache); d = parse(ans)
         log.append(ans); msgs.append({'role': 'assistant', 'content': ans})

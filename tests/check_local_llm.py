@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.insert(0, SKILL)
-SEEN, CUT, SCRIPT = [], [0], []
+SEEN, CUT, SCRIPT, BROKEN = [], [0], [], [False]
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def reply(self, d):
@@ -18,6 +18,7 @@ class H(BaseHTTPRequestHandler):
         SEEN.append(('POST', self.path, self.headers.get('Authorization')))
         chars = sum(len(m['content']) for m in body['messages'])
         SEEN.append(body['messages'][-1]['content'])
+        if BROKEN[0]: return self.reply({})
         self.reply({'choices': [{'message': {'content': SCRIPT.pop(0) if SCRIPT else '{"canary": []}'}}], 'usage': {'prompt_tokens': CUT[0] or chars // 3, 'completion_tokens': 5}})
 srv = HTTPServer(('127.0.0.1', 0), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
 base = f'http://127.0.0.1:{srv.server_port}/v1'
@@ -77,4 +78,31 @@ SCRIPT[:] = ['không phải json'] * 6
 facts = open(c + '/facts.jsonl', 'rb').read()
 ok, _, changed = review.analyst(c, 1)
 assert not ok and not changed and open(c + '/facts.jsonl', 'rb').read() == facts, 'hết lượt: không đổi facts'
+
+# trọn vòng thật: giá trị nguyên văn không có trong evidence -> lớp 1 FAIL -> model rút fact -> review 2 PASS
+def mkcase():
+    d = tempfile.mkdtemp(); os.makedirs(d + '/report/evidence'); os.makedirs(d + '/work/review/r1')
+    open(d + '/report/evidence/e.txt', 'w').write('a\nhost good.example.com\n')
+    C.add(d, id='good', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+    C.add(d, id='f1', kind='c2', value='bad.example.com', src='S', evidence='report/evidence/e.txt#L2')
+    return d
+c2 = mkcase(); SCRIPT[:] = ['{"facts": [{"supersedes": "f1", "status": "hypothesis", "value": "bad.example.com", "evidence": "report/evidence/e.txt#L2"}]}',   # lớp 1 vẫn FAIL fact này
+                            '{"facts": [{"supersedes": "f1", "status": "retracted", "note": "không có trong evidence"}]}']
+rc = review.loop(c2, llm=False); st = review.state(c2)
+assert rc == 0 and [r['verdict'] for r in st['rounds']] == ['FAIL', 'PASS'] and not SCRIPT, (rc, st['rounds'], SCRIPT)
+assert review.gate(c2)[0], review.gate(c2)
+F = C.load(c2); assert F['f1.r1']['status'] == 'retracted' and F['f1.r1']['value'] == 'bad.example.com' and F['f1']['status'] == 'retracted', F
+
+# thất bại không được cache: chạy lại phải gọi model lần nữa
+c3 = mkcase(); json.dump(dict(items=[dict(item)]), open(c3 + '/work/review/r1/review.json', 'w'))
+SCRIPT[:] = ['không phải json'] * 6
+assert not review.analyst(c3, 1)[0]
+SCRIPT[:] = ['{"facts": [{"supersedes": "f1", "status": "retracted"}]}']
+assert review.analyst(c3, 1)[0] and not SCRIPT, 'chạy lại phải hỏi model, không lặp câu trả lời cũ'
+
+# server trả JSON thiếu choices: hủy sạch, ghi nhật ký, không văng traceback
+c4 = mkcase(); json.dump(dict(items=[dict(item)]), open(c4 + '/work/review/r1/review.json', 'w'))
+facts = open(c4 + '/facts.jsonl', 'rb').read(); BROKEN[0] = True
+ok, _, changed = review.analyst(c4, 1); BROKEN[0] = False
+assert not ok and not changed and open(c4 + '/facts.jsonl', 'rb').read() == facts and 'KeyError' in open(c4 + '/work/review/r1/analyst_out.txt').read()
 srv.shutdown(); print('OK test_local_llm')

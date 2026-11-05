@@ -102,10 +102,13 @@ F = C.load(c2); assert F['f1.r1']['status'] == 'retracted' and F['f1.r1']['value
 
 # review PASS nhưng README chưa đổi theo fact đã rút: next và report --final phải chặn tới khi sửa README
 final = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'report', c2, '--final'], capture_output=True, text=True)
-assert review.report_todo(c2) and 'f1 -> retracted' in review.report_todo(c2)[0], review.report_todo(c2)
+assert review.report_todo(c2) and review.report_todo(c2)[0]['id'] == 'f1.r1' and 'thay f1) -> retracted' in review.report_todo(c2)[0]['line'], review.report_todo(c2)
 assert review.next_step(c2, 'C1=x,C2=x,C3=x,C4=x,C5=x,C6=x,C7=x,C8=x,C9=x,C10=x,C11=x') == 1
-r = final(); assert r.returncode != 0 and 'README' in r.stderr and 'f1 -> retracted' in r.stderr, r.stdout + r.stderr
-open(c2 + '/report/README.md', 'a').write('Đính chính: đã rút fact.\n'); os.utime(c2 + '/report/README.md', (2 ** 32, 2 ** 32))
+r = final(); assert r.returncode != 0 and 'README' in r.stderr and 'thay f1) -> retracted' in r.stderr, r.stdout + r.stderr
+os.utime(c2 + '/report/README.md', (2 ** 32, 2 ** 32)); assert review.report_todo(c2), 'touch không được coi là đã cập nhật'
+open(c2 + '/report/README.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'
+os.rename(c2 + '/report/README.md', c2 + '/report/x'); assert review.report_todo(c2), 'thiếu README vẫn chặn'; os.rename(c2 + '/report/x', c2 + '/report/README.md')
+open(c2 + '/report/README.md', 'a').write('Đính chính: `f1.r1` đã rút.\n')
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr
 

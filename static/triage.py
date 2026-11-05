@@ -5,7 +5,7 @@
 #   python3 -I triage.py FILE --out OUTDIR [--facts CASE]
 # NSIS: tự dịch header, giải nén file bằng 7z, giải "sàng byte" (đọc 1 byte mỗi bước nhảy, dấu kết thúc chuỗi) để lộ chuỗi
 # System::Call, rồi đề xuất --blob/--blob-off cho winemu. Chỉ là heuristic: luôn đối chiếu với nsis_disasm.txt.
-import sys, os, re, json, math, struct, shutil, hashlib, argparse, subprocess
+import sys, os, re, json, math, struct, shutil, hashlib, argparse, subprocess, shlex
 from collections import Counter
 import pefile
 
@@ -131,10 +131,23 @@ def script_lang(t):
         if re.search(rx, t): return lang
     return 'text'
 
+# Tên lấy từ mẫu (export, import, section) do tác giả mã độc đặt: chỉ đưa định danh hợp lệ vào output agent đọc,
+# vì dòng `next:` là chỉ dẫn agent làm theo (chống chèn câu lệnh qua tên symbol). triage.json vẫn giữ bản gốc làm bằng chứng.
+IDENT = re.compile(r'[A-Za-z_?@$.][\w?@$.:<>~-]{0,79}')
+def idents(xs, n):
+    ok = [x for x in xs if isinstance(x, str) and IDENT.fullmatch(x)]
+    return ok[:n], len(xs) - len(ok)
+
+CTRL = re.compile(r'[\x00-\x1f\x7f]')
+def q(x): return shlex.quote(CTRL.sub('?', x))   # tham số lệnh từ tên do mẫu/installer đặt: bỏ ký tự điều khiển (xuống dòng) rồi quote
+def show(x): return json.dumps(x, ensure_ascii=False)   # in tên do mẫu đặt: một dòng, có thoát ký tự
+
+WIN_DL = 'C:\\Users\\admin\\Downloads\\'   # đường dẫn giả lập của mẫu trong winemu
+
 def route(R, out):
     f, t, sc = R['flags'], R['type'], R.get('nsis', {}).get('shellcode')
-    if sc: return f"T3 winemu --blob {os.path.join(out, sc['file'])} --blob-off {sc['offset']}" + (f" --size {sc['alloc']:#x}" if sc['alloc'] else '') + \
-                  f" --prerun --chain-child --exe '{R['path']}' --exe-path 'C:\\Users\\admin\\Downloads\\{R['file']}'"
+    if sc: return f"T3 winemu --blob {q(os.path.join(out, sc['file']))} --blob-off {sc['offset']}" + (f" --size {sc['alloc']:#x}" if sc['alloc'] else '') + \
+                  f" --prerun --chain-child --exe {q(R['path'])} --exe-path {q(WIN_DL + R['file'])}"
     if 'NSIS' in f: return 'T1: đọc nsis_disasm.txt + nsis/files/ (chưa tự tìm ra shellcode)'
     if 'UPX' in f: return 'flow.py triage tự upx -d bản sao rồi triage lại (bước 3)'
     if t in ('zip', '7z', 'rar', 'gzip'): return 'flow.py new giải nén vào work/sample/ rồi triage từng file (bước 1)'
@@ -148,7 +161,7 @@ def route(R, out):
         return ('T2 tìm stub giải mã (flow.py dec CASE FILE entry) -> T3 winemu nếu là x86-32' if hi else
                 'T2: flow.py dec CASE FILE <export/hàm theo import đáng ngờ>')
     if t.startswith('ELF'):
-        tgt = ', '.join(e for e in R.get('exports', []) if not e.startswith('_'))[:120] or 'main/entry'
+        tgt = ' '.join(q(e) for e in idents([e for e in R.get('exports', []) if not e.startswith('_')], 8)[0]) or 'main/entry'
         return ('T2: flow.py dec CASE FILE ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
                ' | không có T3 cho ELF trên server (thiếu qemu-user): giải mã bằng tái hiện tĩnh'
     return 'T2: xem strings/hexdump có giới hạn; xác định định dạng thủ công'
@@ -179,17 +192,17 @@ def main():
     json.dump(R, open(os.path.join(A.out, 'triage.json'), 'w'), indent=1, ensure_ascii=False)
 
     sc = R.get('nsis', {}).get('shellcode')
-    print(f"{R['file']}  {R['type']} {' '.join(R['flags'])}  {R['size']} B  H={R['entropy']}\nsha256 {R['sha256']}")
-    for s in sorted(R.get('sections', []), key=lambda s: -s['raw'])[:8]: print(f"  sec {s['name']:<10} raw={s['raw']:<8} H={s['entropy']}")
+    print(f"{show(R['file'])}  {R['type']} {' '.join(R['flags'])}  {R['size']} B  H={R['entropy']}\nsha256 {R['sha256']}")
+    for s in sorted(R.get('sections', []), key=lambda s: -s['raw'])[:8]: print(f"  sec {s['name'] if IDENT.fullmatch(s['name']) else '<tên lạ>':<10} raw={s['raw']:<8} H={s['entropy']}")
     if 'overlay' in R: print(f"  overlay @{R['overlay']['offset']:#x} {R['overlay']['size']} B H={R['overlay']['entropy']}")
-    if R.get('imports'): print('  imports:', ', '.join(list(R['imports'])[:12]))
-    if R.get('imported_funcs'): print(f"  hàm import ({len(R['imported_funcs'])}):", ' '.join(R['imported_funcs'][:30]))
-    if R.get('exports'): print(f"  export ({len(R['exports'])}):", ' '.join(R['exports'][:20]))
+    if R.get('imports'): ok, bad = idents(list(R['imports']), 12); print('  imports:', ', '.join(ok) + (f' (+{bad} tên lạ không in)' if bad else ''))
+    for k, lab, n in (('imported_funcs', 'hàm import', 30), ('exports', 'export', 20)):   # tên từ mẫu: chỉ in định danh hợp lệ
+        if R.get(k): ok, bad = idents(R[k], n); print(f"  {lab} ({len(R[k])}):", ' '.join(ok) + (f' (+{bad} tên lạ không in, xem triage.json)' if bad else ''))
     if R.get('go'): print('  go:', ' | '.join(R['go'][:3]))
     if 'nsis' in R:
-        for f in sorted(R['nsis']['files'], key=lambda f: -f['size'])[:10]: print(f"  nsis file {f['name']:<24} {f['size']:>9} B H={f['entropy']}")
-        if 'sieve' in R['nsis']: s = R['nsis']['sieve']; print(f"  sàng byte: {s['file']} từ {s['start']} bước {s['step']} kết thúc '{s['sep']}' -> {s['calls']} lệnh System::Call ({s['out']})")
-        if sc: print(f"  shellcode: {sc['file']} offset {sc['offset']} callback {sc['callback']}")
+        for f in sorted(R['nsis']['files'], key=lambda f: -f['size'])[:10]: print(f"  nsis file {json.dumps(f['name'])[:60]:<24} {f['size']:>9} B H={f['entropy']}")   # tên do installer đặt: in dạng chuỗi có thoát
+        if 'sieve' in R['nsis']: s = R['nsis']['sieve']; print(f"  sàng byte: {show(s['file'])} từ {s['start']} bước {s['step']} kết thúc '{s['sep']}' -> {s['calls']} lệnh System::Call ({s['out']})")
+        if sc: print(f"  shellcode: {show(sc['file'])} offset {sc['offset']} callback {show(str(sc['callback']))}")
     if R['ioc_candidates']: print('  IOC ứng viên (từ strings, CHƯA là fact; ghi fact url/c2 khi đã có xref tới mã hoặc quan sát giả lập):', ' '.join(R['ioc_candidates'][:10]))
     if R.get('ioc_in_signature'): print(f"  bỏ {len(R['ioc_in_signature'])} URL chỉ nằm trong vùng chữ ký Authenticode")
     print('  strings:'); [print('   ', s[:110]) for s in R['strings'][:12]]

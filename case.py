@@ -7,7 +7,7 @@
 #   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
 #   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
-import sys, os, json, re, glob, hashlib, datetime
+import sys, os, json, re, glob, shlex, hashlib, datetime
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
@@ -197,7 +197,12 @@ def check(case):
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm'}
-    return [(k, v, '' if v == 'ok' or v.startswith('n/a') else NEXT[k.split()[0]]) for k, v in R.items()]
+    FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b'",
+            'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
+            'C11': 'coverage (S) hoặc exit_reason natural + api_unused + dec_coverage (E)'}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
+    q = shlex.quote(case)
+    hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
+    return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 

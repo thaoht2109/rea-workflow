@@ -198,7 +198,7 @@ CASE/
 
 | Backend (`REVIEW_LLM`) | Cách chạy |
 |---|---|
-| `auto` (mặc định) | CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
+| `auto` (mặc định) | `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` tự dựng), nếu không thì CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
 | `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
 | `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực (copilot: `COPILOT_MODEL` để chọn model) |
 | `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
@@ -221,6 +221,7 @@ REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
 ```
 
 - `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
+- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`.
 - **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
 - **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
 
@@ -252,7 +253,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | backend không công cụ: số fact mỗi lô, số lượt mỗi lô |
 | `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giây im lặng / tổng tối đa của một lần gọi LLM |
 | `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
-| `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude` |
+| `ANALYST_LLM_CMD` | trống | lệnh agent có quyền sửa file cho `review-loop` (ưu tiên hơn phiên sửa fact có sẵn của `api`/`cmd`) |
 | `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `session --install` ghi |
 | `REA_SESSION_MCP`, `REA_SESSION_PLUGINS` | trống | MCP/plugin giữ thêm trong `flow.py session` (tên, phân cách dấu phẩy) |
 

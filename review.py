@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
+NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute'}   # mâu thuẫn bằng chứng -> high, bất kể kind
@@ -222,7 +223,13 @@ def analyst(c, k):
                '--disable-slash-commands', '--system-prompt', sysp, '--permission-mode', 'acceptEdits',
                '--allowedTools', 'Read,Grep,Edit,Write,Bash(python3:*),Bash(sed:*),Bash(grep:*),Bash(cat:*),Bash(ls:*),Bash(head:*),Bash(tail:*)',
                '--disallowedTools', 'Agent,WebFetch,WebSearch,Bash(wine:*),Bash(*winemu*)', '--output-format', 'text']
-    r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
+    if not CFG.ANALYST_LLM_CMD and CFG.review_backend() in NO_TOOL:
+        import reviewer
+        try: rc, log = reviewer.analyst(c, k, todo)
+        except (OSError, RuntimeError) as e: rc, log = 1, f'{type(e).__name__}: {e}'
+        r = subprocess.CompletedProcess(cmd, rc, log, '')
+        if not rc: print('Lưu ý: LLM không có công cụ chỉ sửa facts; cập nhật README và bảng đính chính theo analyst_out.txt')
+    else: r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
     open(os.path.join(DIR(c), f'r{k}', 'analyst_out.txt'), 'w').write(r.stdout + r.stderr)
     after = open(fp, 'rb').read()
     bad = [f'phiên sửa fact lỗi (mã {r.returncode}): {(r.stdout + r.stderr).strip()[-200:]}'] if r.returncode else []   # vd hết hạn mức LLM
@@ -237,7 +244,7 @@ def loop(c, llm=True):
     code = review(c, llm, hint=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công
     while code == 1:
         k = len(state(c)['rounds'])
-        if CFG.review_backend() != 'claude' and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
+        if CFG.review_backend() not in ('claude', *NO_TOOL) and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
             print(f'HANDOFF: agent hiện tại sửa các mục fail/weak ở trên theo where/redo, rồi chạy lại `flow.py review {c} --llm`'); return 3
         print(f'-- phân tích lại sau review {k}...')
         ok, n, changed = analyst(c, k)

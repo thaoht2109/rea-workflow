@@ -50,8 +50,9 @@ REA_BIN, UPX, SEVENZ, CLAUDE = get('REA_BIN', 'rea'), get('UPX_BIN', 'upx'), get
 CLI_BIN = {'claude': None, 'codex': 'codex', 'gemini': 'gemini', 'copilot': 'copilot', 'cursor': 'cursor-agent'}
 
 def review_backend():
-    """Backend lớp 2. auto: claude > codex > gemini > copilot > cursor > api (có key + model) > manual (luôn có: dán tay vào chat web)."""
-    b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else next(
+    """Backend lớp 2. auto: server tự dựng đã khai > claude > codex > gemini > copilot > cursor > api (có key + model) > manual (luôn có: dán tay vào chat web).
+    Server tự dựng đứng trước CLI: người dùng khai endpoint riêng để dữ liệu mẫu không ra cloud, CLI có sẵn trên máy không được giành mất."""
+    b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else 'api' if API_LOCAL and API_OK else next(
         (k for k, v in CLI_BIN.items() if shutil.which(v or CLAUDE)), 'api' if API_OK else 'manual')
     ok = {'cmd': bool(REVIEW_LLM_CMD), 'api': API_OK, 'manual': True}.get(b, b in CLI_BIN and bool(shutil.which(CLI_BIN[b] or CLAUDE)))
     return b if ok else None

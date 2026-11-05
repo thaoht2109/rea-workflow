@@ -11,7 +11,7 @@ from unicorn import *
 from unicorn.x86_const import *
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 
-AP = argparse.ArgumentParser()
+AP = argparse.ArgumentParser(allow_abbrev=False)
 AP.add_argument('--blob', help='file shellcode/buffer nạp vào --base')
 AP.add_argument('--blob-off', type=lambda s: int(s, 0), default=0, help='bỏ qua N byte đầu file')
 AP.add_argument('--base', type=lambda s: int(s, 0), default=0x10000000)

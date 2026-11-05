@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
+NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute'}   # mâu thuẫn bằng chứng -> high, bất kể kind
@@ -206,6 +207,12 @@ def review(c, llm=False, force=False, hint=True):
     save_state(c, s)
     return 0 if v == 'PASS' else 1
 
+def report_todo(c):
+    """Fact do phiên sửa không có công cụ đổi mà report/README.md chưa được cập nhật sau đó."""
+    p, r = os.path.join(DIR(c), 'report_todo.json'), os.path.join(c, 'report', 'README.md')
+    if not os.path.exists(p) or not os.path.exists(r) or os.path.getmtime(r) > os.path.getmtime(p): return []
+    return json.load(open(p, encoding='utf-8'))
+
 def analyst(c, k):
     """Phiên phân tích sửa lại đúng các fact fail/weak của review k. Kiểm tra facts.jsonl chỉ được nối thêm, mẫu không đổi."""
     rj = json.load(open(os.path.join(DIR(c), f'r{k}', 'review.json')))
@@ -222,7 +229,13 @@ def analyst(c, k):
                '--disable-slash-commands', '--system-prompt', sysp, '--permission-mode', 'acceptEdits',
                '--allowedTools', 'Read,Grep,Edit,Write,Bash(python3:*),Bash(sed:*),Bash(grep:*),Bash(cat:*),Bash(ls:*),Bash(head:*),Bash(tail:*)',
                '--disallowedTools', 'Agent,WebFetch,WebSearch,Bash(wine:*),Bash(*winemu*)', '--output-format', 'text']
-    r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
+    no_tool = not CFG.ANALYST_LLM_CMD and CFG.review_backend() in NO_TOOL
+    if no_tool:
+        import reviewer
+        try: rc, log = reviewer.analyst(c, k, todo)
+        except (OSError, RuntimeError, ValueError, KeyError, IndexError, TypeError) as e: rc, log = 1, f'{type(e).__name__}: {e}'   # gồm server trả JSON hỏng hoặc thiếu choices
+        r = subprocess.CompletedProcess(cmd, rc, log, '')
+    else: r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
     open(os.path.join(DIR(c), f'r{k}', 'analyst_out.txt'), 'w').write(r.stdout + r.stderr)
     after = open(fp, 'rb').read()
     bad = [f'phiên sửa fact lỗi (mã {r.returncode}): {(r.stdout + r.stderr).strip()[-200:]}'] if r.returncode else []   # vd hết hạn mức LLM
@@ -230,6 +243,10 @@ def analyst(c, k):
     bad += [f'mẫu đổi: {p}' for p, h in samples.items() if not os.path.exists(p) or sha_file(p) != h]
     if bad:
         open(fp, 'wb').write(before); print('PHÂN TÍCH LẠI BỊ HỦY, đã khôi phục facts.jsonl: ' + '; '.join(bad))
+    elif no_tool and after != before:   # mô hình không sửa được phần chữ: ghi lại để next và report --final chặn tới khi README được cập nhật
+        new = [f"{f['supersedes']} -> {f['status']}: {f['value'][:80]}" for f in map(json.loads, after[len(before):].decode('utf-8').splitlines())]
+        json.dump(report_todo(c) + new, open(os.path.join(DIR(c), 'report_todo.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+        print('Lưu ý: LLM không có công cụ chỉ sửa facts; cập nhật report/README.md và bảng đính chính theo analyst_out.txt')
     return not bad, len(todo), after != before
 
 def loop(c, llm=True):
@@ -237,7 +254,7 @@ def loop(c, llm=True):
     code = review(c, llm, hint=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công
     while code == 1:
         k = len(state(c)['rounds'])
-        if CFG.review_backend() != 'claude' and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
+        if CFG.review_backend() not in ('claude', *NO_TOOL) and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
             print(f'HANDOFF: agent hiện tại sửa các mục fail/weak ở trên theo where/redo, rồi chạy lại `flow.py review {c} --llm`'); return 3
         print(f'-- phân tích lại sau review {k}...')
         ok, n, changed = analyst(c, k)
@@ -283,6 +300,11 @@ def next_step(c, accept=''):
         if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"); return 1
         print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
+    rt = report_todo(c)
+    if rt:
+        print(f'NEED_REPORT: phản biện đạt nhưng {c}/report/README.md chưa cập nhật theo các fact đã sửa, rồi chạy lại next:')
+        for x in rt: print(f'  {x}')
+        return 1
     print('DONE: checklist đủ và phản biện đạt -> flow.py report --final rồi đóng case. KHÔNG cần chạy VM.' + (' Ghi các mục chấp nhận vào mục hạn chế.' if acc else ''))
     return 0
 

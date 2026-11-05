@@ -8,7 +8,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 - **Mỗi kết luận là một fact** có nguồn (`S` tĩnh, `E` giả lập, `V` VM) và bằng chứng trong `report/evidence/`; máy kiểm fact ngay khi ghi.
 - **Cổng phản biện độc lập** (máy + một phiên LLM mới, cô lập) trước khi ra báo cáo cuối.
 - **Báo cáo tiếng Việt** có bảng IOC, bảng đính chính, mục hạn chế/OPSEC.
-- **Chạy được với LLM local** (Ollama, vLLM, llama.cpp… trên server tự dựng) cho phản biện, để dữ liệu mẫu không rời mạng nội bộ.
+- **Chạy được với AI local:** phản biện qua Ollama, vLLM, llama.cpp… trên server tự dựng; cả vòng phân tích bằng Ollama + Qwen với OpenCode hoặc Codex CLI ([mục 4.2](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)), để dữ liệu mẫu không rời mạng nội bộ.
 
 | | |
 |---|---|
@@ -17,7 +17,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | Nền tảng | Linux x86-64 (Debian/Ubuntu/Kali đã kiểm) |
 | Phiên bản | tag `vX.Y.Z`; xem, cập nhật, lên/hạ bản: mục 8 |
 
-**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
+**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng), [AI local toàn bộ](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
 
 ---
 
@@ -51,8 +51,8 @@ npx github:thaoht2109/rea-workflow           # chỉ cho project hiện tại (c
 
 Lệnh làm ba việc:
 
-1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex` để chọn sẵn).
-2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md` (toàn máy) hoặc `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` của project. Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
+1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex -a opencode` để chọn sẵn).
+2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.config/opencode/AGENTS.md` (toàn máy) hoặc `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` của project. Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
 3. Chạy `flow.py setup` (mục 2.2): in công cụ còn thiếu và kế hoạch cài, hỏi `[Y/n]` rồi cài (apt cần sudo). `-y` cài luôn không hỏi; `--no-tools` chỉ kiểm; `--no-ghidra` bỏ Ghidra. Chạy không có terminal tương tác mà không `-y` thì chỉ kiểm và in lệnh cài.
 
 Dưới đây `$SKILL` là thư mục skill vừa cài (xem bằng `npx skills list -g`; thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`).
@@ -198,7 +198,7 @@ CASE/
 
 | Backend (`REVIEW_LLM`) | Cách chạy |
 |---|---|
-| `auto` (mặc định) | CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
+| `auto` (mặc định) | `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` ở IP riêng, loopback hoặc tên không có dấu chấm; tên miền nội bộ thì đặt `REVIEW_LLM=api`), nếu không thì CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
 | `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
 | `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực (copilot: `COPILOT_MODEL` để chọn model) |
 | `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
@@ -221,10 +221,86 @@ REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
 ```
 
 - `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
+- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`; giá trị nguyên văn như `c2`, `url` không có trong evidence thì phải `retracted`, vì cổng phản biện vẫn kiểm giá trị của `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`: `flow.py next` báo `NEED_REPORT` và `report --final` bị chặn tới khi `report/README.md` được sửa.
 - **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
 - **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
 
-**Agent phân tích chính chạy model local:** chọn agent cho phép trỏ tới endpoint riêng và đọc `AGENTS.md`: OpenCode (Ollama/endpoint chuẩn OpenAI), GitHub Copilot CLI (`COPILOT_PROVIDER_BASE_URL=http://HOST:11434/v1`), Codex CLI (provider tùy chỉnh). Vòng phân tích dài, gọi nhiều công cụ nên model local nhỏ dễ lạc hướng; cấu hình nên dùng: agent chính model mạnh, phản biện lớp 2 model local. Nếu cả hai đều local: nên từ 70B.
+**Agent phân tích chính chạy model local:** xem mục 4.2. Vòng phân tích dài, gọi nhiều công cụ nên model nhỏ dễ lạc hướng. Có thể kết hợp: agent chính dùng model mạnh, phản biện lớp 2 dùng model local.
+
+### 4.2. Chạy toàn bộ bằng AI local (Ollama, Qwen, OpenCode, Codex CLI)
+
+Ollama chỉ chạy model, không tự chạy công cụ. Cần thêm một **runtime**: OpenCode hoặc Codex CLI nhận lời gọi công cụ từ model rồi chạy `flow.py`, `case.py`, `winemu`. Phản biện lớp 2 gọi thẳng Ollama, không qua runtime, để giữ phiên cô lập.
+
+```text
+OpenCode hoặc Codex CLI ──prompt──▶ Ollama (Qwen)
+  └─ chạy flow.py, Ghidra, winemu trong workspace
+flow.py review ──────────prompt──▶ Ollama (phiên mới, không công cụ)
+```
+
+| Runtime | Giới hạn lệnh của model | Khi nào dùng |
+|---|---|---|
+| **Codex CLI** | Sandbox hệ điều hành; `workspace-write` tắt mạng mặc định | Nên chọn khi cần chặn mạng ở mức hệ thống |
+| **OpenCode** | Chỉ có luật theo mẫu lệnh, không có sandbox; mặc định cho phép gần như mọi thứ | Dùng với `flow.py opencode`, chạy trong VM hoặc container |
+
+| Model | Dung lượng | Ghi chú |
+|---|---|---|
+| `qwen3-coder:30b` | 19 GB | Mặc định: có tool calling, ngữ cảnh 256K |
+| `qwen3.5:27b` | 17–20 GB | Model tổng quát, có tool calling |
+| `qwen3.5:9b` | 6,6–7,6 GB | Chỉ để thử: model nhỏ dễ lạc hướng và hay trả lời đã làm mà không gọi công cụ |
+
+Không dùng tag `-cloud`: tag này chạy trên hạ tầng của Ollama, dữ liệu mẫu rời khỏi máy.
+
+**Bước 1: chạy Ollama.** Cài từ [ollama.com](https://ollama.com), rồi:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=64000 ollama serve     # coding agent cần >= 64k; máy dưới 24 GiB VRAM mặc định chỉ 4k
+ollama pull qwen3-coder:30b
+ollama ps                                    # khi model đang chạy: cột CONTEXT >= 64000, PROCESSOR 100% GPU
+```
+
+Ollama đặt ở máy khác: mở cổng cho mạng nội bộ bằng `OLLAMA_HOST=0.0.0.0` và chặn bằng firewall, vì Ollama không có xác thực. Thay `localhost` ở các bước sau bằng địa chỉ máy đó.
+
+**Bước 2: cài skill cho runtime đã chọn.**
+
+```bash
+npx github:thaoht2109/rea-workflow -g -a opencode -a codex
+```
+
+**Bước 3a: dùng OpenCode.**
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+cd <workspace>
+python3 $SKILL/flow.py opencode --model qwen3-coder:30b     # sinh opencode.json; Ollama máy khác: --base-url http://HOST:11434/v1
+python3 $SKILL/flow.py rules --project .
+export OPENCODE_DISABLE_MODELS_FETCH=1                      # máy không có Internet
+opencode
+```
+
+`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép công cụ của skill (neo đúng đường dẫn skill trên máy) và các lệnh đọc; chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng; lệnh ghép (`;`, `|`, `&`, `>`, `$(`) và lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ. Đổi chỗ cài skill thì chạy lại lệnh này.
+
+Luật này chỉ để chặn nhầm, không phải ranh giới bảo mật: cách gọi gián tiếp vẫn có thể lọt, và `--auto` tự duyệt mọi lệnh đang ở mức hỏi. Vì vậy phải chạy trong VM không có Internet và không dùng `--auto`.
+
+**Bước 3b: dùng Codex CLI.**
+
+```bash
+npm install -g @openai/codex
+ollama launch codex --config                                # tạo profile ollama-launch, chọn qwen3-coder:30b
+cd <workspace>
+python3 $SKILL/flow.py rules --project .
+codex --profile ollama-launch --sandbox workspace-write -c 'web_search="disabled"'
+```
+
+Sandbox có thể chặn `AF_UNIX`, khi đó `flow.py dec` tự dùng Ghidra headless, lần đầu chậm hơn. Kiểm tra: `codex sandbox linux python3 $SKILL/flow.py doctor`. Sandbox chỉ giới hạn mạng và vùng ghi, không cấm chạy mẫu, nên vẫn nên dùng VM có snapshot và không cài `wine`.
+
+**Bước 4: phản biện bằng cùng model.** Ghi vào `~/.config/rea-flow/rea.env`, rồi chạy `python3 $SKILL/flow.py doctor`:
+
+```bash
+REVIEW_API_BASE=http://localhost:11434/v1
+REVIEW_MODEL=qwen3-coder:30b
+```
+
+Không dùng backend `codex` cho phản biện ở cấu hình này: backend đó chạy với `HOME` tạm, không có profile Ollama.
 
 ---
 
@@ -252,7 +328,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | backend không công cụ: số fact mỗi lô, số lượt mỗi lô |
 | `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giây im lặng / tổng tối đa của một lần gọi LLM |
 | `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
-| `ANALYST_LLM_CMD` | trống | phiên tự sửa fact cho `review-loop` khi backend không phải `claude` |
+| `ANALYST_LLM_CMD` | trống | lệnh agent có quyền sửa file cho `review-loop` (ưu tiên hơn phiên sửa fact có sẵn của `api`/`cmd`) |
 | `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `session --install` ghi |
 | `REA_SESSION_MCP`, `REA_SESSION_PLUGINS` | trống | MCP/plugin giữ thêm trong `flow.py session` (tên, phân cách dấu phẩy) |
 
@@ -262,7 +338,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 
 - **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công:** quy tắc đầy đủ ở `SKILL.md` ("Quy tắc bắt buộc"), lệnh `rea` được phép/bị cấm ở `FLOW.md` mục 4a. Tải payload thật chỉ khi người dùng cho phép.
 - `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại.
-- Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1).
+- Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1, 4.2).
 - Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo, commit message hay mô tả PR.
 - Với agent không phải Claude Code, quy tắc "không thực thi mẫu" chỉ là hướng dẫn bằng chữ: bật chế độ hỏi trước khi chạy lệnh hoặc sandbox của agent.
 
@@ -273,6 +349,8 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 - IOC ứng viên từ strings chỉ thành fact khi thấy chỗ mã dùng nó (xref, tham số API trong giả lập).
 - Phiên gọn (`flow.py session`) chỉ có cho Claude Code; agent khác chỉ được bảo đảm quy tắc qua `AGENTS.md`/`GEMINI.md`.
 - LLM local: chất lượng phản biện phụ thuộc model (nên từ khoảng 32B) và ngữ cảnh của server (≥ 32k token).
+- Agent chính chạy model local: dễ lạc hướng hơn model mạnh ở vòng phân tích dài; `opencode.json` do `flow.py opencode` sinh chỉ chặn nhầm, không thay được VM cô lập.
+- Với skill cài toàn máy, `~/.config/opencode/AGENTS.md` làm OpenCode không còn đọc `~/.claude/CLAUDE.md` (đây là hành vi của OpenCode).
 - Phần nhận định trong báo cáo do agent/người viết; script sinh bảng và kiểm bằng chứng.
 
 ## 8. Phiên bản, cập nhật và gỡ

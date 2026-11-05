@@ -40,6 +40,14 @@ def verdict(cmd): return [v for k, v in bash.items() if fnmatch.fnmatchcase(cmd,
 for cmd, want in ((f'python3 {T}/flow.py next CASE', 'allow'), (f'python3 {T}/case.py add CASE id=a', 'allow'),
                   (f'python3 {T}/winemu/winemu.py --blob work/sample/x --out o', 'allow'),   # 'wine' không được bắt nhầm winemu
                   (f'python3 {T}/winemu/summarize.py o/events.jsonl', 'allow'), ('grep -n x a.log', 'allow'),
+                  (f'python3 {T}/flow.py review CASE --llm --detach', 'allow'), (f'python3 {T}/flow.py review-loop CASE', 'allow'), (f'python3 {T}/flow.py help', 'allow'),
+                  (f'python3 {T}/flow.py dec CASE f main', 'allow'), (f'python3 {T}/flow.py doctor', 'allow'),
+                  # lệnh đổi cấu hình không được đi nhờ allow: trỏ provider ra ngoài, gỡ quy tắc, sửa shell, cài gói
+                  (f'python3 {T}/flow.py opencode --base-url http://x/v1', 'deny'), (f'python3 {T}/flow.py opencode', 'deny'), ('python3 tools/flow.py opencode .', 'deny'),
+                  (f'python3 {T}/flow.py rules --remove', 'deny'), (f'python3 {T}/flow.py session --install', 'deny'), (f'python3 {T}/flow.py setup --yes', 'deny'),
+                  (f'python3 {T}/flow.py lạ x', 'ask'), (f'python3 {T}/flow.py next CASE --accept C9=x', 'ask'),
+                  # plugin là mã Python tùy ý, snapshot là pickle
+                  (f'python3 {T}/winemu/winemu.py --blob x --plugin evil.py', 'ask'), (f'python3 {T}/winemu/winemu.py --resume s.bin', 'ask'),
                   # allow phải neo đường dẫn: script mẫu mang tên flow.py hoặc tham số flow.py không được tự duyệt
                   ('python3 work/sample/flow.py x', 'ask'), ('python3 work/sample/x.py flow.py a', 'ask'), ('python3 -c "import os" flow.py a', 'ask'),
                   # lệnh ghép và ghi file không được đi nhờ tiền tố đã allow; sed có lệnh e/w nên không allow
@@ -51,4 +59,6 @@ for cmd, want in ((f'python3 {T}/flow.py next CASE', 'allow'), (f'python3 {T}/ca
                   ('rea debug-with-gdb a', 'deny'), ('./a.out', 'deny'), ('chmod +x a', 'deny'), ('curl http://x', 'deny'), ('wget http://x', 'deny'),
                   ('nc 1.2.3.4 80', 'deny'), ('rm -rf a', 'ask'), ('sed -i s/a/b/ f', 'ask'), ('python3 work/sample/x.py', 'ask')):
     assert verdict(cmd) == want, (cmd, verdict(cmd), want)
+# allow theo `winemu.py *`: viết tắt của argparse (--pl, --res) sẽ lách luật --plugin/--resume ở trên
+assert 'ArgumentParser(allow_abbrev=False)' in open(os.path.join(SRC, 'winemu', 'winemu.py'), encoding='utf-8').read()
 print('OK test_opencode')

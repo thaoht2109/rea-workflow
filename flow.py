@@ -14,6 +14,7 @@
 #   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-flow; chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
+#   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
@@ -296,7 +297,7 @@ def rules_targets(scope, root):
         gem = os.path.join(root, 'GEMINI.md')
         return [os.path.join(root, f) for f in ('AGENTS.md', 'CLAUDE.md')] + \
                ([gem] if os.path.exists(gem) or shutil.which('gemini') or os.path.isdir(os.path.expanduser('~/.gemini')) else [])
-    return [os.path.join(root, d, f) for d, f in (('.claude', 'CLAUDE.md'), ('.codex', 'AGENTS.md'), ('.gemini', 'GEMINI.md'))
+    return [os.path.join(root, d, f) for d, f in (('.claude', 'CLAUDE.md'), ('.codex', 'AGENTS.md'), ('.gemini', 'GEMINI.md'), ('.config/opencode', 'AGENTS.md'))
             if os.path.isdir(os.path.join(root, d))]   # chỉ agent đã cài trên máy
 
 def rules(a):
@@ -326,6 +327,26 @@ def rules(a):
         else: print(f'  không đổi {p}')
     return 1 if bad else 0
 
+def opencode(a):
+    """OpenCode mặc định allow gần như mọi quyền và không có sandbox: sinh opencode.json trỏ về Ollama, kèm luật trong templates/opencode.json.
+    Khối `permission` thuộc về rea-flow (ghi đè mỗi lần chạy, vì thứ tự luật quyết định kết quả); cấu hình khác của người dùng được giữ."""
+    import argparse
+    ap = argparse.ArgumentParser(prog='flow.py opencode')
+    ap.add_argument('dir', nargs='?', default='.'); ap.add_argument('--model', default='qwen3-coder:30b')
+    ap.add_argument('--base-url', default='http://localhost:11434/v1'); ap.add_argument('--print', action='store_true')
+    o = ap.parse_args(a); p = os.path.join(o.dir, 'opencode.json')
+    try: cfg = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
+    except ValueError as e: print(f'{p} không phải JSON thuần ({e}): sửa tay hoặc đổi tên file rồi chạy lại, không ghi đè.'); return 2
+    cfg = {**cfg, **json.load(open(os.path.join(TOOLS, 'templates', 'opencode.json'), encoding='utf-8')), 'model': f'ollama/{o.model}'}
+    ol = cfg.setdefault('provider', {}).setdefault('ollama', {'npm': '@ai-sdk/openai-compatible', 'name': 'Ollama'})
+    ol['options'] = {**ol.get('options', {}), 'baseURL': o.base_url}
+    ol.setdefault('models', {})[o.model] = {'name': o.model}
+    out = json.dumps(cfg, ensure_ascii=False, indent=2) + '\n'
+    if o.print: print(out, end=''); return 0
+    open(p, 'w', encoding='utf-8').write(out)
+    print(f'ghi {p}: {o.model} qua {o.base_url}. Luật quyền chỉ là lớp chặn nhầm, không phải sandbox: chạy trong VM không có Internet, không dùng --auto (README 4.2).')
+    return 0
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['doctor']: sys.exit(CFG.doctor())
@@ -333,6 +354,7 @@ if __name__ == '__main__':
     if a[:1] == ['setup']: import install_tools; sys.exit(install_tools.main(a[1:]))
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
+    if a[:1] == ['opencode']: sys.exit(opencode(a[1:]))
     if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])
     cmd, c = a[0], a[1]

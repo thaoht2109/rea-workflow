@@ -40,7 +40,7 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | winemu đọc tên export DLL builtin (không chạy wine) |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | công cụ ngoài; tên trên `PATH` hoặc đường dẫn tuyệt đối |
 
-- Lớp 2 dùng LLM có trên máy (`REVIEW_LLM`, mặc định `auto`: claude > codex > gemini > copilot > cursor > api > manual), dùng chung tài khoản đã đăng nhập của CLI đó; không có gì thì `manual` (dán vào chat web).
+- Lớp 2 dùng LLM có trên máy (`REVIEW_LLM`, mặc định `auto`: server tự dựng đã khai > claude > codex > gemini > copilot > cursor > api > manual), dùng chung tài khoản đã đăng nhập của CLI đó; không có gì thì `manual` (dán vào chat web).
 - Nếu sandbox của agent coi workspace là chỉ đọc, các lệnh `flow.py` cần ghi file phải được cấp quyền ghi (với Claude Code: `/sandbox`).
 
 ## 2. Các bước

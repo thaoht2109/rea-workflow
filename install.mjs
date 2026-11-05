@@ -24,7 +24,7 @@ const yes = rest.includes('-y') || rest.includes('--yes'), noTools = all.include
 const global = rest.includes('-g') || rest.includes('--global');
 const run = (cmd, a, stdio = 'inherit') => { const r = spawnSync(cmd, a, { stdio, env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
 const roots = global ? [homedir()] : [process.cwd(), homedir()];   // không -g: CLI có thể vẫn hỏi và cài toàn máy
-const skillDir = () => roots.flatMap(r => ['.agents', '.claude'].map(d => join(r, d, 'skills', 'rea-flow')))
+const skillDir = () => roots.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].map(d => join(r, d, 'skills', 'rea-flow')))
   .filter(p => existsSync(join(p, 'flow.py'))).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 const lockRef = dir => {   // ref đang ghim trong lock của skills CLI (project: <project>/skills-lock.json, toàn máy: ~/.agents)
   for (const p of [join(dir, '..', '..', '..', 'skills-lock.json'), join(homedir(), '.agents', '.skill-lock.json')]) {

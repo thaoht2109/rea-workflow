@@ -108,7 +108,8 @@ r = final(); assert r.returncode != 0 and 'README' in r.stderr and 'thay f1) -> 
 os.utime(c2 + '/report/README.md', (2 ** 32, 2 ** 32)); assert review.report_todo(c2), 'touch không được coi là đã cập nhật'
 open(c2 + '/report/README.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'
 os.rename(c2 + '/report/README.md', c2 + '/report/x'); assert review.report_todo(c2), 'thiếu README vẫn chặn'; os.rename(c2 + '/report/x', c2 + '/report/README.md')
-open(c2 + '/report/README.md', 'a').write('Đính chính: `f1.r1` đã rút.\n')
+open(c2 + '/report/README.md', 'a').write('Xem f1.r10 và xf1.r1.\n'); assert review.report_todo(c2), 'id khác có cùng tiền tố không được tính'
+open(c2 + '/report/README.md', 'a').write('Đính chính: đã rút f1.r1.\n')
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr
 
@@ -126,4 +127,6 @@ ok, _, changed = review.analyst(c4, 1); BROKEN[0] = False
 assert not ok and not changed and open(c4 + '/facts.jsonl', 'rb').read() == facts and 'KeyError' in open(c4 + '/work/review/r1/analyst_out.txt').read()
 assert 'analyst lỗi: KeyError' in open(c4 + '/work/review/usage.jsonl').read(), 'lỗi giữa chừng vẫn vào sổ usage'
 assert not review.report_todo(c4), 'phiên hỏng không tạo việc cập nhật báo cáo'
+json.dump(['f1 -> retracted: bad.example.com'], open(c4 + '/work/review/report_todo.json', 'w'))
+assert review.report_todo(c4) == [dict(id='f1', line='f1 -> retracted: bad.example.com')], 'định dạng cũ vẫn chặn, không văng lỗi'
 srv.shutdown(); print('OK test_local_llm')

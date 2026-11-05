@@ -212,7 +212,8 @@ def report_todo(c):
     p, r = os.path.join(DIR(c), 'report_todo.json'), os.path.join(c, 'report', 'README.md')
     if not os.path.exists(p): return []
     txt = open(r, encoding='utf-8', errors='replace').read() if os.path.exists(r) else ''
-    return [x for x in json.load(open(p, encoding='utf-8')) if x['id'] not in txt]
+    items = [x if isinstance(x, dict) else dict(id=x.split(' ')[0], line=x) for x in json.load(open(p, encoding='utf-8'))]   # chuỗi: định dạng cũ
+    return [x for x in items if not re.search(r'(?<![\w.])' + re.escape(x['id']) + r'(?![\w]|\.\w)', txt)]   # theo ranh giới: f1.r10 không tính cho f1.r1
 
 def analyst(c, k):
     """Phiên phân tích sửa lại đúng các fact fail/weak của review k. Kiểm tra facts.jsonl chỉ được nối thêm, mẫu không đổi."""

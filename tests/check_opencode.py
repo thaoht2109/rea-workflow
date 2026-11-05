@@ -59,4 +59,6 @@ for cmd, want in ((f'python3 {T}/flow.py next CASE', 'allow'), (f'python3 {T}/ca
                   ('rea debug-with-gdb a', 'deny'), ('./a.out', 'deny'), ('chmod +x a', 'deny'), ('curl http://x', 'deny'), ('wget http://x', 'deny'),
                   ('nc 1.2.3.4 80', 'deny'), ('rm -rf a', 'ask'), ('sed -i s/a/b/ f', 'ask'), ('python3 work/sample/x.py', 'ask')):
     assert verdict(cmd) == want, (cmd, verdict(cmd), want)
+# allow theo `winemu.py *`: viết tắt của argparse (--pl, --res) sẽ lách luật --plugin/--resume ở trên
+assert 'ArgumentParser(allow_abbrev=False)' in open(os.path.join(SRC, 'winemu', 'winemu.py'), encoding='utf-8').read()
 print('OK test_opencode')

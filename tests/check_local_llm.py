@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test backend api với server LLM local giả (chuẩn OpenAI như Ollama/vLLM): không cần key, không gửi header Authorization khi trống,
 doctor gọi /models, phát hiện server cắt ngữ cảnh. Chạy: python3 tests/check_local_llm.py"""
-import os, sys, json, threading, tempfile, importlib
+import os, sys, json, threading, tempfile, importlib, subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -46,8 +46,14 @@ os.environ.update(REVIEW_LLM='auto', CLAUDE_BIN=sys.executable, REVIEW_API_BASE=
 assert CFG.review_backend() == 'api', CFG.review_backend()
 os.environ.update(REVIEW_API_BASE='https://api.openai.com/v1', REVIEW_API_KEY='k'); importlib.reload(CFG)
 assert CFG.review_backend() == 'claude', 'cloud giữ thứ tự cũ'
+for url, want in (('https://openrouter.ai/api/v1', 'claude'), ('https://api.groq.com/openai/v1', 'claude'), ('http://8.8.8.8:11434/v1', 'claude'),
+                  ('http://localhost:11434/v1', 'api'), ('http://ollama:11434/v1', 'api'), ('http://10.0.0.5:11434/v1', 'api'),
+                  ('http://192.168.1.2:8000/v1', 'api'), ('http://[::1]:11434/v1', 'api')):
+    os.environ['REVIEW_API_BASE'] = url; importlib.reload(CFG)
+    assert CFG.review_backend() == want, (url, CFG.review_backend())   # endpoint cloud khác không được giành chỗ của CLI
 del os.environ['REVIEW_API_KEY']
-assert reviewer.parse('{"facts": [{"value": "ghi 0x27e2000 B"}]}')['facts'][0]['value'] == 'ghi 0x27e2000 B', 'parse không được đổi hex trong chuỗi'
+assert reviewer.parse('{"facts": [{"value": "ghi 0x27e2000 B"}]}', ('facts',))['facts'][0]['value'] == 'ghi 0x27e2000 B', 'parse không được đổi hex trong chuỗi'
+assert reviewer.parse('{"facts": []}') is None and reviewer.parse('{"items": []}', ('requests', 'facts')) is None, 'mỗi vòng chỉ nhận khóa của nó'
 assert reviewer.parse('{"requests": [{"off": 0x10}]}')['requests'][0]['off'] == 16, 'hex trần vẫn đọc được'
 
 # review-loop trọn vòng với LLM local: mô hình chỉ đọc qua run_ops, script ghi fact qua case.add strict
@@ -85,6 +91,7 @@ def mkcase():
     open(d + '/report/evidence/e.txt', 'w').write('a\nhost good.example.com\n')
     C.add(d, id='good', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
     C.add(d, id='f1', kind='c2', value='bad.example.com', src='S', evidence='report/evidence/e.txt#L2')
+    open(d + '/report/README.md', 'w').write('# báo cáo\n'); os.utime(d + '/report/README.md', (1, 1))
     return d
 c2 = mkcase(); SCRIPT[:] = ['{"facts": [{"supersedes": "f1", "status": "hypothesis", "value": "bad.example.com", "evidence": "report/evidence/e.txt#L2"}]}',   # lớp 1 vẫn FAIL fact này
                             '{"facts": [{"supersedes": "f1", "status": "retracted", "note": "không có trong evidence"}]}']
@@ -92,6 +99,15 @@ rc = review.loop(c2, llm=False); st = review.state(c2)
 assert rc == 0 and [r['verdict'] for r in st['rounds']] == ['FAIL', 'PASS'] and not SCRIPT, (rc, st['rounds'], SCRIPT)
 assert review.gate(c2)[0], review.gate(c2)
 F = C.load(c2); assert F['f1.r1']['status'] == 'retracted' and F['f1.r1']['value'] == 'bad.example.com' and F['f1']['status'] == 'retracted', F
+
+# review PASS nhưng README chưa đổi theo fact đã rút: next và report --final phải chặn tới khi sửa README
+final = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'report', c2, '--final'], capture_output=True, text=True)
+assert review.report_todo(c2) and 'f1 -> retracted' in review.report_todo(c2)[0], review.report_todo(c2)
+assert review.next_step(c2, 'C1=x,C2=x,C3=x,C4=x,C5=x,C6=x,C7=x,C8=x,C9=x,C10=x,C11=x') == 1
+r = final(); assert r.returncode != 0 and 'README' in r.stderr and 'f1 -> retracted' in r.stderr, r.stdout + r.stderr
+open(c2 + '/report/README.md', 'a').write('Đính chính: đã rút fact.\n'); os.utime(c2 + '/report/README.md', (2 ** 32, 2 ** 32))
+assert not review.report_todo(c2) and review.next_step(c2) == 0
+r = final(); assert r.returncode == 0, r.stdout + r.stderr
 
 # thất bại không được cache: chạy lại phải gọi model lần nữa
 c3 = mkcase(); json.dump(dict(items=[dict(item)]), open(c3 + '/work/review/r1/review.json', 'w'))
@@ -105,4 +121,6 @@ c4 = mkcase(); json.dump(dict(items=[dict(item)]), open(c4 + '/work/review/r1/re
 facts = open(c4 + '/facts.jsonl', 'rb').read(); BROKEN[0] = True
 ok, _, changed = review.analyst(c4, 1); BROKEN[0] = False
 assert not ok and not changed and open(c4 + '/facts.jsonl', 'rb').read() == facts and 'KeyError' in open(c4 + '/work/review/r1/analyst_out.txt').read()
+assert 'analyst lỗi: KeyError' in open(c4 + '/work/review/usage.jsonl').read(), 'lỗi giữa chừng vẫn vào sổ usage'
+assert not review.report_todo(c4), 'phiên hỏng không tạo việc cập nhật báo cáo'
 srv.shutdown(); print('OK test_local_llm')

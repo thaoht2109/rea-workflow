@@ -198,7 +198,7 @@ CASE/
 
 | Backend (`REVIEW_LLM`) | Cách chạy |
 |---|---|
-| `auto` (mặc định) | `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` tự dựng), nếu không thì CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
+| `auto` (mặc định) | `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` ở IP riêng, loopback hoặc tên không có dấu chấm; tên miền nội bộ thì đặt `REVIEW_LLM=api`), nếu không thì CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
 | `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
 | `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực (copilot: `COPILOT_MODEL` để chọn model) |
 | `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
@@ -221,7 +221,7 @@ REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
 ```
 
 - `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
-- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`; giá trị nguyên văn như `c2`, `url` không có trong evidence thì phải `retracted`, vì cổng phản biện vẫn kiểm giá trị của `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`.
+- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`; giá trị nguyên văn như `c2`, `url` không có trong evidence thì phải `retracted`, vì cổng phản biện vẫn kiểm giá trị của `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`: `flow.py next` báo `NEED_REPORT` và `report --final` bị chặn tới khi `report/README.md` được sửa.
 - **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
 - **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
 

@@ -2,7 +2,7 @@
 # Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
 # Không bắt buộc: mặc định đủ cho máy có công cụ trên PATH. Kiểm bằng `python3 <skill>/flow.py doctor`.
 # Workspace (nơi chứa các case) là thư mục hiện tại, hoặc $REA_WORKSPACE.
-import os, re, sys, shutil, tempfile, importlib.util
+import os, re, sys, shutil, tempfile, ipaddress, importlib.util, urllib.parse
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REA = os.path.abspath(os.environ.get('REA_WORKSPACE') or os.getcwd())
@@ -49,10 +49,17 @@ REA_BIN, UPX, SEVENZ, CLAUDE = get('REA_BIN', 'rea'), get('UPX_BIN', 'upx'), get
 
 CLI_BIN = {'claude': None, 'codex': 'codex', 'gemini': 'gemini', 'copilot': 'copilot', 'cursor': 'cursor-agent'}
 
+def private_host(url):
+    """Host chắc chắn trong mạng riêng: IP riêng/loopback hoặc tên không có dấu chấm (localhost, tên container). Tên miền nội bộ: đặt REVIEW_LLM=api."""
+    h = urllib.parse.urlparse(url).hostname or ''
+    try: return ipaddress.ip_address(h).is_private
+    except ValueError: return bool(h) and '.' not in h
+
 def review_backend():
-    """Backend lớp 2. auto: server tự dựng đã khai > claude > codex > gemini > copilot > cursor > api (có key + model) > manual (luôn có: dán tay vào chat web).
-    Server tự dựng đứng trước CLI: người dùng khai endpoint riêng để dữ liệu mẫu không ra cloud, CLI có sẵn trên máy không được giành mất."""
-    b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else 'api' if API_LOCAL and API_OK else next(
+    """Backend lớp 2. auto: server nội bộ đã khai > claude > codex > gemini > copilot > cursor > api (có key + model) > manual (luôn có: dán tay vào chat web).
+    Server nội bộ đứng trước CLI: người dùng khai endpoint riêng để dữ liệu mẫu không ra cloud, CLI có sẵn trên máy không được giành mất.
+    Không dùng API_LOCAL ở đây: nó chỉ quyết định có cần key, nên cũng đúng với endpoint cloud khác (OpenRouter, Groq...)."""
+    b = REVIEW_LLM if REVIEW_LLM != 'auto' else 'cmd' if REVIEW_LLM_CMD else 'api' if API_OK and private_host(REVIEW_API_BASE) else next(
         (k for k, v in CLI_BIN.items() if shutil.which(v or CLAUDE)), 'api' if API_OK else 'manual')
     ok = {'cmd': bool(REVIEW_LLM_CMD), 'api': API_OK, 'manual': True}.get(b, b in CLI_BIN and bool(shutil.which(CLI_BIN[b] or CLAUDE)))
     return b if ok else None

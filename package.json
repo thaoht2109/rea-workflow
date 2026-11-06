@@ -1,11 +1,11 @@
 {
   "name": "rea-flow",
-  "version": "1.1.6",
+  "version": "1.2.0",
   "private": true,
   "description": "Cài skill rea-flow và công cụ phân tích bằng một lệnh: npx github:thaoht2109/rea-workflow [-g] [-y]",
   "type": "module",
   "bin": { "rea-flow": "install.mjs" },
   "files": ["install.mjs"],
   "engines": { "node": ">=22.20" },
-  "license": "UNLICENSED"
+  "license": "MIT"
 }

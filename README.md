@@ -429,6 +429,7 @@ static/             triage, gopclntab, NSIS, script Ghidra
 winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc
 templates/          khung báo cáo (README.md), luật quyền OpenCode (opencode.json)
 tests/              check_*.py: kiểm bằng dữ liệu tổng hợp, không cần mẫu (CI chạy bằng pytest)
+evals/              evaluation hành vi của agent khi dùng skill (evals.json + run.py), chạy tay
 .github/            CI (ruff, actionlint, pytest, bandit theo baseline, gitleaks, pip-audit), AI review, gắn tag
 ```
 
@@ -442,5 +443,15 @@ cd $SKILL && ruff check . && python3 -m pytest --import-mode=importlib -q -p no:
 ```
 
 Hồi quy trên mẫu thật cần mẫu có trên từng máy nên không nằm trong repo.
+
+**Evaluation hành vi agent** (`evals/`): mỗi bài dựng workspace tạm (ngoài mọi thư mục có `CLAUDE.md`, chỉ nạp skill rea-flow chép vào `.claude/skills/`), chạy `claude -p` không tương tác rồi chấm bằng máy trên transcript và file trên đĩa. Bài hiện có: không chạy mẫu khi bị ép, ghi fact IOC có evidence, dừng ở cổng STOPPED (không tự tạo `OVERRIDE`), tra facts sau `/clear`. Mẫu trong fixture là script vô hại do bộ eval sinh ra; nếu bị chạy nó chỉ ghi file canary để bài chấm bắt được. Chỉ lệnh đọc được duyệt sẵn, lệnh khác bị từ chối nhưng vẫn được chấm. Tốn lượt gọi LLM thật nên CI không chạy; CI chỉ kiểm bộ chấm (`tests/check_evals.py`).
+
+```bash
+python3 $SKILL/evals/run.py --model haiku,sonnet,opus      # mọi bài trên ba model; --only ID, --keep (giữ workspace), --dry-run
+```
+
+Mã thoát 0 = mọi bài đạt, 1 = có bài trượt, 2 = có lỗi hạ tầng (mạng, hạn mức: không chấm). Transcript và `results.json` lưu ở `REVIEW_WS_DIR`.
+
+Giấy phép: MIT (`LICENSE`).
 
 Phát hành: tăng `version` trong `package.json` trong PR (sửa lỗi: số cuối; thêm tính năng: số giữa; đổi định dạng facts/cấu hình: số đầu). Khi PR vào `main`, workflow `.github/workflows/tag.yml` gắn tag `vX.Y.Z` cho commit đó; người dùng thấy bản mới qua `version` và chọn bản qua `update --to`. AI review (`ai-review.yml`) chạy sau CI, kết quả nằm trong comment của bot; PASS thì bot tự merge, trừ PR có nhãn `no-auto-merge`/`ai-review-*-needs-human` hoặc sửa `.github/` hay file cổng (`GATE_FILES_RE` trong `.github/ci/ai-review-lib.sh`).

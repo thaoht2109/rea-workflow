@@ -9,6 +9,8 @@ File này là quy trình thao tác; quy tắc bắt buộc tóm tắt ở `SKILL
 2. **Mỗi kết luận là một fact** trong `<case>/facts.jsonl`. Fact phải có nguồn (S tĩnh / E giả lập / V VM) và trỏ tới file trong `report/evidence/`. Báo cáo được sinh từ fact.
 3. **Chỉ leo lên tầng đắt hơn khi checklist còn thiếu** (`flow.py status`). Tầng rẻ nhất là triage tĩnh; tầng đắt nhất là VM bên ngoài.
 
+**Mục lục:** [0. OPSEC](#0-opsec-kiểm-tra-trước-mỗi-case) · [1. Môi trường](#1-môi-trường) · [2. Các bước](#2-các-bước) · [3. Ghi fact](#3-ghi-fact) · [3b. Cổng phản biện](#3b-cổng-phản-biện-và-điểm-dừng-sớm-reviewpy) · [4. Định tuyến](#4-định-tuyến-theo-loại-file) · [4a. Lệnh rea được phép](#4a-lệnh-rea-được-phép-chỉ-đọc-file-mẫu-không-chạy) · [5. Kỷ luật token](#5-kỷ-luật-token) · [6. Kiểm tra công cụ](#6-kiểm-tra-công-cụ-sau-khi-sửa) · [7. Giới hạn](#7-giới-hạn-hiện-tại)
+
 ## 0. OPSEC: kiểm tra trước mỗi case
 
 - Quy tắc bắt buộc (không thực thi mẫu, không chạm C2, không tra mẫu ngoài) nằm ở `SKILL.md`, mục "Quy tắc bắt buộc". Lệnh `rea` có chạy target bị cấm: `capture-process`, `debug-with-gdb`, `capture-*-scenario`, `capture-adb-*`.
@@ -28,7 +30,7 @@ cd <workspace>
 python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nếu thiếu mục bắt buộc
 ```
 
-- Cài skill: `npx github:thaoht2109/rea-workflow [-g] [-y]` (xem `README.md`): cài skill, chép "Quy tắc bắt buộc" vào `CLAUDE.md`/`AGENTS.md` đúng phạm vi (toàn máy hoặc chỉ project), rồi kiểm và cài công cụ phân tích (`flow.py setup`; hỏi trước, `-y` cài luôn). Cài bằng `npx skills add` thì bước chép quy tắc là `python3 $SKILL/flow.py rules`.
+- Cài skill: `npx github:thaoht2109/rea-workflow [-g] [-y]` (hướng dẫn cho người dùng ở `README.md`, agent không cần đọc): cài skill, chép "Quy tắc bắt buộc" vào `CLAUDE.md`/`AGENTS.md` đúng phạm vi (toàn máy hoặc chỉ project), rồi kiểm và cài công cụ phân tích (`flow.py setup`; hỏi trước, `-y` cài luôn). Cài bằng `npx skills add` thì bước chép quy tắc là `python3 $SKILL/flow.py rules`.
 - Cấu hình theo máy là **tùy chọn**: `~/.config/rea-flow/rea.env` (mẫu `$SKILL/rea.env.example`), đọc qua `reacfg.py`. Biến môi trường cùng tên ghi đè file. Không sửa đường dẫn trong code.
 
 | Biến | Mặc định | Dùng cho |
@@ -122,7 +124,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
 - **Mở phiên phân tích bằng `flow.py session`** (Claude Code): giữ skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh, hoặc `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`), tắt MCP/plugin không liên quan và hook; skill dịch ngược cài cho agent khác (`~/.agents/skills`) được trỏ tới để đọc khi cần; SKILL.md rea-flow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace nạp bằng `--append-system-prompt-file`. Quy tắc rea-flow thắng khi mâu thuẫn. Danh sách lọc tính lúc chạy nên dùng được ở mọi máy; settings người dùng vẫn giữ. `--strict`: `--safe-mode`, chỉ còn rea-flow. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
-- Tách phiên theo mốc (`checkpoint`) và làm tiếp sau khi ngữ cảnh bị nén (`resume`): quy tắc ở `SKILL.md`, lý do và chi phí ở `README.md` mục 3.4. `checkpoint` kiểm lint fail, `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới.
+- Tách phiên theo mốc (`checkpoint`) và làm tiếp sau khi ngữ cảnh bị nén (`resume`): quy tắc ở `SKILL.md`. `checkpoint` kiểm lint fail, `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới.
 
 ## 6. Kiểm tra công cụ (sau khi sửa)
 

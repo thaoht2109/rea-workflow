@@ -15,6 +15,9 @@ try:
     doc = mk('b.docx', ['[Content_Types].xml', 'word/document.xml'])
     jar = mk('c.jar', ['META-INF/MANIFEST.MF', 'x.class'])
     sys.path.insert(0, os.path.join(SKILL, 'static')); import triage as T
+    r = subprocess.run([sys.executable, '-I', '-c', f'import sys; sys.path.insert(0, {SKILL!r}); import static.ziptype; '
+                        'assert "pefile" not in sys.modules'], capture_output=True, text=True)   # flow.py new nhận dạng ZIP được cả khi thiếu pefile
+    assert r.returncode == 0, r.stderr
     assert (T.zip_kind(apk), T.zip_kind(doc), T.zip_kind(jar)) == ('APK', 'Office OOXML', 'JAR')
     assert T.zip_kind(mk('plain.zip', ['readme.txt', 'payload.bin'])) is None and T.zip_kind(os.path.join(d, 'nope')) is None
     c = os.path.join(d, 'CASE')

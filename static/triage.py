@@ -11,6 +11,7 @@ import pefile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: reacfg.py
+from static.ziptype import zip_kind   # noqa: E402  (ZIP là chính mẫu: APK, OOXML, JAR, ODF)
 NSIS_SIG = b'\xef\xbe\xad\xdeNullsoftInst'
 
 def entropy(b):
@@ -142,15 +143,6 @@ CTRL = re.compile(r'[\x00-\x1f\x7f]')
 def q(x): return shlex.quote(CTRL.sub('?', x))   # tham số lệnh từ tên do mẫu/installer đặt: bỏ ký tự điều khiển (xuống dòng) rồi quote
 def show(x): return json.dumps(x, ensure_ascii=False)   # in tên do mẫu đặt: một dòng, có thoát ký tự
 
-ZIP_KEEP = {'AndroidManifest.xml': 'APK', 'classes.dex': 'APK', '[Content_Types].xml': 'Office OOXML', 'META-INF/MANIFEST.MF': 'JAR', 'mimetype': 'ODF/EPUB'}
-
-def zip_kind(s):
-    """ZIP chính là mẫu (APK, OOXML, JAR, ODF) thì trả tên loại để giữ nguyên, không giải nén. Chỉ đọc danh mục file, không giải nén."""
-    import zipfile
-    try: names = set(zipfile.ZipFile(s).namelist())
-    except (zipfile.BadZipFile, OSError, ValueError): return None
-    return next((v for k, v in ZIP_KEEP.items() if k in names), None)
-
 WIN_DL = 'C:\\Users\\admin\\Downloads\\'   # đường dẫn giả lập của mẫu trong winemu
 
 def route(R, out):
@@ -184,7 +176,8 @@ def main():
     R = {'file': os.path.basename(A.file), 'path': os.path.abspath(A.file), 'size': len(d), 'md5': hashlib.md5(d).hexdigest(),
          'sha1': hashlib.sha1(d).hexdigest(), 'sha256': hashlib.sha256(d).hexdigest(), 'type': 'unknown', 'flags': []}
     R['type'] = next((t for m, t in MAGIC if d.startswith(m)), 'unknown')
-    if R['type'] == 'zip' and zip_kind(A.file): R['zip_kind'] = zip_kind(A.file)
+    zk = zip_kind(A.file) if R['type'] == 'zip' else None
+    if zk: R['zip_kind'] = zk
     if R['type'] == 'PE': pe_info(d, R)
     elif R['type'] == 'ELF': elf_info(A.file, d, R)
     elif R['type'] == 'unknown' and d and sum(32 <= b < 127 or b in (9, 10, 13) for b in d[:4096]) / len(d[:4096]) > 0.95:

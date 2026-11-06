@@ -23,6 +23,7 @@ import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: reacfg.py
+from static.ziptype import zip_kind   # noqa: E402  không cần pefile
 TMP = CFG.TMP
 
 def sh(*a, **kw): return subprocess.run(a, check=True, **kw)
@@ -31,16 +32,12 @@ def samples(c):
     root = os.path.join(c, 'work', 'sample')
     return sorted(os.path.join(d, n) for d, _, ns in os.walk(root) for n in ns)
 
-def triage_mod():
-    import importlib.util   # nạp muộn: static/triage.py cần pefile, help/doctor không cần
-    sp = importlib.util.spec_from_file_location('rea_triage', os.path.join(TOOLS, 'static', 'triage.py')); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m); return m
-
 def new(c, srcs):
     sd = os.path.join(c, 'work', 'sample')
     for d in (sd, os.path.join(c, 'work', 'runs'), os.path.join(c, 'report', 'evidence')): os.makedirs(d, exist_ok=True)
     for s in srcs:
         head = open(s, 'rb').read(8)
-        kind = triage_mod().zip_kind(s) if head.startswith(b'PK\x03\x04') else None
+        kind = zip_kind(s) if head.startswith(b'PK\x03\x04') else None
         if kind: print(f'giữ nguyên {s}: {kind} (không giải nén)'); shutil.copy2(s, sd)
         elif head.startswith((b'PK\x03\x04', b'7z\xbc\xaf', b'Rar!')):
             for pw in ('', 'infected', 'malware'):   # mật khẩu quy ước của kho mẫu; 7z chỉ giải nén, không chạy gì

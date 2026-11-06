@@ -141,7 +141,7 @@ mẫu ─► T0 triage ─► T1 bóc vỏ ─► T2 decompile có mục tiêu �
 | Tầng | Công cụ | Nguồn fact |
 |---|---|---|
 | T0 Triage | `static/triage.py`: loại file, hash, entropy, import/export, IOC ứng viên (chỉ là gợi ý trong `triage_*.json`, không tự thành fact) | S |
-| T1 Bóc vỏ | zip/7z/rar, `upx -d`, NSIS (giải "sàng byte" lộ `System::Call`) | S |
+| T1 Bóc vỏ | zip/7z/rar (APK/OOXML/JAR/ODF giữ nguyên), `upx -d`, NSIS (giải "sàng byte" lộ `System::Call`) | S |
 | T2 Tĩnh có mục tiêu | `flow.py dec` (rea, tự chuyển Ghidra headless cho MIPS/PPC), lệnh `rea` tĩnh theo loại mẫu (`FLOW.md` mục 4a), tên hàm Go từ `.gopclntab` | S |
 | T3 Giả lập | `winemu`: Windows x86-32 giả trên Unicorn (PEB/TEB, VEH, DLL giả, mạng chỉ ghi lại) | E |
 | T4 Payload | giải mã offline bằng khóa/định dạng từ T2/T3, triage lại | S/E |

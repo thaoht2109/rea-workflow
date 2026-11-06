@@ -18,6 +18,10 @@ try:
     r = subprocess.run([sys.executable, '-I', '-c', f'import sys; sys.path.insert(0, {SKILL!r}); import static.ziptype; '
                         'assert "pefile" not in sys.modules'], capture_output=True, text=True)   # flow.py new nhận dạng ZIP được cả khi thiếu pefile
     assert r.returncode == 0, r.stderr
+    fake = os.path.join(d, 'site'); os.makedirs(os.path.join(fake, 'static')); open(os.path.join(fake, 'static', '__init__.py'), 'w').close()
+    r = subprocess.run([sys.executable, '-I', '-c', f'import sys; sys.path.append({fake!r}); sys.path.insert(0, {SKILL!r}); from static.ziptype import zip_kind'],
+                       capture_output=True, text=True)   # gói 'static' khác trên sys.path không được che static/ của skill
+    assert r.returncode == 0, r.stderr
     assert (T.zip_kind(apk), T.zip_kind(doc), T.zip_kind(jar)) == ('APK', 'Office OOXML', 'JAR')
     assert T.zip_kind(mk('plain.zip', ['readme.txt', 'payload.bin'])) is None and T.zip_kind(os.path.join(d, 'nope')) is None
     c = os.path.join(d, 'CASE')

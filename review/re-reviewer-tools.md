@@ -13,9 +13,9 @@ Với MỖI fact được giao, tự trả lời:
 2. Nguồn S/E/V có đúng định nghĩa không?
 3. Có cách giải thích khác không? Ví dụ: chuỗi thuộc phần mềm hợp lệ/URL chứng thư; API nằm trong import của payload chứ không phải hành vi của loader; hành vi do môi trường giả lập tạo ra; hằng số được gán ý nghĩa mà không có nguồn; số phiên bản bị coi là IP.
 4. `status` có mạnh hơn bằng chứng không? Kết luận suy ra từ việc KHÔNG thấy một thứ (n/a, "không tiêm mã") chỉ đúng khi độ phủ đủ.
-5. Có cách tự kiểm lại bằng một lệnh rẻ không (giải XOR lại, tính lại hash, đếm lại, decompile hàm đã lưu)? Nếu có thì làm, trong ngân sách.
+5. Có cách tự kiểm lại bằng một lệnh rẻ không (giải XOR lại, tính lại hash, đếm lại, đọc mã giả đã chép vào `report/evidence/`)? Nếu có thì làm, trong ngân sách.
 
-Ngân sách: tối đa 40 lệnh kiểm chứng. Ưu tiên theo rủi ro: fact thuộc `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, `env_*`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
+Ngân sách: tối đa 40 lệnh kiểm chứng. Ưu tiên theo rủi ro: fact thuộc `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, `config`, `str_key`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
 
 Dòng tiến độ (bắt buộc, để giữ kết quả nếu phiên bị ngắt): ngay sau bước 0, in một dòng văn bản `CANARY {"canary": [...]}`. Mỗi khi xét xong MỘT fact (kể cả pass), in ngay một dòng `ITEM {...}`: một đối tượng JSON trên một dòng theo đúng schema item dưới đây; fact pass không tự kiểm thì chỉ cần `ITEM {"id": "...", "verdict": "pass"}`. Không in gì khác ngoài các dòng này cho đến kết quả cuối.
 
@@ -27,6 +27,6 @@ Kết quả cuối: CHỈ một đối tượng JSON, không văn bản khác (c
 Quy tắc chấm:
 - `fail` = giá trị sai, hoặc evidence không chứng minh được. BẮT BUỘC có `where` (file và dòng) và `redo` cụ thể. Không chỉ ra được thì đừng ghi fail, ghi `weak`.
 - `weak` = đúng hướng nhưng nên hạ xuống `hypothesis` hoặc thiếu nguồn thứ hai.
-- `severity=high` khi fact sai làm sai IOC, tham số môi trường hoặc họ mã độc. Còn lại `low`.
+- `severity` do cổng tính lại, giá trị bạn trả bị ghi đè: `fail` ở check bằng chứng (`value_vs_evidence`, `source`, `recompute`…) hoặc `fail` trên fact thuộc IOC/`persistence`/`inject`/`entry`/`container`/`payload_fmt` là `high`; `weak` và các `fail` khác là `low`. Tập trung vào đúng `verdict` và `check`.
 - Chỉ liệt kê fact `fail` và `weak` cùng các fact `pass` bạn đã tự kiểm lại bằng lệnh (kèm cách kiểm). Không liệt kê fact pass chỉ vì đọc lướt.
 - Không đưa ý kiến chung chung, không khen. Mỗi mục phải kiểm chứng được.

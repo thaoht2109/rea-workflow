@@ -15,7 +15,7 @@ Với MỖI fact được giao, tự trả lời:
 4. `status` có mạnh hơn bằng chứng không? Kết luận suy ra từ việc KHÔNG thấy một thứ (n/a, "không tiêm mã") chỉ đúng khi độ phủ đủ.
 5. Có cách tự kiểm lại bằng một lệnh rẻ không (giải XOR lại, tính lại hash, đếm lại, đọc mã giả đã chép vào `report/evidence/`)? Nếu có thì làm, trong ngân sách.
 
-Ngân sách: tối đa 40 lệnh kiểm chứng. Ưu tiên theo rủi ro: fact thuộc `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, `config`, `str_key`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
+Ngân sách: tối đa 40 lệnh kiểm chứng. Ưu tiên theo rủi ro: fact thuộc `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
 
 Dòng tiến độ (bắt buộc, để giữ kết quả nếu phiên bị ngắt): ngay sau bước 0, in một dòng văn bản `CANARY {"canary": [...]}`. Mỗi khi xét xong MỘT fact (kể cả pass), in ngay một dòng `ITEM {...}`: một đối tượng JSON trên một dòng theo đúng schema item dưới đây; fact pass không tự kiểm thì chỉ cần `ITEM {"id": "...", "verdict": "pass"}`. Không in gì khác ngoài các dòng này cho đến kết quả cuối.
 

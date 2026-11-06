@@ -37,7 +37,7 @@ try:
     r = run('review', c)
     assert r.returncode == 1 and 'FAIL' in r.stdout and 'BƯỚC KẾ: sửa từng mục' in r.stdout and f'flow.py review {c} --llm --detach' in r.stdout, r.stdout
     os.makedirs(os.path.join(c, 'work', 'runs'), exist_ok=True); r = run('status', c).stdout
-    assert "[fact: str_algo, str_key, dec_coverage dạng 'a/b']" in r and '[fact: payload_hash]' in r, r   # kind cần ghi cho mục còn thiếu
+    assert "[fact: str_algo, str_key, dec_coverage dạng 'a/b' hoặc 'n/a: lý do']" in r and '[fact: payload_hash]' in r, r   # kind cần ghi cho mục còn thiếu
     r = run('next', c, '--accept', acc).stdout   # FAIL mà facts chưa sửa: bảo sửa trước, không gợi ý review lại ngay
     assert 'NEED_FIX' in r and 'where/redo' in r and 'NEED_REVIEW' not in r, r
     # 5. review lần 2 vẫn FAIL -> STOPPED; next không gợi ý review lại mà bảo dừng

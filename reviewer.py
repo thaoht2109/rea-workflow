@@ -302,6 +302,11 @@ PB, EST = [0], [False]   # tổng byte prompt của lần run này; có số ư�
 UKEYS = ('cost_usd', 'input', 'cache_write', 'cache_read', 'output')
 def usage_sum(): return {k: round(sum(x[k] for x in USAGE), 4) for k in UKEYS}
 
+def short_home(p):
+    """Đường dẫn dưới HOME viết thành ~/...: prompt gửi LLM không lộ tên người dùng, system_sha256 giống nhau giữa các máy cùng bố cục."""
+    h = os.path.expanduser('~')
+    return '~' + p[len(h):] if h not in ('', '/') and (p == h or p.startswith(h + os.sep)) else p
+
 def now_s(): return datetime.datetime.now().isoformat(timespec='seconds')
 
 def ledger(c, k, be, status, usage=None):
@@ -364,7 +369,7 @@ def run_tools(c, k, ids, mech_items):
     iso = dict(digests=dig, sent=len(ids), skipped_low_risk=skip_low, skipped_unchanged=skip_same, backend='claude', level='full',
                model=CFG.REVIEW_MODEL, effort=CFG.REVIEW_EFFORT, turns=0, requests=0, usage={}, valid=True, invalid_reasons=[])
     if not ids: return [], [], iso   # không còn fact cần LLM xét: không mở phiên
-    sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read().replace('{PYLIB}', CFG.PYLIB) + knowledge(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
+    sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read().replace('{PYLIB}', short_home(CFG.PYLIB)) + knowledge(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
     rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True); sal = os.path.join(rd, 'salvage.jsonl')
     # kết luận từng fact của phiên trước bị ngắt ở cùng vòng: chỉ dùng khi cùng system prompt và fact + evidence chưa đổi
     done, sess = {}, []

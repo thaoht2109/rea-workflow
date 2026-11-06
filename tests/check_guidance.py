@@ -45,6 +45,8 @@ try:
     assert run('review', c).returncode == 2
     r = run('next', c, '--accept', acc).stdout
     assert 'STOPPED' in r and 'STOP_REPORT.md' in r and 'flow.py review' not in r, r
+    os.remove(os.path.join(c, 'work', 'accepted.json')); r = run('next', c).stdout   # checklist còn thiếu: vẫn báo STOPPED trước, không NEED_MORE
+    assert r.startswith('STOPPED') and 'NEED_MORE' not in r and 'còn thiếu' not in r, r
     # facts đổi sau khi dừng (sửa bằng supersedes) -> review lại được: next in NEED_REVIEW, không STOPPED
     C.add(c, id='u3', kind='url', value='http://evil.example/x', src='S', evidence='report/evidence/e.txt#L2', supersedes='u2')
     r = run('next', c, '--accept', acc).stdout

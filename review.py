@@ -295,12 +295,13 @@ def next_step(c, accept=''):
     rows = C.check(c)
     todo = [(k, v, n) for k, v, n in rows if not (v == 'ok' or v.startswith('n/a')) and k.split()[0] not in acc and k.split()[0] != 'C0']
     ok, why = gate(c)
+    if not ok and why.startswith('đã STOPPED'):   # cổng đã đóng: báo dừng trước mọi việc khác, không dẫn agent đi phân tích thêm
+        print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không phân tích thêm, không tự tạo OVERRIDE)'); return 1
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
     if not ok:
         s = state(c); last = (s.get('rounds') or [{}])[-1]
-        if why.startswith('đã STOPPED'): print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không tự tạo OVERRIDE)'); return 1
         if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"); return 1
         print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1

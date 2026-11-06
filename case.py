@@ -169,16 +169,19 @@ def check(case):
     natural = exits and all('natural' in f['value'] for f in exits)
     unused = ' '.join(f['value'] for f in act('api_unused'))
     # độ phủ: giả lập chạy tới exit tự nhiên (E), hoặc fact 'coverage' khẳng định đã duyệt tĩnh hết các hàm dùng API nhạy cảm (S)
-    c11 = 'ok' if (natural and act('api_unused') and act('dec_coverage')) or act('coverage') else \
-          'partial' if act('exit_reason', 'api_unused') else 'missing'
+    # dec_coverage hợp lệ: 'a/b' (số chuỗi đã giải / số call-site của hàm giải mã) hoặc 'n/a: lý do' (không có hàm giải mã); chữ tự do không tính
     cov = [tuple(map(int, f['value'].split('/'))) for f in act('dec_coverage') if re.fullmatch(r'\d+/\d+', f['value'])]
+    dec_na = any(re.match(r'n/a:\s*\S', f['value']) for f in act('dec_coverage'))   # phải có lý do sau 'n/a:'
+    algo_na = act('str_algo') and all(f['value'].startswith('n/a') for f in act('str_algo'))   # n/a chỉ đóng C4 khi không có thuật toán giải mã
+    c11 = 'ok' if (natural and act('api_unused') and (cov or dec_na)) or act('coverage') else \
+          'partial' if act('exit_reason', 'api_unused') else 'missing'
     gate = lambda has: ('ok' if c11 == 'ok' else 'partial') if has else 'missing'
     R = {
         'C0 Phản biện': review_status(case),
         'C1 Nhận dạng': 'ok' if act('hash') and act('filetype') else 'partial' if act('hash', 'filetype') else 'missing',
         'C2 Delivery và điểm vào': 'ok' if act('container') and act('entry') else 'partial' if act('container', 'entry') else 'missing',
         'C3 Chống phân tích': gate(act('anti_analysis')),
-        'C4 Giải mã chuỗi/config': ('ok' if cov and all(a >= b for a, b in cov) else 'partial') if act('str_algo') and act('str_key')
+        'C4 Giải mã chuỗi/config': ('ok' if (all(a >= b for a, b in cov) if cov else dec_na and algo_na) else 'partial') if act('str_algo') and act('str_key')
                                    else 'partial' if act('str_algo', 'str_key') else 'missing',
         'C5 IOC mạng': gate(act('url', 'c2', 'ua')),
         'C6 Tiêm mã': 'ok' if act('inject') and not hyp('inject') else 'partial' if act('inject') or hyp('inject') else 'missing',
@@ -197,9 +200,9 @@ def check(case):
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm'}
-    FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b'",
+    FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' hoặc 'n/a: lý do'",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
-            'C11': 'coverage (S) hoặc exit_reason natural + api_unused + dec_coverage (E)'}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
+            'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' (E)"}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
     q = shlex.quote(case)
     hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
     return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]
@@ -275,6 +278,19 @@ def selftest():
     cur, ck = load(c), dict((k.split()[0], v) for k, v, _ in check(c))
     assert cur['u1']['status'] == 'retracted' and cur['k1']['status'] == 'retracted', cur
     assert ck['C5'] == 'missing' and ck['C6'] == 'partial' and ck['C8'] == 'partial' and ck['C11'] == 'missing', ck
+    # C4/C11: dec_coverage chỉ tính dạng a/b hoặc n/a; có a/b thì a/b quyết định (a < b -> partial); chữ tự do không tính cho C11
+    def ck2(*decs, emu=True):
+        d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, EV)); open(os.path.join(d, EV, 'e.log'), 'w').write('x')
+        for i, (k, v) in enumerate([('str_algo', 'n/a: chuỗi rõ'), ('str_key', 'n/a: chuỗi rõ')] + ([('exit_reason', 'natural'), ('api_unused', 'RegSetValueExA')] if emu else [])
+                                   + [('dec_coverage', x) for x in decs]):
+            add(d, id=f'f{i}', kind=k, value=v, src='E', evidence=EV + 'e.log')
+        r = dict((k.split()[0], v) for k, v, _ in check(d)); return r['C4'], r['C11']
+    assert ck2('n/a: không có hàm giải mã') == ('ok', 'ok') and ck2('4/4') == ('ok', 'ok') and ck2('3/4') == ('partial', 'ok')
+    assert ck2('đã decompile hết') == ('partial', 'partial') and ck2() == ('partial', 'partial') and ck2('n/a: x', '3/4') == ('partial', 'ok')
+    assert ck2('n/a: không có hàm giải mã', emu=False) == ('ok', 'missing') and ck2('n/a') == ('partial', 'partial') and ck2('n/abc') == ('partial', 'partial')
+    d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, EV)); open(os.path.join(d, EV, 'e.log'), 'w').write('x')   # có thuật toán thật mà dec_coverage n/a: C4 không ok
+    for i, (k, v) in enumerate([('str_algo', 'XOR 1 byte'), ('str_key', '0x5a'), ('dec_coverage', 'n/a: không đếm')]): add(d, id=f'g{i}', kind=k, value=v, src='S', evidence=EV + 'e.log')
+    assert dict((k.split()[0], v) for k, v, _ in check(d))['C4'] == 'partial'
     L = report(c)
     assert any('k1 → k2' in l for l in L) and any('| u1 | http://a (active) | http://a (retracted)' in l for l in L), L
     print('OK selftest')

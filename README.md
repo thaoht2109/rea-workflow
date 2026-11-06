@@ -436,4 +436,6 @@ python3 $SKILL/flow.py doctor
 
 Hồi quy trên mẫu thật cần mẫu có trên từng máy nên không nằm trong repo.
 
+Ràng buộc của repo, lệnh giống CI, kiến trúc và cách AI review xử lý PR: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 Phát hành: tăng `version` trong `package.json` trong PR (sửa lỗi: số cuối; thêm tính năng: số giữa; đổi định dạng facts/cấu hình: số đầu). Khi PR vào `main`, workflow `.github/workflows/tag.yml` gắn tag `vX.Y.Z` cho commit đó; người dùng thấy bản mới qua `version` và chọn bản qua `update --to`.

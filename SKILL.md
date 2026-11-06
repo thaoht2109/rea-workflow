@@ -1,6 +1,7 @@
 ---
 name: rea-flow
 description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, Go, .NET, shellcode, installer, script) - triage tĩnh, bóc vỏ, decompile, giả lập CPU, ghi fact có nguồn, cổng phản biện 2 lần, báo cáo tiếng Việt. Dùng khi được yêu cầu phân tích, dịch ngược hoặc viết báo cáo về một mẫu mã độc. Use for malware analysis, reverse engineering, unpacking, decompiling, string/config decryption, IOC extraction or a malware report on a sample. Không bao giờ thực thi mẫu (never executes the sample).
+license: MIT
 compatibility: Linux x86-64; Python >= 3.9; Node.js >= 22.20; JDK 21 + Ghidra 12; rea (npm rea-agents); 7z, pefile, capstone, unicorn 2.1.4. `flow.py setup` kiểm và in lệnh cài. Không cần mạng khi phân tích.
 ---
 

@@ -171,7 +171,8 @@ def check(case):
     # độ phủ: giả lập chạy tới exit tự nhiên (E), hoặc fact 'coverage' khẳng định đã duyệt tĩnh hết các hàm dùng API nhạy cảm (S)
     # dec_coverage hợp lệ: 'a/b' (số chuỗi đã giải / số call-site của hàm giải mã) hoặc 'n/a: lý do' (không có hàm giải mã); chữ tự do không tính
     cov = [tuple(map(int, f['value'].split('/'))) for f in act('dec_coverage') if re.fullmatch(r'\d+/\d+', f['value'])]
-    dec_na = any(f['value'].startswith('n/a') for f in act('dec_coverage'))
+    dec_na = any(re.match(r'n/a:\s*\S', f['value']) for f in act('dec_coverage'))   # phải có lý do sau 'n/a:'
+    algo_na = act('str_algo') and all(f['value'].startswith('n/a') for f in act('str_algo'))   # n/a chỉ đóng C4 khi không có thuật toán giải mã
     c11 = 'ok' if (natural and act('api_unused') and (cov or dec_na)) or act('coverage') else \
           'partial' if act('exit_reason', 'api_unused') else 'missing'
     gate = lambda has: ('ok' if c11 == 'ok' else 'partial') if has else 'missing'
@@ -180,7 +181,7 @@ def check(case):
         'C1 Nhận dạng': 'ok' if act('hash') and act('filetype') else 'partial' if act('hash', 'filetype') else 'missing',
         'C2 Delivery và điểm vào': 'ok' if act('container') and act('entry') else 'partial' if act('container', 'entry') else 'missing',
         'C3 Chống phân tích': gate(act('anti_analysis')),
-        'C4 Giải mã chuỗi/config': ('ok' if (all(a >= b for a, b in cov) if cov else dec_na) else 'partial') if act('str_algo') and act('str_key')
+        'C4 Giải mã chuỗi/config': ('ok' if (all(a >= b for a, b in cov) if cov else dec_na and algo_na) else 'partial') if act('str_algo') and act('str_key')
                                    else 'partial' if act('str_algo', 'str_key') else 'missing',
         'C5 IOC mạng': gate(act('url', 'c2', 'ua')),
         'C6 Tiêm mã': 'ok' if act('inject') and not hyp('inject') else 'partial' if act('inject') or hyp('inject') else 'missing',
@@ -286,7 +287,10 @@ def selftest():
         r = dict((k.split()[0], v) for k, v, _ in check(d)); return r['C4'], r['C11']
     assert ck2('n/a: không có hàm giải mã') == ('ok', 'ok') and ck2('4/4') == ('ok', 'ok') and ck2('3/4') == ('partial', 'ok')
     assert ck2('đã decompile hết') == ('partial', 'partial') and ck2() == ('partial', 'partial') and ck2('n/a: x', '3/4') == ('partial', 'ok')
-    assert ck2('n/a: không có hàm giải mã', emu=False) == ('ok', 'missing')
+    assert ck2('n/a: không có hàm giải mã', emu=False) == ('ok', 'missing') and ck2('n/a') == ('partial', 'partial') and ck2('n/abc') == ('partial', 'partial')
+    d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, EV)); open(os.path.join(d, EV, 'e.log'), 'w').write('x')   # có thuật toán thật mà dec_coverage n/a: C4 không ok
+    for i, (k, v) in enumerate([('str_algo', 'XOR 1 byte'), ('str_key', '0x5a'), ('dec_coverage', 'n/a: không đếm')]): add(d, id=f'g{i}', kind=k, value=v, src='S', evidence=EV + 'e.log')
+    assert dict((k.split()[0], v) for k, v, _ in check(d))['C4'] == 'partial'
     L = report(c)
     assert any('k1 → k2' in l for l in L) and any('| u1 | http://a (active) | http://a (retracted)' in l for l in L), L
     print('OK selftest')

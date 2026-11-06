@@ -89,7 +89,7 @@ def verdict(items): return 'FAIL' if any(i['verdict'] == 'fail' and i['severity'
 def stop_report(c, s):
     r1, r2 = (json.load(open(os.path.join(DIR(c), f'r{n}', 'review.json'))) for n in (1, 2))
     f1 = {i['id']: i for i in r1['items'] if i['verdict'] == 'fail'}
-    L = [f'# Phản biện không đạt: {c}', '', f'Dừng sau {MAX_ROUNDS} lần review ({now()}). Các bước vmspec/vm-run/report --final bị chặn.', '',
+    L = [f'# Phản biện không đạt: {c}', '', f'Dừng sau {MAX_ROUNDS} lần review ({now()}). `report --final` bị chặn.', '',
          '## Fact còn fail sau review 2', '', '| id | Mức | Lỗi | Vị trí | Cách kiểm lại |', '|---|---|---|---|---|']
     fl = [i for i in r2['items'] if i['verdict'] == 'fail']
     L += [f"| {i['id']} | {i['severity']} | {i['problem']} | `{i['where']}` | {i['redo']} |" for i in fl]
@@ -237,7 +237,9 @@ def analyst(c, k):
         try: rc, log = reviewer.analyst(c, k, todo)
         except (OSError, RuntimeError, ValueError, KeyError, IndexError, TypeError) as e: rc, log = 1, f'{type(e).__name__}: {e}'   # gồm server trả JSON hỏng hoặc thiếu choices
         r = subprocess.CompletedProcess(cmd, rc, log, '')
-    else: r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600)
+    else:   # pefile/capstone cài bằng pip (máy không có apt) nằm ở REA_PYLIB: đưa vào PYTHONPATH cho python3 của phiên sửa
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (CFG.PYLIB, os.environ.get('PYTHONPATH', '')) if p)) if os.path.isdir(CFG.PYLIB) else None
+        r = subprocess.run(cmd, input=prm, cwd=CFG.REA, capture_output=True, text=True, timeout=3600, env=env)
     open(os.path.join(DIR(c), f'r{k}', 'analyst_out.txt'), 'w').write(r.stdout + r.stderr)
     after = open(fp, 'rb').read()
     bad = [f'phiên sửa fact lỗi (mã {r.returncode}): {(r.stdout + r.stderr).strip()[-200:]}'] if r.returncode else []   # vd hết hạn mức LLM
@@ -267,7 +269,7 @@ def loop(c, llm=True):
     return code
 
 def gate(c):
-    """(ok, lý do). Dùng cho vmspec/report --final."""
+    """(ok, lý do). Dùng cho report --final và next."""
     s = state(c)
     if not os.path.exists(os.path.join(c, 'facts.jsonl')): return False, 'chưa có facts.jsonl'
     h = facts_sha(c)

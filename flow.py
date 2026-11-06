@@ -17,7 +17,7 @@
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
-#   flow.py review-loop CASE   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL
+#   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
 #   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
 
@@ -31,12 +31,18 @@ def samples(c):
     root = os.path.join(c, 'work', 'sample')
     return sorted(os.path.join(d, n) for d, _, ns in os.walk(root) for n in ns)
 
+def triage_mod():
+    import importlib.util   # nạp muộn: static/triage.py cần pefile, help/doctor không cần
+    sp = importlib.util.spec_from_file_location('rea_triage', os.path.join(TOOLS, 'static', 'triage.py')); m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m); return m
+
 def new(c, srcs):
     sd = os.path.join(c, 'work', 'sample')
     for d in (sd, os.path.join(c, 'work', 'runs'), os.path.join(c, 'report', 'evidence')): os.makedirs(d, exist_ok=True)
     for s in srcs:
         head = open(s, 'rb').read(8)
-        if head.startswith((b'PK\x03\x04', b'7z\xbc\xaf', b'Rar!')):
+        kind = triage_mod().zip_kind(s) if head.startswith(b'PK\x03\x04') else None
+        if kind: print(f'giữ nguyên {s}: {kind} (không giải nén)'); shutil.copy2(s, sd)
+        elif head.startswith((b'PK\x03\x04', b'7z\xbc\xaf', b'Rar!')):
             for pw in ('', 'infected', 'malware'):   # mật khẩu quy ước của kho mẫu; 7z chỉ giải nén, không chạy gì
                 r = subprocess.run([CFG.SEVENZ, 'x', '-y', f'-p{pw}', f'-o{sd}', s], capture_output=True)
                 if r.returncode == 0: print(f'giải nén {s} (mật khẩu {pw!r})'); break

@@ -20,7 +20,7 @@ Mỗi câu trả lời CHỈ là một đối tượng JSON, một trong hai d�
 Quy tắc chấm:
 - `fail` = giá trị sai, hoặc evidence không chứng minh được. BẮT BUỘC có `where` và `redo` cụ thể. Không chỉ ra được thì ghi `weak`.
 - `weak` = đúng hướng nhưng nên hạ xuống `hypothesis` hoặc thiếu nguồn thứ hai.
-- `severity` do cổng tính lại, giá trị bạn trả bị ghi đè: fail ở check bằng chứng (`value_vs_evidence`, `source`, `recompute`…) hoặc fact thuộc IOC/`persistence`/`inject`/`entry`/`container`/`payload_fmt` luôn `high`, còn lại `low`. Tập trung vào đúng `verdict` và `check`.
+- `severity` do cổng tính lại, giá trị bạn trả bị ghi đè: `fail` ở check bằng chứng (`value_vs_evidence`, `source`, `recompute`…) hoặc `fail` trên fact thuộc IOC/`persistence`/`inject`/`entry`/`container`/`payload_fmt` là `high`; `weak` và các `fail` khác là `low`. Tập trung vào đúng `verdict` và `check`.
 - Chỉ liệt kê fact `fail`, `weak` và các fact `pass` bạn đã tự kiểm lại bằng thao tác (ghi cách kiểm trong `problem`). Không liệt kê fact pass chỉ vì đọc lướt.
 - Không đưa ý kiến chung chung, không khen. Mỗi mục phải kiểm chứng được.
 - Ngắn gọn: `problem` tối đa 3 câu, `redo` một câu. Không lặp lại dữ liệu đã có trong hồ sơ.

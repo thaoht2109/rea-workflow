@@ -195,7 +195,7 @@ CASE/
 | Kiểm gì | evidence tồn tại, đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; con số `recompute` đếm lại khớp | phản biện như chuyên gia: evidence có chứng minh không, giải thích thay thế (chuỗi chứng thư/thư viện, import chưa gọi, kết quả do stub giả lập…), mức chắc chắn, chủ đề còn thiếu |
 | Cũng chạy khi | ghi fact (`case.py add`, `--strict` để từ chối) | — |
 
-- **Mã thoát:** `review` 0 PASS, 1 FAIL, 2 STOPPED, 4 chờ manual; `--detach` 6 đang chạy, 7 tiến trình nền chết, 70 lớp 2 lỗi/bị ngắt; `review-loop` 3 HANDOFF (agent hiện tại tự sửa), 5 lượt sửa không đổi gì; `next` 0 DONE, 1 kèm `NEED_MORE`/`NEED_REVIEW`/`NEED_FIX`/`NEED_REPORT`/`STOPPED`.
+- **Mã thoát:** `review` 0 PASS, 1 FAIL, 2 STOPPED, 4 chờ manual; `--detach` 6 đang chạy, 7 tiến trình nền chết, 70 tiến trình nền gặp lỗi (thường lớp 2 bị ngắt; xem `work/review/run.log`); `review-loop` 3 HANDOFF (agent hiện tại tự sửa), 5 lượt sửa không đổi gì; `next` 0 DONE, 1 kèm `NEED_MORE`/`NEED_REVIEW`/`NEED_FIX`/`NEED_REPORT`/`STOPPED`.
 - **Tối đa 2 lần.** Lần 1 FAIL thì sửa đúng fact bị chỉ ra; lần 2 vẫn FAIL thì `STOPPED`, sinh `STOP_REPORT.md`, chặn báo cáo cuối. Mở lại: sửa `facts.jsonl` (mở bộ đếm 2 lần mới; theo quy tắc chỉ người dùng quyết định việc này, máy không phân biệt ai sửa) hoặc `work/review/OVERRIDE` có `facts_sha256` khớp.
 - Luật mức high/low, cách chọn fact gửi LLM, cô lập phiên, chạy nền (`--detach`) và ghi usage: chi tiết ở `FLOW.md` mục 3b.
 

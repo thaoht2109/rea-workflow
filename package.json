@@ -1,6 +1,6 @@
 {
   "name": "rea-flow",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "private": true,
   "description": "Cài skill rea-flow và công cụ phân tích bằng một lệnh: npx github:thaoht2109/rea-workflow [-g] [-y]",
   "type": "module",

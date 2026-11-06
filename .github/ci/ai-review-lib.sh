@@ -43,7 +43,8 @@ pgit() {
 # Đường dẫn cấu hình cổng CI: PR/bản fix sửa chúng thì không auto-push, không auto-merge (cần người duyệt).
 # ruff/bandit đọc cả file cấu hình lồng trong thư mục con ⇒ chặn tên đó ở mọi nơi; pytest/conftest gốc quyết định unit/integration;
 # gitleaks tự nạp .gitleaks.toml ở gốc; requirements-dev.txt cài plugin pytest vào stage test.
-GATE_FILES_RE='^(\.github/|tests/|review/|reviewer\.py$|review\.py$|install_tools\.py$|install\.mjs$|ruff\.toml$|\.bandit-baseline\.json$|\.gitleaksignore$|\.pip-audit-ignore$|requirements-ci-tools\.txt$|requirements-dev\.txt$|\.gitleaks\.toml$|conftest\.py$|pytest\.ini$|tox\.ini$|setup\.cfg$)|(^|/)(\.?ruff\.toml|pyproject\.toml|\.bandit)$'
+# File hướng dẫn agent (CLAUDE.md, AGENTS.md, GEMINI.md, .claude/) ở mọi nơi: model đọc pr-head/ có thể tự nạp chúng làm chỉ dẫn.
+GATE_FILES_RE='^(\.github/|tests/|review/|reviewer\.py$|review\.py$|install_tools\.py$|install\.mjs$|ruff\.toml$|\.bandit-baseline\.json$|\.gitleaksignore$|\.pip-audit-ignore$|requirements-ci-tools\.txt$|requirements-dev\.txt$|\.gitleaks\.toml$|conftest\.py$|pytest\.ini$|tox\.ini$|setup\.cfg$)|(^|/)(\.?ruff\.toml|pyproject\.toml|\.bandit|CLAUDE(\.local)?\.md|AGENTS\.md|GEMINI\.md)$|(^|/)\.claude/'
 # Repo gọi tới chỉ được THÊM mẫu (nối `|` ở mức ngoài cùng ⇒ tập khớp chỉ lớn lên): chặn thêm, không nới được.
 if [ -n "${EXTRA_GATE_FILES:-}" ]; then GATE_FILES_RE="$GATE_FILES_RE|$EXTRA_GATE_FILES"; fi
 # 0 = có file cổng trong stdin, HOẶC regex hỏng (grep thoát 2 ⇒ fail closed); 1 = không có.

@@ -304,8 +304,8 @@ def usage_sum(): return {k: round(sum(x[k] for x in USAGE), 4) for k in UKEYS}
 
 def short_home(p):
     """Đường dẫn dưới HOME viết thành ~/...: prompt gửi LLM không lộ tên người dùng, system_sha256 giống nhau giữa các máy cùng bố cục."""
-    h = os.path.expanduser('~')
-    return '~' + p[len(h):] if h not in ('', '/') and (p == h or p.startswith(h + os.sep)) else p
+    h, p = os.path.normpath(os.path.expanduser('~')), os.path.normpath(p)   # HOME='/home/u/' vẫn khớp
+    return '~' + p[len(h):] if h not in ('.', '/') and (p == h or p.startswith(h + os.sep)) else p
 
 def now_s(): return datetime.datetime.now().isoformat(timespec='seconds')
 

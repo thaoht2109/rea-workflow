@@ -6,7 +6,7 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 
 ```bash
 # unicorn 2.1.4: python3 -m pip install --target ~/.local/share/rea-flow/pylib unicorn==2.1.4 (winemu tự thêm vào sys.path; đổi bằng REA_PYLIB)
-# capstone, pefile, yara: gói Python hệ thống. DLL giả lấy tên export từ WINE_DLL_DIR (mặc định /usr/lib/x86_64-linux-gnu/wine)
+# capstone: gói Python hệ thống (không có apt thì flow.py setup cài vào REA_PYLIB). DLL giả lấy tên export từ WINE_DLL_DIR (mặc định /usr/lib/x86_64-linux-gnu/wine)
 ```
 
 ## OPSEC (bắt buộc)
@@ -21,10 +21,14 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 
 ```bash
 # 1. chạy: stage giải mã thuần chạy trần (--prerun, vài giây) rồi vào môi trường Windows
-python3 winemu.py --blob SHELLCODE --blob-off 1200 --size 0x27e2000 --prerun --out OUT --chain-child \
-    --exe-path 'C:\Users\admin\Downloads\mau.exe' [--plugin plugins/guloader.py:dec=0x...,s2=0x...,s2len=0x...]
+python3 $SKILL/winemu/winemu.py --blob SHELLCODE --blob-off 1200 --size 0x27e2000 --prerun --out OUT --chain-child \
+    --exe work/sample/mau.exe --exe-path 'C:\Users\admin\Downloads\mau.exe' \
+    [--plugin $SKILL/winemu/plugins/guloader.py:dec=0x...,s2=0x...,s2len=0x...]   # --plugin tính từ thư mục hiện tại
 # 2. đọc kết quả: vài chục dòng gồm chuỗi giải mã, mạng, tạo tiến trình, tiêm mã, API chưa hỗ trợ, lý do dừng
-python3 summarize.py OUT/events.jsonl
+python3 $SKILL/winemu/summarize.py OUT/events.jsonl
+# 3. ghi fact src=E: chép evidence report/evidence/emu_<tên OUT>.jsonl, ghi url/ua/c2/str_key/anti_analysis/inject/exit_reason/api_unused
+#    (exit_reason, api_unused là căn cứ của C11)
+python3 $SKILL/winemu/summarize.py OUT/events.jsonl --facts CASE
 ```
 
 - **Chuỗi:** `argstr` lấy mọi chuỗi in được truyền vào API (URL, User-Agent, tên DLL), không cần biết hàm giải mã. Plugin `str` bắt cả chuỗi chưa dùng tới API.

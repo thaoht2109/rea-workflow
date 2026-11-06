@@ -36,8 +36,8 @@ _(mỗi mục ghi nguồn S/E/V và trỏ tới file evidence + dòng)_
 
 ## 5. Bảng rà soát và đính chính
 
-| Vòng | Nội dung trước | Kết luận sau rà soát |
-|---|---|---|
+| Vòng | id | Nội dung trước | Kết luận sau rà soát |
+|---|---|---|---|
 
 Phần đính chính sinh tự động từ các fact `retracted`/`supersedes` nằm trong `GENERATED.md`.
 
@@ -54,6 +54,8 @@ Xem `GENERATED.md` (mục IOC). IOC ứng viên lấy từ strings mà chưa đ�
 - OPSEC: đã/chưa có request mạng nào, có dùng nguồn ngoài nào.
 
 ## 9. Evidence (`report/evidence/`)
+
+_(cột File ghi `` `tên_file` `` cho mọi file trong report/evidence/; `flow.py audit` đối chiếu với đĩa)_
 
 | File | Nội dung |
 |---|---|

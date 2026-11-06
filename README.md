@@ -52,7 +52,7 @@ npx github:thaoht2109/rea-workflow           # chỉ cho project hiện tại (c
 Lệnh làm ba việc:
 
 1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex -a opencode` để chọn sẵn).
-2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.config/opencode/AGENTS.md` (toàn máy) hoặc `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` của project. Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
+2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.config/opencode/AGENTS.md` (toàn máy, chỉ cho agent đã có thư mục cấu hình trên máy) hoặc `AGENTS.md`, `CLAUDE.md` của project (`GEMINI.md` chỉ khi đã có file hoặc máy có Gemini CLI). Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
 3. Chạy `flow.py setup` (mục 2.2): in công cụ còn thiếu và kế hoạch cài, hỏi `[Y/n]` rồi cài (apt cần sudo). `-y` cài luôn không hỏi; `--no-tools` chỉ kiểm; `--no-ghidra` bỏ Ghidra. Chạy không có terminal tương tác mà không `-y` thì chỉ kiểm và in lệnh cài.
 
 Dưới đây `$SKILL` là thư mục skill vừa cài (xem bằng `npx skills list -g`; thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`).
@@ -66,15 +66,15 @@ Không có Node: `git clone https://github.com/thaoht2109/rea-workflow.git ~/.cl
 Bước 3 của lệnh cài ở trên. Chạy riêng khi cần kiểm lại hoặc cài sau:
 
 ```bash
-python3 $SKILL/flow.py setup          # chỉ kiểm, in kế hoạch cài (mã 1 nếu thiếu); không thay đổi gì
+python3 $SKILL/flow.py setup          # chỉ kiểm, in kế hoạch cài (mã 1 nếu thiếu bất kỳ công cụ nào, kể cả upx tùy chọn); không thay đổi gì
 python3 $SKILL/flow.py setup --yes    # cài phần thiếu; --no-ghidra để bỏ Ghidra (~550 MiB)
 ```
 
 | Công cụ | `setup --yes` cài bằng |
 |---|---|
-| `7z`, `pefile`, `capstone`, `upx`, JDK 21 | `sudo apt-get install 7zip python3-pefile python3-capstone upx-ucl openjdk-21-jdk-headless` (bản cũ: `p7zip-full`; không có apt: in danh sách để cài tay) |
-| `unicorn` 2.1.4 | `pip install --target ~/.local/share/rea-flow/pylib` (không cần sudo, chạy được với PEP 668) |
-| Ghidra 12.1.4 | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố (sai thì xoá và dừng), giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `~/.config/rea-flow/rea.env` |
+| `7z`, `pefile`, `capstone`, `upx`, JDK 21 | `sudo apt-get install 7zip python3-pefile python3-capstone upx-ucl openjdk-21-jdk-headless` (bản cũ: `p7zip-full`; không có apt: `pefile`, `capstone` cài bằng pip vào `REA_PYLIB`, `7z`, `upx`, JDK in ra để cài tay) |
+| `unicorn` 2.1.4 | `pip install --target REA_PYLIB` (mặc định `~/.local/share/rea-flow/pylib`) (không cần sudo, chạy được với PEP 668) |
+| Ghidra 12.1.4 | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố (sai thì xoá và dừng; release không công bố digest thì không kiểm được), giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `~/.config/rea-flow/rea.env` |
 | `rea` | `npm install -g rea-agents@6.7.0` (thư mục npm toàn cục không ghi được thì `--prefix ~/.local`) |
 | Node.js | chỉ hướng dẫn cài tay (nodejs.org hoặc nvm): apt của nhiều bản phân phối còn bản cũ |
 
@@ -143,11 +143,11 @@ mẫu ─► T0 triage ─► T1 bóc vỏ ─► T2 decompile có mục tiêu �
 | T0 Triage | `static/triage.py`: loại file, hash, entropy, import/export, IOC ứng viên (chỉ là gợi ý trong `triage_*.json`, không tự thành fact) | S |
 | T1 Bóc vỏ | zip/7z/rar, `upx -d`, NSIS (giải "sàng byte" lộ `System::Call`) | S |
 | T2 Tĩnh có mục tiêu | `flow.py dec` (rea, tự chuyển Ghidra headless cho MIPS/PPC), lệnh `rea` tĩnh theo loại mẫu (`FLOW.md` mục 4a), tên hàm Go từ `.gopclntab` | S |
-| T3 Giả lập | `winemu`: Windows x86-32 giả trên Unicorn (PEB/TEB, SEH/VEH, DLL giả, mạng chỉ ghi lại) | E |
+| T3 Giả lập | `winemu`: Windows x86-32 giả trên Unicorn (PEB/TEB, VEH, DLL giả, mạng chỉ ghi lại) | E |
 | T4 Payload | giải mã offline bằng khóa/định dạng từ T2/T3, triage lại | S/E |
 | T5 VM ngoài | chỉ khi người dùng quyết định | V |
 
-**Checklist đóng case:** C0 Phản biện · C1 Nhận dạng · C2 Delivery và điểm vào · C3 Chống phân tích · C4 Giải mã chuỗi/config · C5 IOC mạng · C6 Tiêm mã · C7 Persistence · C8 Payload: định dạng và khóa · C9 Payload cuối · C10 Họ mã độc · C11 Độ phủ. Mục không đạt được có thể chấp nhận kèm lý do (`--accept`), lý do vào mục hạn chế của báo cáo.
+**Checklist đóng case:** C0 Phản biện · C1 Nhận dạng · C2 Delivery và điểm vào · C3 Chống phân tích · C4 Giải mã chuỗi/config · C5 IOC mạng · C6 Tiêm mã · C7 Persistence · C8 Payload: định dạng và khóa · C9 Payload cuối · C10 Họ mã độc · C11 Độ phủ. Mục không đạt được có thể chấp nhận kèm lý do (`flow.py next CASE --accept Cx=lý do[,Cy=lý do]`, lưu ở `work/accepted.json`); agent ghi lý do vào mục hạn chế của báo cáo (`next` nhắc).
 
 ### 3.3. Lệnh
 
@@ -178,10 +178,12 @@ CASE/
 │   └── evidence/          # bằng chứng ngắn mà mọi fact trỏ tới (kèm #L dòng)
 └── work/
     ├── sample/            # mẫu, chỉ đọc
-    ├── runs/  scripts/  extract/
+    ├── runs/              # triage_<tên>/triage.json, dec/ (mã giả)
+    ├── scripts/  extract/  ghidra/   # ghidra/: project Ghidra headless; rea_*.snapshot: snapshot của rea
     ├── accepted.json      # mục checklist chấp nhận hạn chế
     ├── checkpoint.json    # mốc chốt gần nhất
-    └── review/            # r1/, r2/, state.json, usage.jsonl, llm_cache/, STOP_REPORT.md, OVERRIDE
+    └── review/            # r1/, r2/ (review.json, salvage.jsonl, stream.jsonl, analyst_out.txt), state.json, usage.jsonl,
+                           # llm_cache/, report_todo.json, run.pid/run.log/run.rc (--detach), STOP_REPORT.md, OVERRIDE
 ```
 
 ---
@@ -193,17 +195,18 @@ CASE/
 | Kiểm gì | evidence tồn tại, đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; con số `recompute` đếm lại khớp | phản biện như chuyên gia: evidence có chứng minh không, giải thích thay thế (chuỗi chứng thư/thư viện, import chưa gọi, kết quả do stub giả lập…), mức chắc chắn, chủ đề còn thiếu |
 | Cũng chạy khi | ghi fact (`case.py add`, `--strict` để từ chối) | — |
 
-- **Tối đa 2 lần.** Lần 1 FAIL thì sửa đúng fact bị chỉ ra; lần 2 vẫn FAIL thì `STOPPED`, sinh `STOP_REPORT.md`, chặn báo cáo cuối. Chỉ người dùng mở lại (sửa tay, hoặc `work/review/OVERRIDE` có `facts_sha256` khớp).
+- **Mã thoát:** `review` 0 PASS, 1 FAIL, 2 STOPPED, 4 chờ manual; `--detach` 6 đang chạy, 7 tiến trình nền chết, 70 lớp 2 lỗi/bị ngắt; `review-loop` 3 HANDOFF (agent hiện tại tự sửa), 5 lượt sửa không đổi gì; `next` 0 DONE, 1 kèm `NEED_MORE`/`NEED_REVIEW`/`NEED_FIX`/`NEED_REPORT`/`STOPPED`.
+- **Tối đa 2 lần.** Lần 1 FAIL thì sửa đúng fact bị chỉ ra; lần 2 vẫn FAIL thì `STOPPED`, sinh `STOP_REPORT.md`, chặn báo cáo cuối. Mở lại: sửa `facts.jsonl` (mở bộ đếm 2 lần mới; theo quy tắc chỉ người dùng quyết định việc này, máy không phân biệt ai sửa) hoặc `work/review/OVERRIDE` có `facts_sha256` khớp.
 - Luật mức high/low, cách chọn fact gửi LLM, cô lập phiên, chạy nền (`--detach`) và ghi usage: chi tiết ở `FLOW.md` mục 3b.
 
 | Backend (`REVIEW_LLM`) | Cách chạy |
 |---|---|
-| `auto` (mặc định) | `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` ở IP riêng, loopback hoặc tên không có dấu chấm; tên miền nội bộ thì đặt `REVIEW_LLM=api`), nếu không thì CLI đầu tiên có trên máy theo thứ tự bảng, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
+| `auto` (mặc định) | `cmd` nếu đã đặt `REVIEW_LLM_CMD`; rồi `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` ở IP riêng, loopback hoặc tên không có dấu chấm; tên miền nội bộ thì đặt `REVIEW_LLM=api`), nếu không thì CLI đầu tiên có trên máy theo thứ tự claude, codex, gemini, copilot, cursor, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
 | `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
-| `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực (copilot: `COPILOT_MODEL` để chọn model) |
+| `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực. copilot cần `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`/`GITHUB_TOKEN` hoặc `gh auth login`; codex chép `auth.json` từ `CODEX_HOME` (cô lập theo tài liệu CODEX_HOME, chưa kiểm thật) |
 | `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
 | `api` | API chat completions chuẩn OpenAI: ChatGPT, DeepSeek, hoặc **LLM local** (Ollama, vLLM, llama.cpp, LM Studio…) (`REVIEW_API_BASE`, `REVIEW_MODEL`, `REVIEW_API_KEY`) |
-| `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout |
+| `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout; **chưa cô lập** (in cảnh báo) |
 | `manual` | script ghi `…prompt.md`; dán vào một cuộc chat **mới**, lưu câu trả lời vào `…answer.md`, chạy lại (mã 4 = đang chờ) |
 
 Backend không có công cụ nhận hồ sơ tự chứa và xin thêm dữ liệu bằng thao tác chỉ đọc; chi tiết ở `FLOW.md` mục 3b.
@@ -277,7 +280,7 @@ export OPENCODE_DISABLE_MODELS_FETCH=1                      # máy không có In
 opencode
 ```
 
-`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép các lệnh phân tích của skill (neo đúng đường dẫn skill trên máy) và các lệnh đọc; chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng và lệnh đổi cấu hình (`flow.py opencode`, `rules`, `session`, `setup`: người chạy ngoài OpenCode); `winemu.py --plugin`/`--resume`, `flow.py next --accept`, lệnh ghép (`;`, `|`, `&`, `>`, `$(`) và lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ. Đổi chỗ cài skill thì chạy lại lệnh này.
+`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép các lệnh phân tích của skill (neo đúng đường dẫn skill trên máy) và các lệnh đọc `grep`, `head`, `tail`, `ls`, `wc`, `sha256sum`, `file`, `strings` (`cat`, `sed`, `rea` vẫn phải hỏi); chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng và lệnh đổi cấu hình (`flow.py opencode`, `rules`, `session`, `setup`: người chạy ngoài OpenCode); `winemu.py --plugin`/`--resume`, `flow.py next --accept`, lệnh ghép (`;`, `|`, `&`, `>`, `$(`, backtick) và lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ. Đổi chỗ cài skill thì chạy lại lệnh này.
 
 Luật này chỉ để chặn nhầm, không phải ranh giới bảo mật: cách gọi gián tiếp vẫn có thể lọt, và `--auto` tự duyệt mọi lệnh đang ở mức hỏi. Vì vậy phải chạy trong VM không có Internet và không dùng `--auto`.
 
@@ -318,18 +321,18 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 |---|---|---|
 | `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra 12; JDK 21 (trống thì dùng `java` trên `PATH`) |
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | tên trên `PATH` hoặc đường dẫn tuyệt đối |
-| `REA_PYLIB` | `~/.local/share/rea-flow/pylib` | thư mục chứa `unicorn` |
+| `REA_PYLIB` | `$SKILL/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` (theo `XDG_DATA_HOME`) | thư mục chứa `unicorn` (và `pefile`, `capstone` khi không có apt) |
 | `REA_TMP` | `.tmp` (trong workspace) | thư mục tạm cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` nhỏ |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để `winemu` đọc tên export DLL; wine không bao giờ được chạy |
 | `REVIEW_LLM` | `auto` | backend lớp 2 (mục 4) |
 | `REVIEW_MODEL`, `REVIEW_EFFORT` | trống, `medium` | model lớp 2 (bắt buộc với `api`; với `claude` là `--model`); mức suy nghĩ của claude |
 | `REVIEW_API_BASE`, `REVIEW_API_KEY` | OpenAI, `$OPENAI_API_KEY` | backend `api`; key bắt buộc với OpenAI/DeepSeek, không cần với LLM local (mục 4.1); đặt key bằng biến môi trường |
-| `REVIEW_LLM_CMD`, `COPILOT_MODEL` | trống | backend `cmd`; model cho `copilot` |
+| `REVIEW_LLM_CMD` | trống | backend `cmd` |
 | `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | backend không công cụ: số fact mỗi lô, số lượt mỗi lô |
 | `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giây im lặng / tổng tối đa của một lần gọi LLM |
 | `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
 | `ANALYST_LLM_CMD` | trống | lệnh agent có quyền sửa file cho `review-loop` (ưu tiên hơn phiên sửa fact có sẵn của `api`/`cmd`) |
-| `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `session --install` ghi |
+| `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `session --install` ghi; **chỉ đọc từ biến môi trường**, không đọc `rea.env` |
 | `REA_SESSION_MCP`, `REA_SESSION_PLUGINS` | trống | MCP/plugin giữ thêm trong `flow.py session` (tên, phân cách dấu phẩy) |
 
 ---
@@ -366,6 +369,7 @@ npx github:thaoht2109/rea-workflow version [-g]   # hoặc: python3 $SKILL/flow.
 ```
 rea-flow 1.1.0 (skills CLI, theo main) tại ~/.claude/skills/rea-flow
 các bản: v1.0.0, [v1.1.0]
+cập nhật lên main: npx github:thaoht2109/rea-workflow update [-g]; đổi sang bản cụ thể (lên hoặc hạ): ... update [-g] --to vX.Y.Z
 ```
 
 Dòng đầu: bản đang cài và nguồn cài: `skills CLI, theo main`, `skills CLI, ghim vX.Y.Z` (đọc từ lock của skills CLI), hoặc `clone git <git describe>`. Dòng hai: các bản trên GitHub, bản đang dùng trong `[...]`; có bản mới hơn thì báo `có bản mới vX.Y.Z`. Không có mạng thì in dòng đầu và báo không lấy được danh sách.
@@ -393,7 +397,7 @@ npx github:thaoht2109/rea-workflow update -g                 # bỏ ghim, về b
 
 - Skill cài bằng `npx`: `skills add` lại với ref là tag; lock của skills CLI ghi `ref`, `skills update` về sau giữ nguyên bản này cho tới khi chạy `update` không `--to`. Không có `-a` thì CLI hỏi cài cho agent nào (với `-y`: mọi agent).
 - Bản clone git: `git fetch --tags` rồi `git checkout` tag (HEAD tách rời; thay đổi chưa commit được git giữ hoặc báo lỗi nếu xung đột).
-- `--to` chỉ nhận dạng `vX.Y.Z`; tag không có thì skills CLI/git báo lỗi và bản đang cài giữ nguyên.
+- `--to` nhận `vX.Y.Z` hoặc `X.Y.Z`; tag không có thì skills CLI/git báo lỗi và bản đang cài giữ nguyên.
 - `v1.0.0` chưa có lệnh `version`; khi đang ở bản đó vẫn `update` được bình thường.
 
 Dùng khi bản mới làm hỏng một case đang làm dở, hoặc cần chạy lại đúng bản đã dùng để ra một báo cáo (ghi bản `version` vào mục hạn chế của báo cáo nếu cần tái lập).
@@ -412,8 +416,8 @@ Gỡ không xoá `~/.config/rea-flow`, `~/.local/share/rea-flow` (Ghidra, unicor
 ```
 SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (agent nạp file này)
 FLOW.md             quy trình chi tiết: ghi fact, cổng phản biện, định tuyến theo loại file, lệnh rea được phép
-flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, next, report, audit,
-                    doctor, setup, rules, session
+flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, review-loop, gate, next,
+                    report, audit, doctor, setup, rules, session, opencode, version, help
 case.py             kho fact (add + lint + recompute, show, search), checklist C0–C11, sinh báo cáo
 review.py           cổng phản biện lớp 1, review-loop, gate, next
 reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết nối mọi LLM, cô lập
@@ -423,7 +427,9 @@ reacfg.py           cấu hình theo máy + doctor;  rea.env.example: mẫu cấ
 install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow [update|version|remove]): skills add/update + flow.py rules + flow.py setup
 static/             triage, gopclntab, NSIS, script Ghidra
 winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc
-templates/          khung báo cáo
+templates/          khung báo cáo (README.md), luật quyền OpenCode (opencode.json)
+tests/              check_*.py: kiểm bằng dữ liệu tổng hợp, không cần mẫu (CI chạy bằng pytest)
+.github/            CI (ruff, actionlint, pytest, bandit theo baseline, gitleaks, pip-audit), AI review, gắn tag
 ```
 
 Kiểm sau khi sửa:
@@ -432,8 +438,9 @@ Kiểm sau khi sửa:
 python3 $SKILL/case.py --selftest && python3 $SKILL/review.py --selftest
 python3 $SKILL/reviewer.py --selftest && python3 $SKILL/install_tools.py --selftest
 python3 $SKILL/flow.py doctor
+cd $SKILL && ruff check . && python3 -m pytest --import-mode=importlib -q -p no:cacheprovider tests   # giống CI
 ```
 
 Hồi quy trên mẫu thật cần mẫu có trên từng máy nên không nằm trong repo.
 
-Phát hành: tăng `version` trong `package.json` trong PR (sửa lỗi: số cuối; thêm tính năng: số giữa; đổi định dạng facts/cấu hình: số đầu). Khi PR vào `main`, workflow `.github/workflows/tag.yml` gắn tag `vX.Y.Z` cho commit đó; người dùng thấy bản mới qua `version` và chọn bản qua `update --to`.
+Phát hành: tăng `version` trong `package.json` trong PR (sửa lỗi: số cuối; thêm tính năng: số giữa; đổi định dạng facts/cấu hình: số đầu). Khi PR vào `main`, workflow `.github/workflows/tag.yml` gắn tag `vX.Y.Z` cho commit đó; người dùng thấy bản mới qua `version` và chọn bản qua `update --to`. AI review (`ai-review.yml`) chạy sau CI, kết quả nằm trong comment của bot; PASS thì bot tự merge, trừ PR có nhãn `no-auto-merge`/`ai-review-*-needs-human` hoặc sửa `.github/` hay file cổng (`GATE_FILES_RE` trong `.github/ci/ai-review-lib.sh`).

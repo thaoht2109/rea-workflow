@@ -1,4 +1,4 @@
-## Bẫy thường gặp khi kết luận dịch ngược (dùng cho câu 3 và 4)
+## Bẫy thường gặp khi kết luận dịch ngược (nhất là khi xét cách giải thích khác và độ mạnh của `status`)
 
 Mỗi mục: dấu hiệu → cách giải thích khác → cách kiểm rẻ.
 

@@ -499,12 +499,17 @@ def ask(be, msgs, cache):
 
 def parse(text, keys=('requests', 'items', 'canary')):
     hexfix = re.sub(r'(?<![\w"])0x([0-9a-fA-F]+)\b', lambda m: str(int(m.group(1), 16)), text)   # LLM hay viết số hex trần, JSON không nhận
+    # ưu tiên theo thứ tự keys, không lấy đối tượng đầu tiên: dòng tiến độ 'CANARY {"canary": ...}' đứng trước JSON kết luận
     for t in (text, hexfix):   # bản gốc trước: hexfix đổi cả hex trong chuỗi, làm sai value của fact
+        best = None
         for m in re.finditer(r'\{', t):
-            try:
-                d, _ = json.JSONDecoder().raw_decode(t[m.start():])
-                if isinstance(d, dict) and (set(keys) & set(d)): return d
+            try: d, _ = json.JSONDecoder().raw_decode(t[m.start():])
             except ValueError: continue
+            if not isinstance(d, dict): continue
+            rank = min((n for n, k in enumerate(keys) if k in d), default=None)
+            if rank is not None and (best is None or rank < best[0]): best = (rank, d)
+            if rank == 0: break
+        if best: return best[1]
     return None
 
 def ops_text(res):
@@ -639,6 +644,10 @@ def selftest():
     assert 'trùng nội dung: work/sample/t.bin' in head, head
     assert 's.bin' in head and 'work/sample/s.bin@0x10' in body['c2'] and '2: host evil' in body['c2'], body
     assert parse('rác {"requests": [{"op": "pe"}]} rác')['requests'] and parse('không json') is None
+    # kết quả claude: dòng tiến độ CANARY/ITEM đứng trước JSON kết luận; phải lấy đối tượng có items
+    d = parse('CANARY {"canary": ["x"]}\nITEM {"id": "c2", "verdict": "pass"}\nxong:\n{"canary": ["x"], "items": [{"id": "c2", "verdict": "pass"}], "missing": []}')
+    assert d and d['items'][0]['id'] == 'c2', d
+    assert parse('CANARY {"canary": []}')['canary'] == [] and parse('{"canary": []} {"facts": []}', ('requests', 'facts'))['facts'] == []
     # vòng đầy đủ bằng backend manual có sẵn câu trả lời: canary -> requests -> kết luận
     CFG.REVIEW_LLM, CFG.REVIEW_BATCH, CFG.REVIEW_MAX_TURNS = 'manual', 20, 4
     cache = os.path.join(c, 'work', 'review', 'llm_cache'); answers = ['{"canary": []}', '{"requests": [{"op": "sha256", "file": "work/sample/s.bin"}]}',

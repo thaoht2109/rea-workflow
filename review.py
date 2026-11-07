@@ -121,6 +121,7 @@ def rescore(c, s, h):
         r['verdict'] = 'FAIL' if (iso and not iso.get('valid')) else verdict(r['items'])
         json.dump(r, open(p, 'w'), ensure_ascii=False, indent=1)
         rd['verdict'], rd['weak'] = r['verdict'], sum(1 for i in r['items'] if i['verdict'] == 'weak')
+        if r.get('reviewer'): rd['reviewer'] = r['reviewer']   # giữ lớp reviewer để gate biết vòng có lớp LLM (review.json cũ không có -> để trống = tương thích ngược)
     last = rs[-1]
     s = dict(s, rounds=rs, stopped=False)
     if last['verdict'] == 'FAIL' and last['n'] >= MAX_ROUNDS and len(R) >= MAX_ROUNDS: s.update(stopped=True, reset_for=h)
@@ -158,14 +159,17 @@ def detach(c, cmd, flags):
             if os.path.exists(x): os.remove(x)
         return rc
     if os.path.exists(pf):
-        print(f'Lần chạy nền trước đã chết mà không ghi kết quả. Log {lf}:\n' + tail(lf, 20) + '\nGọi lại đúng lệnh này để chạy lại.')
+        print(f'Lần chạy nền trước đã chết mà không ghi kết quả. Log {lf}:\n' + tail(lf, 20)
+              + '\nThường gặp: tiến trình nền bị giết khi lệnh cha kết thúc (chạy qua một lệnh nền giữ tiến trình sống), hoặc mạng tới api.anthropic.com bị chặn. Khắc phục rồi gọi lại đúng lệnh này.')
         os.remove(pf); return 7
     pr = subprocess.Popen([sys.executable, '-u', os.path.abspath(__file__), '_bg', cmd, c] + flags, stdout=open(lf, 'w'), stderr=subprocess.STDOUT,
                           stdin=subprocess.DEVNULL, start_new_session=True, cwd=os.getcwd())
     open(pf, 'w').write(str(pr.pid))
     print(f'ĐÃ CHẠY NỀN {cmd} {c} (pid {pr.pid}), log {lf}. Gọi lại đúng lệnh này để xem tiến độ và lấy kết quả (mã 6 = đang chạy).'); return 6
 
-def review(c, llm=False, force=False, hint=True):
+def review(c, llm=False, force=False, hint=True, preview=None):
+    # preview: lời gọi trực tiếp thiếu --llm chỉ xem trước (không tính vòng, cổng không chấp nhận). loop truyền preview=False để vẫn tạo vòng chỉ-máy.
+    if preview is None: preview = not llm
     p = bg_pid(c)
     if p and p != os.getpid(): print(f'ĐANG CÓ review chạy nền pid {p} cho case này: gọi lại lệnh với --detach để xem kết quả'); return 6
     s, h = state(c), facts_sha(c)
@@ -178,8 +182,14 @@ def review(c, llm=False, force=False, hint=True):
     if s['stopped'] and s.get('reset_for') != h: s.update(stopped=False, rounds=[])
     if s['rounds'] and s['rounds'][-1]['facts_sha256'] == h and not force:
         last = s['rounds'][-1]; print(f"facts chưa đổi từ review {last['n']}: {last['verdict']} (không tính thêm lần)"); return 0 if last['verdict'] == 'PASS' else 1
-    k = len(s['rounds']) + 1
     items = mech(c)
+    if preview:   # lớp máy một mình KHÔNG phải một vòng phản biện (quy tắc skill: lớp 2 LLM bắt buộc). Chạy xem trước, không tính vào bộ đếm, cổng không chấp nhận.
+        fl = [i for i in items if i['verdict'] == 'fail']; weak = sum(1 for i in items if i['verdict'] == 'weak')
+        v = verdict(items)
+        print(f'xem trước lớp máy (KHÔNG tính vào {MAX_ROUNDS} lần, cổng không chấp nhận): {v}  (fail {len(fl)}, weak {weak})')
+        for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
+        print(f'BƯỚC KẾ: chạy có lớp 2 để tính vòng và mở cổng: `flow.py review {shlex.quote(c)} --llm --detach`'); return 0 if v == 'PASS' else 1
+    k = len(s['rounds']) + 1
     miss, iso = [], None
     if llm:
         ids = [i for i, f in C.load(c).items() if f['status'] != 'retracted']
@@ -193,7 +203,7 @@ def review(c, llm=False, force=False, hint=True):
     json.dump(dict(round=k, facts_sha256=h, reviewer='mech' + ('+' + iso['backend'] if llm else ''), verdict=v, items=items, missing=miss, isolation=iso, ts=now()),
               open(os.path.join(DIR(c), f'r{k}', 'review.json'), 'w'), ensure_ascii=False, indent=1)
     weak = sum(1 for i in items if i['verdict'] == 'weak')
-    s['rounds'].append(dict(n=k, facts_sha256=h, verdict=v, weak=weak))
+    s['rounds'].append(dict(n=k, facts_sha256=h, verdict=v, weak=weak, reviewer='mech' + ('+' + iso['backend'] if llm else '')))
     fl = [i for i in items if i['verdict'] == 'fail']
     print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", lớp 2 {iso['backend']}: {iso['turns']} lượt, {iso['requests']} thao tác, " + ('cô lập OK' if iso['valid'] else 'KHÔNG HỢP LỆ: ' + '; '.join(iso['invalid_reasons'])) if iso else '') + ')')
     for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
@@ -255,7 +265,7 @@ def analyst(c, k):
 
 def loop(c, llm=True):
     """review -> (FAIL) phân tích lại đúng các fact lỗi -> review lần 2 -> (FAIL) dừng + STOP_REPORT. Không cần người xác nhận giữa chừng."""
-    code = review(c, llm, hint=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công
+    code = review(c, llm, hint=False, preview=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công; vòng chỉ-máy vẫn tạo review.json cho analyst (cổng vẫn chặn)
     while code == 1:
         k = len(state(c)['rounds'])
         if CFG.review_backend() not in ('claude', *NO_TOOL) and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
@@ -265,7 +275,7 @@ def loop(c, llm=True):
         print(f'-- phân tích lại: {n} mục, facts {"đã đổi" if changed else "KHÔNG đổi"}' + ('' if ok else ', bị hủy'))
         if not ok or not changed:   # không tiêu lần review 2 cho facts không đổi; chạy lại review-loop sẽ tiếp từ bước sửa
             print('DỪNG: phân tích lại không tạo thay đổi hợp lệ; xem work/review/r%d/analyst_out.txt rồi chạy lại review-loop' % k); return 5
-        code = review(c, llm, force=True, hint=False)
+        code = review(c, llm, force=True, hint=False, preview=False)
     return code
 
 def gate(c):
@@ -277,7 +287,12 @@ def gate(c):
     if os.path.exists(ov) and f'facts_sha256={h}' in open(ov).read(): return True, 'OVERRIDE do người dùng duyệt'
     if s.get('rule_version') != C.REVIEW_RULE_VERSION: return False, 'cổng đổi luật severity: chạy lại review'
     if s['stopped'] and s.get('reset_for') == h: return False, 'đã STOPPED sau 2 lần review'
-    if s['rounds'] and s['rounds'][-1]['facts_sha256'] == h and s['rounds'][-1]['verdict'] == 'PASS': return True, f"review {s['rounds'][-1]['n']} PASS"
+    last = s['rounds'][-1] if s['rounds'] else None
+    if last and last['facts_sha256'] == h and last['verdict'] == 'PASS':
+        rv = last.get('reviewer')   # thiếu = state trước bản sửa (tương thích ngược, chấp nhận); 'mech' thuần = vòng chỉ-lớp-máy, không đủ
+        if rv is not None and '+' not in rv:
+            return False, 'review PASS gần nhất chỉ có lớp máy; chạy lại có --llm để mở cổng'
+        return True, f"review {last['n']} PASS"
     return False, 'chưa có review PASS khớp facts.jsonl hiện tại'
 
 # ---------- điểm dừng sớm ----------
@@ -315,6 +330,7 @@ def next_step(c, accept=''):
 
 # ---------- selftest ----------
 def selftest():
+    import types
     c = tempfile.mkdtemp(); E = os.path.join(c, 'report', 'evidence'); os.makedirs(E); os.makedirs(os.path.join(c, 'work', 'sample'))
     open(os.path.join(c, 'work', 'sample', 'a.bin'), 'wb').write(b'abc')
     real = hashlib.sha256(b'abc').hexdigest()
@@ -335,21 +351,29 @@ def selftest():
     assert {('bad_c2', 'value_in_evidence'), ('bad_src', 'src_vs_evidence'), ('bad_line', 'evidence_line')} <= ck, its
     assert all(i['severity'] == 'high' for i in its if i['id'] == 'bad_low'), its   # fail check cứng luôn high
     assert ('weak1', 'status_vs_note') in ck
-    assert review(c) == 1 and review(c) == 1                      # facts chưa đổi: không tính thêm lần
+    # lớp 2 giả (không gọi LLM/mạng): trả iso hợp lệ backend 'stub', không thêm fail. review có llm=True để tính vòng thật.
+    stub = types.ModuleType('reviewer'); stub.Pending = type('Pending', (Exception,), {})
+    stub.run = lambda c, k, ids, items: ([], [], dict(valid=True, backend='stub', turns=1, requests=0, invalid_reasons=[]))
+    sys.modules['reviewer'] = stub
+    rv = lambda **kw: review(c, llm=True, **kw)
+    assert review(c) == 1                                         # không --llm: chỉ xem trước, KHÔNG tính vòng
+    assert len(state(c).get('rounds') or []) == 0 and not gate(c)[0]
+    assert rv() == 1 and rv() == 1                                # facts chưa đổi: không tính thêm lần
     assert len(state(c)['rounds']) == 1 and not gate(c)[0]
+    assert '+' in state(c)['rounds'][-1]['reviewer']             # vòng mang lớp LLM
     A(id='noise', kind='string', value='abcde-fghij', src='S', evidence='report/evidence/tri.txt', status='retracted')   # đổi facts, vẫn lỗi
-    assert review(c) == 2 and state(c)['stopped'] and os.path.exists(os.path.join(DIR(c), 'STOP_REPORT.md'))
-    assert not gate(c)[0] and review(c) == 2
+    assert rv() == 2 and state(c)['stopped'] and os.path.exists(os.path.join(DIR(c), 'STOP_REPORT.md'))
+    assert not gate(c)[0] and rv() == 2
     assert dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'].startswith('fail(stopped)')
     for i in ('bad_h', 'bad_c2', 'bad_src', 'bad_line', 'bad_low'): A(id=i + '2', kind='string', value='fixed', src='S', evidence='report/evidence/tri.txt', supersedes=i)
-    assert review(c) == 0 and gate(c)[0], mech(c)                  # sửa hết -> bộ đếm mới, PASS
+    assert rv() == 0 and gate(c)[0], mech(c)                       # sửa hết -> bộ đếm mới, PASS
     assert dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'] in ('ok', 'partial')
     assert next_step(c) == 1                                       # checklist còn thiếu nhiều mục
 
     # luật cũ (state không có rule_version) phải bị coi là chưa review
     st = state(c); st.pop('rule_version', None); json.dump(st, open(os.path.join(DIR(c), 'state.json'), 'w'))
     assert not gate(c)[0] and dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'] == 'missing'
-    assert review(c, force=True) == 0 and gate(c)[0]               # review mở bộ đếm mới theo luật hiện tại
+    assert rv(force=True) == 0 and gate(c)[0]                      # review mở bộ đếm mới theo luật hiện tại
     print('OK selftest')
 
 if __name__ == '__main__':

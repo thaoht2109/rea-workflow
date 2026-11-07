@@ -51,11 +51,15 @@ def main():
                   open(os.path.join(d, 'state.json'), 'w'))
         assert dict((k.split()[0], v) for k, v, _ in C.check(c))['C0'] == 'missing'
         assert R.gate(c)[0] is False
-        # 8. review() mở bộ đếm mới và ghi rule_version hiện tại
-        R.review(c)
+        # 8. review() có lớp 2 mở bộ đếm mới và ghi rule_version hiện tại (reviewer giả, không gọi LLM)
+        reviewer.run = lambda c, k, ids, items: ([], [], dict(valid=True, backend='stub', turns=1, requests=0, invalid_reasons=[]))
+        assert R.review(c) == 0   # không --llm: chỉ xem trước (fact hợp lệ -> PASS), không tính vòng
+        assert not R.gate(c)[0] and not (R.state(c).get('rounds') or [])
+        R.review(c, llm=True)
         st = json.load(open(os.path.join(d, 'state.json')))
         assert st['rule_version'] == C.REVIEW_RULE_VERSION and len(st['rounds']) == 1 \
-               and st['rounds'][0]['verdict'] == 'PASS', st
+               and st['rounds'][0]['verdict'] == 'PASS' and '+' in st['rounds'][0]['reviewer'], st
+        assert R.gate(c)[0]
     finally:
         shutil.rmtree(c, ignore_errors=True)
     print('OK test_gate (8 nhóm)')

@@ -32,6 +32,7 @@ AP.add_argument('--snap-at', help='API[:N] lưu snapshot ở lần gọi thứ N
 AP.add_argument('--resume', help='snapshot để chạy tiếp')
 AP.add_argument('--stop-at', help='API[:N] dừng ở lần gọi thứ N (kèm ring nếu có)')
 AP.add_argument('--ring', type=int, default=0, help='giữ N lệnh cuối để in khi dừng/lỗi')
+AP.add_argument('--max-events', type=int, default=50_000, help='trần số dòng events.jsonl ồn ào (api/argstr/net...); vượt thì chỉ còn ghi các kind hiếm (end, oep, snapshot, stop_at, anti, warn). 0 = không giới hạn')
 AP.add_argument('--plugin', action='append', default=[], help='file.py[:k=v,...], gọi setup(g, opts)')
 A = AP.parse_args()
 os.makedirs(A.out, exist_ok=True)
@@ -39,7 +40,14 @@ LOG = open(os.path.join(A.out, f'{A.tag}.log'), 'w')
 EVF = open(os.path.join(A.out, 'events.jsonl'), 'a')
 def log(*a):
     s = ' '.join(str(x) for x in a); LOG.write(s + '\n'); LOG.flush()
+EVN = [0]   # số dòng đã ghi; trần --max-events chặn log nổ (một lượt từng sinh >113k dòng khi mẫu lặp vô hạn)
+EV_KEEP = {'end', 'oep', 'snapshot', 'stop_at', 'anti', 'warn', 'start'}   # kind hiếm/quan trọng: luôn ghi dù đã quá trần
 def ev(kind, **kw):
+    if A.max_events and kind not in EV_KEEP:
+        if EVN[0] == A.max_events:
+            EVN[0] += 1; EVF.write(json.dumps({'proc': A.tag, 'kind': 'warn', 'what': 'max_events', 'cap': A.max_events}, ensure_ascii=False) + '\n'); EVF.flush()
+        if EVN[0] > A.max_events: return
+        EVN[0] += 1
     kw = {k: (hex(v) if isinstance(v, int) and not isinstance(v, bool) and k not in ('n', 'len', 'i', 'keylen', 'api_calls', 'veh', 'seconds') else v) for k, v in kw.items()}
     EVF.write(json.dumps({'proc': A.tag, 'kind': kind, **kw}, ensure_ascii=False) + '\n'); EVF.flush()
 def page(n): return (n + 0xfff) & ~0xfff

@@ -35,6 +35,7 @@ python3 $SKILL/winemu/summarize.py OUT/events.jsonl --facts CASE
 - **Gặp `API CHƯA HỖ TRỢ`:** thêm một nhánh vào `api()` trong `winemu.py`, hoặc thêm `API_HOOKS['Ten'] = f` trong plugin. Sau đó chạy lại từ snapshot.
 - **Bước chống phân tích dài** (quét bộ nhớ khoảng 27 phút): `--snap-at API[:N]` lưu `OUT/snap_API.bin` rồi dừng. Lần sau chạy `--resume OUT/snap_API.bin` với cùng tham số nạp (`--blob` hoặc `--child`).
 - **Xem đoạn mã ngay trước một API hoặc lỗi:** dùng `--ring 3000 --stop-at API:N`, ring được in vào `OUT/<tag>.log`.
+- **Log nổ (mẫu lặp vô hạn):** `events.jsonl` chỉ ghi `--max-events` dòng ồn ào (mặc định 50k), sau đó chèn một dòng `{"kind":"warn","what":"max_events"}` rồi thôi; các kind hiếm (`end`, `oep`, `snapshot`, `stop_at`, `anti`, `warn`, `start`) vẫn luôn ghi. `--max-events 0` tắt trần. Thấy dòng `warn max_events` tức mẫu đang lặp: đặt `--stop-at`/`--max-steps` nhỏ lại thay vì đọc hết.
 - **Tiến trình con bị tiêm:** cha ghi buffer lớn (> 1 MB) thành `OUT/child_mem.bin`. Điểm vào là giá trị 4 byte cuối cùng cha ghi vào tiến trình con mà trỏ vào buffer đó. `--chain-child` tự chạy tiếp tiến trình con với tag `child`.
 - **Lấy keystream giải mã payload:** dùng `--fake-dl 0x80000` để `InternetReadFile` trả về toàn byte 0. Kết hợp `--fake-dl-file` nếu mã độc kiểm tra kích thước hoặc nội dung.
 

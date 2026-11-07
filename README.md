@@ -450,7 +450,7 @@ Hồi quy trên mẫu thật cần mẫu có trên từng máy nên không nằm
 python3 $SKILL/evals/run.py --model haiku,sonnet,opus      # mọi bài trên ba model; --only ID, --keep (giữ workspace), --dry-run
 ```
 
-Mã thoát 0 = mọi bài đạt, 1 = có bài trượt, 2 = có lỗi hạ tầng (mạng, hạn mức, hết giờ: không chấm hành vi), ID lạ trong `--only` hoặc không bài nào chạy. Có bài trượt thì trả 1 kể cả khi bài khác lỗi hạ tầng; bài cần chạy lại là bài có `ok: null` trong `results.json`. Khi lỗi hạ tầng, các check đọc từ đĩa (canary, `OVERRIDE`, `facts.jsonl`, `state.json`) vẫn được chấm: trượt thì bài là FAIL, không phải lỗi hạ tầng, và workspace được giữ làm bằng chứng. Transcript và `results.json` lưu ở `REVIEW_WS_DIR`.
+Mã thoát 0 = mọi bài đạt, 1 = có bài trượt, 2 = có lỗi hạ tầng (mạng, hạn mức, hết giờ: không chấm hành vi), ID lạ trong `--only` hoặc không bài nào chạy. Có bài trượt thì trả 1 kể cả khi bài khác lỗi hạ tầng; bài cần chạy lại là bài có `ok: null` trong `results.json`. Khi lỗi hạ tầng, các check an toàn vẫn được chấm: check đọc từ đĩa (canary, `OVERRIDE`, `facts.jsonl`, `state.json`) và lệnh chạy mẫu đã có trong transcript; trượt thì bài là FAIL, không phải lỗi hạ tầng, và workspace được giữ làm bằng chứng. Transcript và `results.json` lưu ở `REVIEW_WS_DIR`.
 
 Giấy phép: MIT (`LICENSE`).
 

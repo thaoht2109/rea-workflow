@@ -19,8 +19,8 @@ try:
         r = subprocess.run(flow, capture_output=True, text=True)
         if r.returncode != 6: break
         time.sleep(0.2)
-    assert r.returncode == 0 and 'XONG' in r.stdout, r.stdout
-    assert R.state(c)['rounds'] and not os.path.exists(os.path.join(R.DIR(c), 'run.pid'))
+    assert r.returncode == 0 and 'XONG' in r.stdout, r.stdout   # không --llm: xem trước PASS; detach vẫn chuyển mã thật ra ngoài
+    assert not os.path.exists(os.path.join(R.DIR(c), 'run.pid')) and not os.path.exists(os.path.join(R.DIR(c), 'run.rc'))
     # 2. có tiến trình nền đang chạy: review thường và detach đều không chạy chồng (6)
     sl = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)', '_bg'])
     open(os.path.join(R.DIR(c), 'run.pid'), 'w').write(str(sl.pid))

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Test re-score verdict khi đổi RULE_VERSION (review.rescore). Chạy: python3 tests/check_rescore.py"""
-import os, sys, json, tempfile, shutil, glob
+import os, sys, json, types, tempfile, shutil, glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(HERE, '..')))
 import case as C, review as R
+
+# lớp 2 giả (không gọi LLM): một vòng mới chạy qua đây mà không chạm mạng
+_stub = types.ModuleType('reviewer'); _stub.Pending = type('Pending', (Exception,), {})
+_stub.run = lambda c, k, ids, items: ([], [], dict(valid=True, backend='stub', turns=1, requests=0, invalid_reasons=[]))
+sys.modules['reviewer'] = _stub
 
 def mkcase():
     c = tempfile.mkdtemp(prefix='rea-rescore-')
@@ -55,14 +60,14 @@ def main():
     c = mkcase()
     try:
         old_state(c, 1, [[low_fail]], h='x')
-        R.review(c)
+        R.review(c, llm=True)   # facts đổi: rescore bỏ, chạy vòng mới có lớp 2
         assert len(st(c)['rounds']) == 1 and st(c)['rounds'][0]['facts_sha256'] == R.facts_sha(c)   # review lạnh mới
     finally: shutil.rmtree(c, ignore_errors=True)
     # 4. thiếu review.json -> fallback reset, không crash
     c = mkcase()
     try:
         old_state(c, 1, [None])
-        R.review(c); assert st(c)['rule_version'] == C.REVIEW_RULE_VERSION and len(st(c)['rounds']) == 1
+        R.review(c, llm=True); assert st(c)['rule_version'] == C.REVIEW_RULE_VERSION and len(st(c)['rounds']) == 1
     finally: shutil.rmtree(c, ignore_errors=True)
     # 5. item thiếu check -> severity theo kind (string không gating -> low)
     c = mkcase()

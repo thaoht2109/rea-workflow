@@ -97,8 +97,12 @@ c2 = mkcase(); SCRIPT[:] = ['{"facts": [{"supersedes": "f1", "status": "hypothes
                             '{"facts": [{"supersedes": "f1", "status": "retracted", "note": "không có trong evidence"}]}']
 rc = review.loop(c2, llm=False); st = review.state(c2)
 assert rc == 0 and [r['verdict'] for r in st['rounds']] == ['FAIL', 'PASS'] and not SCRIPT, (rc, st['rounds'], SCRIPT)
-assert review.gate(c2)[0], review.gate(c2)
+# vòng loop chỉ-lớp-máy: verdict PASS nhưng cổng KHÔNG mở (cần lớp 2) — đây là hành vi mới
+assert not review.gate(c2)[0] and 'chỉ có lớp máy' in review.gate(c2)[1], review.gate(c2)
 F = C.load(c2); assert F['f1.r1']['status'] == 'retracted' and F['f1.r1']['value'] == 'bad.example.com' and F['f1']['status'] == 'retracted', F
+# đánh dấu vòng cuối là có lớp 2 (dàn dựng, không gọi mạng) để kiểm tiếp report_todo/final trên cổng đã mở hợp lệ
+st['rounds'][-1]['reviewer'] = 'mech+stub'; review.save_state(c2, st)
+assert review.gate(c2)[0], review.gate(c2)
 
 # review PASS nhưng README chưa đổi theo fact đã rút: next và report --final phải chặn tới khi sửa README
 final = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'report', c2, '--final'], capture_output=True, text=True)

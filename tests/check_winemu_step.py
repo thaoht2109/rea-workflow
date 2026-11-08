@@ -48,6 +48,7 @@ import sys, os, json
 a = sys.argv[1:]; out = a[a.index('--out') + 1]; os.makedirs(out)
 json.dump(a, open(os.path.join(out, 'argv.json'), 'w'))
 p = json.loads(os.environ['FAKE_ROUND'])
+if p.get('sleep'): import time; time.sleep(p['sleep'])
 if p.get('crash'): sys.stderr.write('Traceback: giả lập chết\n'); sys.exit(1)
 with open(os.path.join(out, 'events.jsonl'), 'w') as f:
     f.write(json.dumps({'kind': 'argstr', 's': '"end" "oep"'}) + '\n{hỏng\n')   # chuỗi "end"/"oep" trong dữ liệu không được tính là event
@@ -96,10 +97,22 @@ try:
     assert r.returncode == 1 and 'giả lập lỗi' in r.stdout and 'xong' not in r.stdout, r.stdout
     r = step({'crash': True}, '--prefix', 'c')                              # winemu chết: mã 1, in đuôi stderr
     assert r.returncode == 1 and 'không ghi event end' in r.stdout and 'giả lập chết' in r.stdout, r.stdout
+    assert os.path.isdir(os.path.join(work, 'c1.noend')) and not os.path.exists(os.path.join(work, 'c1')), os.listdir(work)
+    r = step({'un': 'k!C'}, '--prefix', 'c')                                # lượt chết không chặn vòng: c1 chạy lại từ đầu
+    assert r.returncode == 2 and 'c1: chạy từ đầu' in r.stdout, r.stdout
 
-    for bad in (('--out', 'x'), ('--resume=x',), ('--snap-unhandled',)):    # tham số step.py tự đặt: từ chối, không tạo lượt
+    r = step({'un': 'k!T'}, '--prefix', 't')                                # t1 dừng ở API thiếu, t2 quá giờ
+    r = step({'sleep': 30}, '--prefix', 't', '--timeout', '2')
+    assert r.returncode == 1 and 'quá 2s' in r.stderr and 't2.timeout' in r.stderr and 'resume lại từ t1' in r.stderr, r.stderr
+    assert os.path.isdir(os.path.join(work, 't2.timeout')) and not os.path.exists(os.path.join(work, 't2')), os.listdir(work)
+    r = step({'sleep': 30}, '--prefix', 't', '--timeout', '2')              # quá giờ lần nữa: tên không đè lên nhau
+    assert os.path.isdir(os.path.join(work, 't2.timeout2')), os.listdir(work)
+    r = step({'reason': 'max-steps'}, '--prefix', 't')                      # lần sau tự resume lại từ t1, không kẹt
+    assert r.returncode == 0 and rs(argv('t2')).endswith('t1/snap_unhandled.bin'), (r.stdout, r.stderr)
+
+    for bad in (('--out', 'x'), ('--resume=x',), ('--snap-unhandled',), ('--chain-child',)):    # tham số step.py tự đặt: từ chối, không tạo lượt
         r = step({}, '--prefix', 'b', args=('--blob', 'x.bin', *bad))
-        assert r.returncode != 0 and 'tự đặt' in r.stderr and not os.path.exists(os.path.join(work, 'b1')), (bad, r.stderr)
+        assert r.returncode != 0 and ('tự đặt' in r.stderr or 'không hỗ trợ' in r.stderr) and not os.path.exists(os.path.join(work, 'b1')), (bad, r.stderr)
     r = step({}, '--prefix', 'b', args=())
     assert r.returncode != 0 and 'thiếu tham số winemu' in r.stderr, r.stderr
 

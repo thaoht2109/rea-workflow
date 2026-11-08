@@ -3,6 +3,8 @@
 # Không phải chạy lại từ đầu (lớp vỏ có thể mất vài phút), không phải tự đặt tên thư mục hay nhớ snapshot nào.
 #   python3 step.py --out-dir DIR [--prefix r] [--resume SNAP] [--summarize] -- <tham số winemu>
 # Lượt đầu (chưa có <prefix>1): chạy từ đầu, hoặc từ --resume. --resume luôn thắng snapshot tự tìm.
+# Lượt quá --timeout hoặc winemu chết (không có event end) bị đổi tên thành <prefix>N.timeout/.noend: lần gọi sau resume lại từ lượt trước.
+# Không hỗ trợ --chain-child (tiến trình con chạy lại qua execv, không có snapshot): chạy con riêng bằng --child/--entry.
 # Mã thoát: 0 = xong (dừng không phải vì API thiếu/lỗi; có thể đã qua OEP), 1 = lỗi chạy hoặc lỗi giả lập (reason 'error …'),
 #           2 = dừng ở API thiếu mới (thêm hook rồi chạy lại), 3 = cùng API thiếu như lượt trước (hook chưa có tác dụng).
 import sys, os, re, json, subprocess, argparse
@@ -50,14 +52,25 @@ if not snap and prev:
     if not os.path.exists(s): sys.exit(f'{os.path.basename(prev)} dừng ở {pend["unhandled"]} nhưng thiếu {s}: lượt đó chạy không có --snap-unhandled?')
     snap = s
 
+def park(out, why):
+    """Lượt không có event end (quá giờ, winemu chết): đổi tên để regex lượt bỏ qua nó, lần gọi sau tự resume lại từ lượt trước."""
+    if not os.path.exists(out): return out
+    dst, k = f'{out}.{why}', 1
+    while os.path.exists(dst): k += 1; dst = f'{out}.{why}{k}'
+    os.rename(out, dst); return dst
+
 name = f'{A.prefix}{n}'; out = os.path.join(A.out_dir, name)
 cmd = [sys.executable, W, '--out', out, '--snap-unhandled', *rest] + (['--resume', snap] if snap else [])
 print(f'{name}: ' + (f'resume {snap}' if snap else 'chạy từ đầu'))
 try: r = subprocess.run(cmd, capture_output=True, text=True, timeout=A.timeout)
-except subprocess.TimeoutExpired: sys.exit(f'{name}: quá {A.timeout}s, dừng (kết quả dở ở {out})')
+except subprocess.TimeoutExpired:
+    d = park(out, 'timeout')
+    sys.exit(f'{name}: quá {A.timeout}s, dừng; kết quả dở chuyển sang {os.path.basename(d)}. Chạy lại lệnh này (tăng --timeout) sẽ resume lại từ '
+             + (os.path.basename(os.path.dirname(snap)) if snap else 'đầu'))
 end = end_of(out)
 if end is None:   # winemu chết trước finish(): in đuôi stderr để biết vì sao
-    print(f'{name}: winemu không ghi event end (rc={r.returncode})\n' + (r.stderr or r.stdout)[-1500:]); sys.exit(1)
+    d = park(out, 'noend')
+    print(f'{name}: winemu không ghi event end (rc={r.returncode}), chuyển sang {os.path.basename(d)}\n' + (r.stderr or r.stdout)[-1500:]); sys.exit(1)
 oep = any(e.get('kind') == 'oep' for e in events(os.path.join(out, 'events.jsonl')))
 un = end.get('unhandled')
 print(f'{name}: {end.get("reason", "?")}' + (f' | API thiếu: {un}' if un else '') +

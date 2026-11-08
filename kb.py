@@ -109,6 +109,14 @@ def build(ws=None, quiet=False):
             try: S.append(file_rec(c, p))
             except Exception as e: err += 1; print(f'  bỏ {safe(os.path.relpath(p, ws), 100)}: {type(e).__name__}', file=sys.stderr)
         S.append(case_rec(c)); K += corrections(c)
+    ws = os.path.abspath(ws)
+    for r in S + K: r['ws'] = ws
+    def keep(name):   # kho dùng chung: giữ bản ghi của workspace khác, chỉ thay phần của workspace đang dựng
+        p = os.path.join(d, name)
+        try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
+        except Exception: old = []
+        return [r for r in old if r.get('ws') not in (None, ws)]
+    S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
     write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
     n = len({r['case'] for r in S})
     json.dump({'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
@@ -197,10 +205,10 @@ def hint(c):
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: bỏ qua gợi ý ({type(e).__name__}: {safe(e, 100)})')
 
-def refresh():
+def refresh(c):
     """Sau report --final: dựng lại kho để case vừa đóng vào dữ liệu tra chéo và thống kê đính chính."""
     try:
-        if kb_dir(): build(quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
+        if kb_dir(): build(os.path.dirname(os.path.abspath(c)), quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: không cập nhật được ({type(e).__name__}: {safe(e, 100)})')
 

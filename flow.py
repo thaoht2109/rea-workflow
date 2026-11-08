@@ -379,7 +379,7 @@ if __name__ == '__main__':
             rt = review.report_todo(c)
             if rt: raise SystemExit(f'CHẶN report --final: cập nhật {c}/report/README.md và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md')
-        if '--final' in a: import kb; kb.refresh()   # case đã đóng vào kho tra chéo + thống kê đính chính
+        if '--final' in a: import kb; kb.refresh(c)   # case đã đóng vào kho tra chéo + thống kê đính chính
     elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))

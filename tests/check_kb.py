@@ -106,11 +106,18 @@ try:
         try: kb.hint(B)
         finally: sys.stdout = sys.__stdout__
         o = ''.join(out); p = os.path.join(fresh, 'kb', 'samples.jsonl')
-        assert 'đã tự dựng' in o and 'trùng sha256' in o and os.path.exists(p), o
+        assert 'đang dựng từ 3 case' in o and 'trùng sha256' in o and os.path.exists(p), o
         m = os.path.getmtime(p); out.clear(); sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
         try: kb.hint(A)
         finally: sys.stdout = sys.__stdout__
-        assert 'đã tự dựng' not in ''.join(out) and os.path.getmtime(p) == m, out
+        assert 'đang dựng' not in ''.join(out) and os.path.getmtime(p) == m, out
+        nocase = tempfile.mkdtemp(prefix='rea-kbn-'); os.makedirs(os.path.join(nocase, 'X', 'work'))   # case chưa có facts.jsonl
+        try:
+            out.clear(); sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
+            try: kb.hint(os.path.join(nocase, 'X'))
+            finally: sys.stdout = sys.__stdout__
+            assert 'đang dựng' not in ''.join(out) and os.path.getmtime(p) == m, out
+        finally: shutil.rmtree(nocase, ignore_errors=True)
         ws3 = tempfile.mkdtemp(prefix='rea-kbw-'); shutil.copytree(A, os.path.join(ws3, 'CASE_Z'))
         try:
             sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)

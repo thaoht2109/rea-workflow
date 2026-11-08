@@ -226,8 +226,10 @@ def hint(c):
         d = kb_dir()
         if not d: return
         K, ws = load_kb(d), ws_of(c)
-        if K is None or not any(r.get('ws') == ws for r in K):
-            build(ws, quiet=True); print(f'kb: workspace này chưa có trong kho, đã tự dựng {d}')
+        cs = cases(ws)
+        if cs and (K is None or not any(r.get('ws') == ws for r in K)):   # workspace chưa có case hợp lệ thì chưa dựng (khỏi dựng lại mỗi lần)
+            print(f'kb: workspace này chưa có trong kho, đang dựng từ {len(cs)} case...', flush=True)
+            build(ws, quiet=True); print(f'kb: đã dựng {d}')
         match(c, limit=8, header=False)
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: bỏ qua gợi ý ({type(e).__name__}: {safe(e, 100)})')

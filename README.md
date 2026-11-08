@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Linux%20x86--64-lightgrey)
 
-[Tính năng](#tính-năng) · [Cách hoạt động](#cách-hoạt-động) · [Cài đặt](#cài-đặt) · [Sử dụng](#sử-dụng) · [AI local](#chạy-bằng-ai-local) · [Cấu hình](#cấu-hình) · [Bảo mật](#bảo-mật) · [Cập nhật](#cập-nhật-và-gỡ-cài-đặt)
+[Tính năng](#tính-năng) · [Cách hoạt động](#cách-hoạt-động) · [Cài đặt](#cài-đặt) · [Sử dụng](#sử-dụng) · [AI local](#chạy-bằng-ai-local) · [Cấu hình](#cấu-hình) · [Bảo mật](#bảo-mật) · [Giới hạn](#giới-hạn) · [Cập nhật](#cập-nhật-và-gỡ-cài-đặt)
 
 </div>
 
@@ -194,6 +194,14 @@ File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhậ
 - Phản biện gửi fact, bằng chứng và chuỗi trích từ mẫu tới nhà cung cấp LLM bạn chọn. Dữ liệu nhạy cảm thì dùng LLM local.
 - Kho tra chéo và file `kb export` chứa hash và IOC. File chỉ chủ máy đọc được (quyền 0600). Chỉ chép qua kênh tin cậy (SSH, ổ mã hoá); không gửi qua email hay chat, không đưa lên repo công khai.
 - Với agent khác Claude Code, quy tắc không thực thi mẫu chỉ là hướng dẫn bằng chữ. Hãy bật chế độ xác nhận lệnh hoặc sandbox của agent.
+
+## Giới hạn
+
+- Giả lập CPU chỉ có cho Windows x86-32. ELF, x64 và .NET được phân tích tĩnh.
+- `rea` không hỗ trợ MIPS/PPC. Với các kiến trúc này skill dùng Ghidra headless, nên lần phân tích đầu một file lớn mất vài phút.
+- Phản biện qua `gemini`, `cursor` hoặc lệnh tự khai (`REVIEW_LLM_CMD`) chưa được cô lập khỏi cấu hình người dùng; skill in cảnh báo khi dùng. Nên dùng `claude`, `codex`, `copilot` hoặc API/LLM local.
+- Chất lượng khi chạy bằng LLM local phụ thuộc model; model dưới khoảng 32B dễ lạc hướng ở vòng phân tích dài.
+- Phần nhận định trong báo cáo do agent hoặc người viết; skill chỉ sinh bảng và kiểm bằng chứng.
 
 ## Cập nhật và gỡ cài đặt
 

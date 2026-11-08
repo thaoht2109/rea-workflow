@@ -147,15 +147,26 @@ Nên dùng model từ khoảng 32B tham số, ngữ cảnh ≥ 32k token (Ollama
 Để chạy **cả vòng phân tích** bằng AI local, dùng Ollama cho model và OpenCode hoặc Codex CLI làm runtime:
 
 ```bash
-OLLAMA_CONTEXT_LENGTH=64000 ollama serve && ollama pull qwen3-coder:30b
+# 1. Ollama (chạy ở terminal hoặc dịch vụ riêng), rồi tải model
+OLLAMA_CONTEXT_LENGTH=64000 ollama serve
+ollama pull qwen3-coder:30b
+
+# 2. Cài skill cho runtime và chép quy tắc vào workspace
 npx github:thaoht2109/rea-workflow -g -a opencode -a codex
 cd <workspace> && python3 $SKILL/flow.py rules --project .
 
-python3 $SKILL/flow.py opencode --model qwen3-coder:30b && opencode                  # OpenCode
-ollama launch codex --config && codex --profile ollama-launch --sandbox workspace-write   # hoặc Codex CLI
+# 3a. OpenCode
+python3 $SKILL/flow.py opencode --model qwen3-coder:30b
+OPENCODE_DISABLE_MODELS_FETCH=1 opencode
+
+# 3b. hoặc Codex CLI
+ollama launch codex --config
+codex --profile ollama-launch --sandbox workspace-write -c 'web_search="disabled"'
 ```
 
-`flow.py opencode` sinh cấu hình đã chặn sẵn các lệnh chạy mẫu và lệnh mạng. Luật này chỉ để tránh chạy nhầm, nên vẫn hãy chạy trong máy ảo không có Internet, và không dùng các model có tag `-cloud`.
+- `flow.py opencode` sinh cấu hình chặn sẵn lệnh chạy mẫu và lệnh mạng. Luật này chỉ để tránh chạy nhầm, không phải ranh giới bảo mật. Vì vậy hãy chạy trong máy ảo không có Internet, và không dùng `opencode --auto`.
+- Ollama không có xác thực. Đặt Ollama ở máy khác thì chỉ mở cổng cho mạng nội bộ (`OLLAMA_HOST=0.0.0.0` kèm firewall).
+- Không dùng model có tag `-cloud`: các model này chạy trên hạ tầng bên ngoài.
 
 ## Cấu hình
 

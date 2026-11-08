@@ -352,7 +352,7 @@ def opencode(a):
     out = json.dumps(cfg, ensure_ascii=False, indent=2) + '\n'
     if o.print: print(out, end=''); return 0
     open(p, 'w', encoding='utf-8').write(out)
-    print(f'ghi {p}: {o.model} qua {o.base_url}. Luật quyền chỉ là lớp chặn nhầm, không phải sandbox: chạy trong VM không có Internet, không dùng --auto (README 4.2).')
+    print(f'ghi {p}: {o.model} qua {o.base_url}. Luật quyền chỉ là lớp chặn nhầm, không phải sandbox: chạy trong VM không có Internet, không dùng --auto (README: Chạy bằng AI local).')
     return 0
 
 if __name__ == '__main__':

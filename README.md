@@ -178,7 +178,8 @@ mkdir -p ~/.config/rea-flow && cp $SKILL/rea.env.example ~/.config/rea-flow/rea.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | bộ cài tự ghi | Ghidra 12, JDK 21 |
+| `GHIDRA_INSTALL_DIR` | bộ cài tự ghi | thư mục Ghidra 12 |
+| `JAVA_HOME` | trống (dùng `java` trên `PATH`) | JDK 21 cho Ghidra |
 | `REA_TMP` | `.tmp` | thư mục tạm; đặt trên đĩa thật nếu `/tmp` nhỏ |
 | `REVIEW_LLM`, `REVIEW_MODEL` | `auto`, trống | LLM dùng để phản biện |
 | `REA_KB` | `~/.cache/rea-flow/kb` | kho tra chéo; `off` để tắt |

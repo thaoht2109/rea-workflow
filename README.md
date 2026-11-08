@@ -198,6 +198,7 @@ File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhậ
 npx github:thaoht2109/rea-workflow version -g               # bản đang dùng và các bản phát hành
 npx github:thaoht2109/rea-workflow update -g                # lên bản mới nhất
 npx github:thaoht2109/rea-workflow update -g --to v1.5.0    # lên hoặc hạ về đúng một bản
+python3 $SKILL/flow.py session --uninstall                 # trước khi gỡ: bỏ hàm shell `claude` (nếu đã cài)
 npx github:thaoht2109/rea-workflow remove -g                # gỡ skill và quy tắc
 ```
 

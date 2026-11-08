@@ -8,7 +8,7 @@
 #                      quyết định luật lint sau này; không đổi luật nào của case.py/review.py.
 # Dữ liệu chứa IOC: REA_KB mặc định ~/.cache/rea-flow/kb (XDG_CACHE_HOME; mất thì `kb build` dựng lại), không được nằm trong thư mục skill.
 #   flow.py kb build | match CASE | corrections [--since YYYY-MM-DD]
-import sys, os, re, json, glob, datetime, collections
+import sys, os, re, json, glob, datetime, collections, tempfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [TOOLS, os.path.join(TOOLS, 'static')]
 import reacfg as CFG, case   # noqa: E402
@@ -96,9 +96,12 @@ def corrections(c):
         last[f['id']] = f
     return out
 
+def gone(ws):   # chỉ coi là đã xóa khi thư mục cha còn mà ws mất: ổ ngoài/NFS chưa mount thì giữ bản ghi
+    return os.path.isdir(os.path.dirname(ws)) and not os.path.exists(ws)
+
 def write_jsonl(p, rows):
-    t = p + '.part'
-    with open(os.open(t, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w', encoding='utf-8') as fh:   # có IOC: chỉ chủ sở hữu đọc
+    fd, t = tempfile.mkstemp(dir=os.path.dirname(p), prefix='.part-')   # tên riêng: hai build chạy cùng lúc không đụng nhau; 0600 vì có IOC
+    with open(fd, 'w', encoding='utf-8') as fh:
         for r in rows: fh.write(json.dumps(r, ensure_ascii=False) + '\n')
     os.replace(t, p)
 
@@ -106,7 +109,7 @@ def build(ws=None, quiet=False):
     d = kb_dir()
     if not d: print('REA_KB=off: không dựng kho'); return 0
     ws = ws or CFG.REA
-    try: os.makedirs(d, mode=0o700, exist_ok=True); open(os.path.join(d, '.w'), 'w').close(); os.remove(os.path.join(d, '.w'))
+    try: os.makedirs(d, mode=0o700, exist_ok=True); tempfile.TemporaryFile(dir=d).close()
     except OSError as e: raise SystemExit(f'không ghi được kho {d} ({e.strerror}): đặt REA_KB tới thư mục ghi được, hoặc REA_KB=off')
     S, K, err = [], [], 0
     for c in cases(ws):
@@ -120,7 +123,7 @@ def build(ws=None, quiet=False):
         p = os.path.join(d, name)
         try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
         except Exception: old = []
-        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws and os.path.isdir(r['ws'])]   # bỏ workspace đã xóa (thư mục tạm của test)
+        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws and not gone(r['ws'])]   # bỏ workspace đã xóa (thư mục tạm của test)
     S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
     write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
     n = len({r['case'] for r in S})

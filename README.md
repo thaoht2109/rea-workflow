@@ -324,7 +324,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 | `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | tên trên `PATH` hoặc đường dẫn tuyệt đối |
 | `REA_PYLIB` | `$SKILL/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` (theo `XDG_DATA_HOME`) | thư mục chứa `unicorn` (và `pefile`, `capstone` khi không có apt) |
 | `REA_TMP` | `.tmp` (trong workspace) | thư mục tạm cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` nhỏ |
-| `REA_KB` | `~/.local/share/rea-flow/kb` (theo `XDG_DATA_HOME`) | kho tra chéo của `flow.py kb`; chứa IOC nên phải nằm ngoài thư mục skill; `off` để tắt |
+| `REA_KB` | `~/.cache/rea-flow/kb` (theo `XDG_CACHE_HOME`) | kho tra chéo của `flow.py kb`, dựng lại được bằng `kb build`; không phụ thuộc thư mục hiện tại; chứa IOC nên phải nằm ngoài thư mục skill; `off` để tắt. Đặt giá trị khác thì dùng đường dẫn tuyệt đối hoặc `~/...` (đường dẫn tương đối tính từ workspace) |
 | `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để `winemu` đọc tên export DLL; wine không bao giờ được chạy |
 | `REVIEW_LLM` | `auto` | backend lớp 2 (mục 4) |
 | `REVIEW_MODEL`, `REVIEW_EFFORT` | trống, `medium` | model lớp 2 (bắt buộc với `api`; với `claude` là `--model`); mức suy nghĩ của claude |

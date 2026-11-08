@@ -80,11 +80,25 @@ try:
         kb.refresh(os.path.join(ws, 'CASE_A'))   # in-process, cwd không phải workspace
         S = [json.loads(l) for l in open(os.path.join(kbd, 'samples.jsonl'))]
         assert {os.path.basename(r['ws']) for r in S} == {os.path.basename(ws), os.path.basename(ws2)}, S
+        shutil.rmtree(ws2); kb.refresh(os.path.join(ws, 'CASE_A'))   # workspace đã xóa: bản ghi bị bỏ khi dựng lại
+        assert {os.path.basename(r['ws']) for r in map(json.loads, open(os.path.join(kbd, 'samples.jsonl')))} == {os.path.basename(ws)}
+        shutil.copytree(A, os.path.join(ws2, 'CASE_B')); assert run('kb', 'build', env=dict(env, REA_WORKSPACE=ws2)).returncode == 0
         o = run('kb', 'match', 'CASE_B').stdout
         assert f'{os.path.basename(ws2)}:CASE_B' in o and 'CASE_A/work/sample/drop.bin' in o, o
     finally: shutil.rmtree(ws2, ignore_errors=True); shutil.rmtree(empty, ignore_errors=True)
     r = subprocess.run([sys.executable, os.path.join(T, 'reacfg.py')], capture_output=True, text=True, cwd=T, env=dict(env, REA_KB='off'))
     assert any('REA_KB' in l and l.startswith('OK') and 'tắt' in l for l in r.stdout.splitlines()), r.stdout
+    # 4c. mặc định: cache của người dùng, không phụ thuộc cwd; thư mục không ghi được thì báo rõ, không traceback
+    cache = tempfile.mkdtemp(prefix='rea-kbc-'); e0 = {k: v for k, v in env.items() if k != 'REA_KB'}
+    try:
+        for cwd in (ws, T):
+            r = subprocess.run([sys.executable, '-c', 'import reacfg; print(reacfg.KB)'], capture_output=True, text=True, cwd=cwd,
+                               env=dict(e0, XDG_CACHE_HOME=cache, REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
+            assert r.stdout.strip() == os.path.join(cache, 'rea-flow', 'kb'), r.stdout + r.stderr
+        ro = os.path.join(cache, 'ro'); os.makedirs(ro); os.chmod(ro, 0o500)
+        r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(ro, 'kb')))
+        if os.geteuid() != 0: assert r.returncode and 'không ghi được kho' in r.stderr and 'Traceback' not in r.stderr, r.stderr
+    finally: os.chmod(os.path.join(cache, 'ro'), 0o700) if os.path.isdir(os.path.join(cache, 'ro')) else None; shutil.rmtree(cache, ignore_errors=True)
     # 5. kho trong thư mục skill bị từ chối; off thì tắt
     r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(T, 'kbdata'))); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'kbdata')), r.stderr
     r = run('kb', 'build', env=dict(env, REA_KB='off')); assert r.returncode == 0 and 'off' in r.stdout, r.stdout

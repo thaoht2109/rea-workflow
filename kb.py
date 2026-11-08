@@ -6,9 +6,9 @@
 #                      Không lưu kết luận họ mã độc (fact family) của case khác: gợi ý chỉ nói đặc trưng nào trùng.
 #   corrections.jsonl  mọi fact bị thay bằng supersedes -> `kb corrections` thống kê lỗi hay gặp. Chỉ để theo dõi, làm dữ liệu
 #                      quyết định luật lint sau này; không đổi luật nào của case.py/review.py.
-# Dữ liệu chứa IOC: REA_KB mặc định ~/.local/share/rea-flow/kb, không được nằm trong thư mục skill (repo public).
+# Dữ liệu chứa IOC: REA_KB mặc định ~/.cache/rea-flow/kb (XDG_CACHE_HOME; mất thì `kb build` dựng lại), không được nằm trong thư mục skill.
 #   flow.py kb build | match CASE | corrections [--since YYYY-MM-DD]
-import sys, os, re, json, glob, datetime, collections
+import sys, os, re, json, glob, datetime, collections, tempfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [TOOLS, os.path.join(TOOLS, 'static')]
 import reacfg as CFG, case   # noqa: E402
@@ -96,16 +96,26 @@ def corrections(c):
         last[f['id']] = f
     return out
 
+def gone(ws):   # chỉ tự bỏ workspace tạm đã xóa (test); ổ ngoài/NFS chưa mount thì giữ bản ghi
+    t = os.path.realpath(tempfile.gettempdir())
+    return not os.path.exists(ws) and os.path.realpath(ws).startswith(t + os.sep)
+
 def write_jsonl(p, rows):
-    t = p + '.part'
-    with open(os.open(t, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w', encoding='utf-8') as fh:   # có IOC: chỉ chủ sở hữu đọc
-        for r in rows: fh.write(json.dumps(r, ensure_ascii=False) + '\n')
-    os.replace(t, p)
+    fd, t = tempfile.mkstemp(dir=os.path.dirname(p), prefix='.part-')   # tên riêng: hai build chạy cùng lúc không đụng nhau; 0600 vì có IOC
+    try:
+        with open(fd, 'w', encoding='utf-8') as fh:
+            for r in rows: fh.write(json.dumps(r, ensure_ascii=False) + '\n')
+        os.replace(t, p)
+    except BaseException:
+        if os.path.exists(t): os.unlink(t)
+        raise
 
 def build(ws=None, quiet=False):
     d = kb_dir()
     if not d: print('REA_KB=off: không dựng kho'); return 0
-    ws = ws or CFG.REA; os.makedirs(d, mode=0o700, exist_ok=True)
+    ws = ws or CFG.REA
+    try: os.makedirs(d, mode=0o700, exist_ok=True); tempfile.TemporaryFile(dir=d).close()
+    except OSError as e: raise SystemExit(f'không ghi được kho {d} ({e.strerror}): đặt REA_KB tới thư mục ghi được, hoặc REA_KB=off')
     S, K, err = [], [], 0
     for c in cases(ws):
         for p in files_of(c):
@@ -118,12 +128,15 @@ def build(ws=None, quiet=False):
         p = os.path.join(d, name)
         try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
         except Exception: old = []
-        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws]
-    S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
-    write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
-    n = len({r['case'] for r in S})
-    json.dump({'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
-               'files': sum(r.get('kind') != 'case' for r in S), 'corrections': len(K)}, open(os.path.join(d, 'meta.json'), 'w'), indent=1)
+        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws and not gone(r['ws'])]   # bỏ workspace đã xóa (thư mục tạm của test)
+    import fcntl
+    with open(os.path.join(d, '.lock'), 'a') as lk:   # đọc-gộp-ghi trong khóa: hai build/refresh cùng lúc không làm mất phần của nhau
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
+        write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
+        n = len({r['case'] for r in S})
+        write_jsonl(os.path.join(d, 'meta.json'), [{'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
+                                                     'files': sum(r.get('kind') != 'case' for r in S), 'corrections': len(K)}])   # một dòng JSON, ghi atomic
     if not quiet: print(f'kb: {n} case, {sum(r.get("kind") != "case" for r in S)} file, {len(K)} đính chính -> {d}' + (f' ({err} file lỗi)' if err else ''))
     return 0
 
@@ -167,7 +180,7 @@ def match(c, limit=40, header=True):
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
     me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
-    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws)]   # bỏ chính case này; case trùng tên ở workspace khác vẫn so
+    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws) and not gone(r.get('ws', mws))]   # bỏ chính case này và workspace đã xóa; case trùng tên ở workspace khác vẫn so
     for r in K:
         if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
     F = [r for r in K if r.get('kind') != 'case']; C = [r for r in K if r.get('kind') == 'case']
@@ -196,7 +209,7 @@ def match(c, limit=40, header=True):
                                   (f' (+{len(same) - 4})' if len(same) > 4 else '')))
     rows = sorted(set(rows))
     if header or rows:
-        meta = os.path.join(d, 'meta.json'); built = json.load(open(meta)).get('built', '?') if os.path.exists(meta) else '?'
+        meta = os.path.join(d, 'meta.json'); built = (json.loads(open(meta).read() or '{}').get('built', '?') if os.path.exists(meta) else '?')
         print(f'kb match {me}: {len(mine)} file so với {len(F)} file / {len(C)} case khác (kho dựng {built})')
     if rows:
         print('GỢI Ý, không phải fact: không chép vào evidence hay báo cáo; muốn dùng thì tự chứng minh lại trên mẫu của case này.')

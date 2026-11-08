@@ -49,6 +49,8 @@ python3 $SKILL/flow.py doctor     # kiểm công cụ và cấu hình; rc=1 nế
 
 Thứ tự các bước do `flow.py next CASE` dẫn (đã điền sẵn tên case và lệnh); danh sách lệnh: `flow.py help`. Tầng phân tích: T0 triage, T1 bóc vỏ (tự động: zip/7z/rar, UPX, NSIS; ZIP là chính mẫu như APK, OOXML, JAR, ODF thì giữ nguyên), T2 decompile có mục tiêu (`flow.py dec`), T3 giả lập (`winemu`, chỉ shellcode/loader Windows x86-32), T4 payload offline, T5 VM ngoài (người dùng quyết định, nguồn V). Triage tự ghi fact `hash`, `filetype`, `container`, `entry` (id `s.<tag>.*`, evidence `report/evidence/triage_<tag>.json`, chép từ `work/runs/triage_<tên>/triage.json`): không ghi trùng. IOC ứng viên từ strings chỉ nằm trong `triage.json` (`ioc_candidates`), không tự thành fact.
 
+**Kho tra chéo (`flow.py kb`).** Triage ghi thêm `pivot` vào `triage.json`: imphash, rich header, đường dẫn và GUID PDB, chứng thư Authenticode (chỉ metadata, không verify), GNU build-id, md5 từng section, TLSH (cần `py-tlsh`). `flow.py kb build` dựng kho từ mọi case của workspace vào `REA_KB` (ngoài thư mục skill vì có IOC); `report --final` tự dựng lại. `new`/`triage` in gợi ý khi đặc trưng hoặc IOC trùng với case khác, kèm mức mạnh/vừa/yếu (imphash ít import, chứng thư của hãng phần mềm hợp lệ là yếu). Kho không lưu kết luận họ mã độc, và không ghi gì vào case. Gợi ý chỉ là nơi bắt đầu: kết luận vẫn phải có evidence từ chính mẫu này. `flow.py kb corrections` thống kê fact bị đính chính theo loại, kind, nguồn phát hiện; dùng để theo dõi lỗi hay gặp, chưa đổi luật lint nào.
+
 **Chọn hàm cho bước 4.** Đi theo thứ tự này, dừng ngay khi đủ trả lời mục checklist còn thiếu:
 
 1. Các export như `pam_sm_*`, `DllMain`, `ServiceMain`. Với Go: `main.main` và các hàm `main.*` (lấy danh sách bằng `list:main.`).

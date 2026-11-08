@@ -21,6 +21,8 @@ rest = A.rest[1:] if A.rest[:1] == ['--'] else A.rest
 if not rest: sys.exit('thiếu tham số winemu sau --')
 bad = [x for x in rest if x.split('=')[0] in ('--out', '--resume', '--snap-unhandled')]
 if bad: sys.exit(f'{" ".join(bad)}: step.py tự đặt cho từng lượt, bỏ khỏi tham số winemu')
+# tiến trình con (execv) không nhận --snap-unhandled và resume sẽ sai bộ nạp: chạy con riêng bằng --child/--entry
+if '--chain-child' in rest: sys.exit('--chain-child: step.py không hỗ trợ (con không có snap_unhandled); chạy riêng với --child/--entry theo event chain_child')
 
 def events(p):
     """events.jsonl -> list dict; dòng hỏng (lượt bị giết giữa chừng) bỏ qua."""

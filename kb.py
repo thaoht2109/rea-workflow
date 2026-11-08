@@ -134,9 +134,9 @@ def build(ws=None, quiet=False):
         fcntl.flock(lk, fcntl.LOCK_EX)
         S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
         write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
-    n = len({r['case'] for r in S})
-    json.dump({'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
-               'files': sum(r.get('kind') != 'case' for r in S), 'corrections': len(K)}, open(os.path.join(d, 'meta.json'), 'w'), indent=1)
+        n = len({r['case'] for r in S})
+        write_jsonl(os.path.join(d, 'meta.json'), [{'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
+                                                     'files': sum(r.get('kind') != 'case' for r in S), 'corrections': len(K)}])   # một dòng JSON, ghi atomic
     if not quiet: print(f'kb: {n} case, {sum(r.get("kind") != "case" for r in S)} file, {len(K)} đính chính -> {d}' + (f' ({err} file lỗi)' if err else ''))
     return 0
 
@@ -209,7 +209,7 @@ def match(c, limit=40, header=True):
                                   (f' (+{len(same) - 4})' if len(same) > 4 else '')))
     rows = sorted(set(rows))
     if header or rows:
-        meta = os.path.join(d, 'meta.json'); built = json.load(open(meta)).get('built', '?') if os.path.exists(meta) else '?'
+        meta = os.path.join(d, 'meta.json'); built = (json.loads(open(meta).read() or '{}').get('built', '?') if os.path.exists(meta) else '?')
         print(f'kb match {me}: {len(mine)} file so với {len(F)} file / {len(C)} case khác (kho dựng {built})')
     if rows:
         print('GỢI Ý, không phải fact: không chép vào evidence hay báo cáo; muốn dùng thì tự chứng minh lại trên mẫu của case này.')

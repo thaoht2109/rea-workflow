@@ -17,7 +17,7 @@ rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, Op
 | Nền tảng | Linux x86-64 (Debian/Ubuntu/Kali đã kiểm) |
 | Phiên bản | tag `vX.Y.Z`; xem, cập nhật, lên/hạ bản: mục 8 |
 
-**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng), [AI local toàn bộ](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
+**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) ([kho tra chéo, chia sẻ IOC](#36-kho-tra-chéo-và-chia-sẻ-ioc-giữa-các-server)) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng), [AI local toàn bộ](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
 
 ---
 
@@ -160,7 +160,7 @@ python3 $SKILL/case.py add CASE id=scan.hosts kind=string value='8 máy WIN-*' s
         recompute='distinct (WIN-[A-Z0-9]+) report/evidence/scan.txt = 8'     # con số: máy đếm lại
 python3 $SKILL/flow.py review CASE --llm --detach            # cổng phản biện; gọi lại tới khi mã khác 6
 python3 $SKILL/flow.py kb match CASE                         # gợi ý mẫu tương tự ở case khác (không phải fact); kho tự dựng ở lần new/triage đầu tiên
-python3 $SKILL/flow.py kb export kb-srv1.jsonl.gz --name srv1  # chia sẻ/backup kho; máy khác: flow.py kb import kb-srv1.jsonl.gz
+python3 $SKILL/flow.py kb export kb-srv1.jsonl.gz --name srv1  # chia sẻ/backup kho; máy khác: flow.py kb import kb-srv1.jsonl.gz (mục 3.6)
 ```
 
 Sửa fact bằng fact mới có `supersedes=<id cũ>`; không sửa hay xoá dòng cũ trong `facts.jsonl`.
@@ -187,6 +187,60 @@ CASE/
     └── review/            # r1/, r2/ (review.json, salvage.jsonl, stream.jsonl, analyst_out.txt), state.json, usage.jsonl,
                            # llm_cache/, report_todo.json, run.pid/run.log/run.rc (--detach), STOP_REPORT.md, OVERRIDE
 ```
+
+### 3.6. Kho tra chéo và chia sẻ IOC giữa các server
+
+Kho tra chéo giúp case sau tận dụng kết quả của các case đã phân tích. Khi triage một mẫu mới, skill so mẫu đó với kho và in ra gợi ý, ví dụ: mẫu trùng imphash với case X, hoặc có C2 đã thấy ở case Y. Gợi ý **không phải fact**. Không chép gợi ý vào evidence hay báo cáo, không quy kết theo case khác; nếu muốn dùng thì tự chứng minh lại trên mẫu của case đang phân tích.
+
+**Kho lưu gì.** Kho nằm ở `REA_KB`, mặc định là `~/.cache/rea-flow/kb`.
+
+| Có | Không có |
+|---|---|
+| sha256, imphash, rich header, đường dẫn và GUID PDB, chủ thể/serial chứng thư, GNU build-id, md5 từng section, tên export, TLSH | mẫu, file bóc ra, mã giả |
+| hash, C2, URL, User-Agent, mutex, registry, khóa giải mã lấy từ các fact `active` | fact `family` (kết luận họ mã độc), fact giả thuyết hoặc đã rút lại |
+| tên case, đường dẫn workspace, đường dẫn file trong case | nội dung evidence, báo cáo |
+| thống kê đính chính (kind, loại sửa, ghi chú) để theo dõi luật lint | |
+
+**Tự động, không cần chạy tay.**
+- Lần đầu chạy `new` hoặc `triage` ở một workspace chưa có trong kho (server mới, workspace mới), skill tự dựng kho từ mọi case trong workspace.
+- `report --final` dựng lại kho khi đóng case.
+- Kho dựng tăng dần: file không đổi thì dùng lại bản ghi cũ, không đọc lại mẫu.
+- Gợi ý có ba mức `mạnh`/`vừa`/`yếu`. Giá trị xuất hiện ở từ 3 case trở lên, file ký số trùng sha256 (thường là runtime hoặc thư viện hợp lệ) và imphash có ít import đều bị hạ mức.
+
+**Chia sẻ giữa các server.** Ví dụ chia sẻ từ srv1 sang srv2:
+
+```bash
+# srv1: xuất phần của máy này (không gồm bản đã nhập từ máy khác)
+python3 $SKILL/flow.py kb export ~/kb-srv1.jsonl.gz --name srv1
+# chép qua kênh tin cậy (scp/rsync qua SSH, ổ mã hoá)
+scp ~/kb-srv1.jsonl.gz analyst@srv2:~/
+# srv2, chạy trong workspace
+python3 $SKILL/flow.py kb import ~/kb-srv1.jsonl.gz && rm ~/kb-srv1.jsonl.gz
+python3 $SKILL/flow.py kb match CASE           # gợi ý từ srv1 hiện dạng srv1:CASE
+python3 $SKILL/flow.py kb corrections --all    # thống kê đính chính gồm cả máy khác
+```
+
+- **Cập nhật định kỳ:** export lại ở srv1 rồi import lại ở srv2. Nhập lại cùng tên nguồn sẽ thay bộ cũ, không nhân đôi.
+- **Nhóm N server:** mỗi máy export phần của mình, rồi import file của N-1 máy còn lại. File export không mang theo bản ghi đã nhập, nên dữ liệu không lan dây chuyền giữa các máy.
+- Bản ghi nhập không bị `kb build` thay hay tự xóa.
+- **Bỏ một nguồn:** hiện chưa có lệnh riêng. Xóa thư mục `REA_KB` (lần `new`/`triage` sau sẽ tự dựng lại phần cục bộ), rồi import lại các nguồn cần giữ.
+- Luôn đặt `--name` rõ ràng. Không đặt thì tên mặc định là hostname, và tên này có thể trùng giữa các máy.
+
+**Backup và khôi phục.**
+- Kho tính ra từ các case, nên thứ phải backup là **thư mục workspace**: `facts.jsonl`, `report/`, `work/sample/`. Còn case thì lúc nào cũng dựng lại được kho.
+- File export là bản dự phòng nhẹ, vài chục KB cho vài case. Server cài lại chỉ cần import file này là có gợi ý ngay, trong lúc chờ chép case về.
+- Khi case về lại đúng đường dẫn cũ, `match` tự nhận ra bản nhập là chính case đó và không gợi ý case tự khớp với nó.
+- Cài lại hay gỡ skill không xóa kho, vì kho nằm ngoài thư mục skill.
+
+**An toàn khi chia sẻ.**
+- **File export là dữ liệu nhạy cảm.** Nó không có mẫu, nhưng có IOC, khóa giải mã, tên case, đường dẫn workspace của máy nguồn, đường dẫn PDB và chủ thể chứng thư của mẫu, cùng ghi chú đính chính. Hãy xử lý như dữ liệu nội bộ của nhóm phân tích (ví dụ TLP:AMBER, hoặc theo quy định của đơn vị):
+  - chỉ chép qua SSH hoặc ổ mã hoá;
+  - lưu với quyền 0600, đây là quyền `kb export` tự đặt;
+  - xóa file trung gian sau khi import;
+  - không gửi qua email hay chat, không đưa lên repo public. `kb export` từ chối ghi vào thư mục skill.
+- **Chỉ import từ server của nhóm.** `kb import` coi nội dung là dữ liệu: không chạy gì, kiểm định dạng từng bản ghi, bỏ bản ghi sai dạng, giới hạn 512 MiB sau giải nén. Tuy vậy, IOC sai từ một nguồn lạ vẫn có thể dẫn gợi ý sai hướng.
+- **Đây không phải là công bố IOC.** Muốn chia sẻ với đội khác hay đối tác thì dùng nền tảng chia sẻ IOC của tổ chức (MISP, OpenCTI…) theo quy trình duyệt và phân loại. Skill không tự đẩy IOC đi đâu.
+- Phiên phản biện lớp 2 không nhận kho, kể cả bản ghi nhập từ máy khác.
 
 ---
 

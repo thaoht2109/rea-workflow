@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" width="140" alt="Logo rea-workflow: khiên, kính lúp có dấu kiểm và chuỗi bước phân tích">
+
 # rea-workflow
 
 **Quy trình dịch ngược mã độc có kiểm chứng cho AI coding agent**

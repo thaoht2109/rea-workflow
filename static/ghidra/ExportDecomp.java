@@ -14,6 +14,11 @@ public class ExportDecomp extends GhidraScript {
         String[] a = getScriptArgs();
         DecompInterface di = new DecompInterface();
         di.openProgram(currentProgram);
+        // một lượt duyệt FunctionManager cho mọi hàm cần tìm: trước đây quét lại cả chương trình mỗi tên (O(n*m))
+        java.util.Map<String, Function> idx = new java.util.HashMap<>();
+        for (Function g : currentProgram.getFunctionManager().getFunctions(true)) {
+            idx.putIfAbsent(g.getName(true), g); idx.putIfAbsent(g.getName(), g);
+        }
         try (PrintWriter w = new PrintWriter(new FileWriter(a[0]))) {
             for (int i = 1; i < a.length; i++) {
                 String q = a[i];
@@ -24,9 +29,7 @@ public class ExportDecomp extends GhidraScript {
                             w.println("// fn " + g.getName(true) + " @ " + g.getEntryPoint() + " size " + g.getBody().getNumAddresses());
                     continue;
                 }
-                Function f = null;
-                for (Function g : currentProgram.getFunctionManager().getFunctions(true))
-                    if (g.getName(true).equals(q) || g.getName().equals(q)) { f = g; break; }
+                Function f = idx.get(q);
                 if (f == null) {
                     try { f = getFunctionContaining(toAddr(q)); } catch (Exception e) { f = null; }
                 }

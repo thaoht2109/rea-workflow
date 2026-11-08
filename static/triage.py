@@ -80,6 +80,42 @@ MAGIC = [(b'\x7fELF', 'ELF'), (b'MZ', 'PE'), (b'PK\x03\x04', 'zip'), (b'7z\xbc\x
 IOC_SKIP = ('nsis.sf.net', 'schemas.microsoft.com', 'www.w3.org', 'ocsp.', 'crl.', 'digicert', 'verisign', 'sectigo', 'globalsign',
             'xml.org', 'purl.org', 'go.dev', 'upx.sf.net', 'adobe.com/xap', 'openssl.org', 'gnu.org', 'golang.org', 'github.com/golang')
 
+# API nhạy cảm theo mục checklist: triage chỉ ra cần decompile xref của hàm nào (thay vì tự đọc hết bảng import).
+# So tên chính xác (không phân biệt hoa thường) sau khi bỏ hậu tố A/W/Ex/ExA/ExW; mẫu kết thúc '*' là tiền tố.
+# Không so chuỗi con: 'connect' khớp nhầm DisconnectNamedPipe, 'send' khớp nhầm SendMessageW.
+SENS = {
+    'C3 chống phân tích': ('isdebuggerpresent', 'checkremotedebuggerpresent', 'ntqueryinformationprocess', 'zwqueryinformationprocess',
+                           'outputdebugstring', 'ntsetinformationthread', 'zwsetinformationthread', 'gettickcount', 'gettickcount64',
+                           'queryperformancecounter', 'createtoolhelp32snapshot', 'process32first', 'process32next', 'findwindow',
+                           'blockinput', 'ntqueryobject', 'ntquerysysteminformation', 'zwquerysysteminformation', 'getsysteminfo',
+                           'globalmemorystatus', 'ptrace'),
+    'C4 giải mã chuỗi/config': ('cryptdecrypt', 'cryptencrypt', 'cryptderivekey', 'crypthashdata', 'cryptcreatehash', 'cryptacquirecontext',
+                                'cryptimportkey', 'bcryptdecrypt', 'bcryptencrypt', 'rtldecompressbuffer', 'rtlcompressbuffer',
+                                'cryptstringtobinary', 'cryptbinarytostring', 'evp_*', 'aes_*'),
+    'C5 IOC mạng': ('internetopen*', 'internetconnect', 'internetreadfile', 'internetwritefile', 'httpopenrequest', 'httpsendrequest',
+                    'urldownloadtofile', 'winhttpopen*', 'winhttpconnect', 'winhttpsendrequest', 'winhttpreaddata', 'wsastartup',
+                    'wsasocket', 'wsaconnect', 'wsasend', 'wsarecv', 'socket', 'connect', 'send', 'sendto', 'recv', 'recvfrom',
+                    'gethostbyname', 'getaddrinfo', 'inet_addr', 'dnsquery*', 'curl_easy_*', 'ssl_connect', 'ssl_write', 'ssl_read'),
+    'C6 tiêm mã': ('writeprocessmemory', 'readprocessmemory', 'virtualallocex', 'virtualprotectex', 'createremotethread', 'ntcreatethreadex',
+                   'rtlcreateuserthread', 'queueuserapc', 'ntqueueapcthread', 'setthreadcontext', 'getthreadcontext', 'ntunmapviewofsection',
+                   'zwunmapviewofsection', 'ntmapviewofsection', 'createprocess*', 'ntcreateuserprocess', 'openprocess', 'resumethread',
+                   'setwindowshook', 'shellexecute', 'winexec', 'dlopen', 'execve', 'fork'),
+    'C7 persistence': ('regsetvalue', 'regsetkeyvalue', 'regcreatekey', 'regdeletevalue', 'createservice', 'openscmanager', 'startservice',
+                       'changeserviceconfig*', 'registerservicectrlhandler', 'setservicestatus', 'startservicectrldispatcher',
+                       'copyfile', 'movefile', 'movefilewithprogress'),
+}
+_SFX = re.compile(r'(?:exa|exw|ex|a|w)$')
+
+def sens_hits(names):
+    """{mục checklist: [API khớp]} từ danh sách tên hàm import của mẫu."""
+    out = {}
+    for mục, pats in SENS.items():
+        exact = {p for p in pats if not p.endswith('*')}; pre = tuple(p[:-1] for p in pats if p.endswith('*'))
+        hit = sorted({n for n in names if isinstance(n, str) and
+                      ((l := n.lower()) in exact or _SFX.sub('', l) in exact or (pre and l.startswith(pre)))})
+        if hit: out[mục] = hit[:24]
+    return out
+
 def run(*a):
     r = subprocess.run(a, capture_output=True, text=True, errors='replace'); return r.stdout if r.returncode == 0 else ''
 
@@ -90,6 +126,7 @@ def pe_info(d, R):
     ov = pe.get_overlay_data_start_offset()
     if ov: R['overlay'] = {'offset': ov, 'size': len(d) - ov, 'entropy': entropy(d[ov:])}
     R['imports'] = {e.dll.decode(): len(e.imports) for e in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])}
+    R['imported_funcs'] = sorted({i.name.decode() for e in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', []) for i in e.imports if i.name})
     R['exports'] = [e.name.decode() for e in getattr(getattr(pe, 'DIRECTORY_ENTRY_EXPORT', None), 'symbols', []) if e.name][:30]
     if pe.OPTIONAL_HEADER.DATA_DIRECTORY[14].VirtualAddress: R['flags'].append('.NET')
     if any(s['name'].startswith('UPX') for s in R['sections']): R['flags'].append('UPX')
@@ -193,6 +230,7 @@ def main():
         R['ioc_candidates'] = [x for x in R['ioc_candidates'] if x not in R['ioc_in_signature']]
     R['entropy'] = entropy(d)
     if 'NSIS' in R['flags']: nsis(A.file, A.out, R)
+    if R.get('imported_funcs'): R['sensitive_api'] = sens_hits(R['imported_funcs'])
     R['next'] = route(R, A.out)
     json.dump(R, open(os.path.join(A.out, 'triage.json'), 'w'), indent=1, ensure_ascii=False)
 
@@ -204,6 +242,8 @@ def main():
     for k, lab, n in (('imported_funcs', 'hàm import', 30), ('exports', 'export', 20)):   # tên từ mẫu: chỉ in định danh hợp lệ
         if R.get(k): ok, bad = idents(R[k], n); print(f"  {lab} ({len(R[k])}):", ' '.join(ok) + (f' (+{bad} tên lạ không in, xem triage.json)' if bad else ''))
     if R.get('go'): print('  go:', ' | '.join(R['go'][:3]))
+    for mục, hit in R.get('sensitive_api', {}).items():   # tên API từ bảng import: decompile xref của các hàm này trước
+        ok, bad = idents(hit, 14); print(f'  {mục}:', ' '.join(ok) + (f' (+{bad} tên lạ không in)' if bad else ''))
     if 'nsis' in R:
         for f in sorted(R['nsis']['files'], key=lambda f: -f['size'])[:10]: print(f"  nsis file {json.dumps(f['name'])[:60]:<24} {f['size']:>9} B H={f['entropy']}")   # tên do installer đặt: in dạng chuỗi có thoát
         if 'sieve' in R['nsis']: s = R['nsis']['sieve']; print(f"  sàng byte: {show(s['file'])} từ {s['start']} bước {s['step']} kết thúc '{s['sep']}' -> {s['calls']} lệnh System::Call ({s['out']})")

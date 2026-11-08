@@ -30,6 +30,7 @@ AP.add_argument('--fake-dl-file', help='nội dung trả về cho InternetReadFi
 AP.add_argument('--poll-xor', type=lambda s: int(s, 0), default=0x01010101, help='đổi giá trị con trỏ cha đang chờ trong con')
 AP.add_argument('--snap-at', help='API[:N] lưu snapshot ở lần gọi thứ N rồi dừng')
 AP.add_argument('--resume', help='snapshot để chạy tiếp')
+AP.add_argument('--snap-unhandled', action='store_true', help='API chưa hỗ trợ: lưu snap_unhandled.bin để chạy tiếp sau khi thêm hook (winemu/step.py resume từ đây)')
 AP.add_argument('--stop-at', help='API[:N] dừng ở lần gọi thứ N (kèm ring nếu có)')
 AP.add_argument('--ring', type=int, default=0, help='giữ N lệnh cuối để in khi dừng/lỗi')
 AP.add_argument('--max-events', type=int, default=50_000, help='trần số dòng events.jsonl ồn ào (api/argstr/net...); vượt thì chỉ còn ghi các kind hiếm (end, oep, snapshot, stop_at, anti, warn). 0 = không giới hạn')
@@ -491,7 +492,9 @@ def on_stub(uc, addr, size, _):
         ev('api', dll=dll, name=name, args=[hex(a(i)) for i in range(4)], caller=caller, coff=caller - BASE,
            **({} if res is not None else {'unhandled': True}))
     if res is None:
-        log(f'[api] {dll}!{name} chưa hỗ trợ, caller={caller:#x}'); CTX['stop'] = True; uc.emu_stop(); return
+        log(f'[api] {dll}!{name} chưa hỗ trợ, caller={caller:#x}')
+        if A.snap_unhandled: save_snapshot(os.path.join(A.out, 'snap_unhandled.bin'), addr); ev('unhandled_snap', api=name, dll=dll)
+        CTX['unhandled'] = f'{dll}!{name}'; CTX['stop'] = True; uc.emu_stop(); return
     if res == 'enumwindows':
         cb, lp, n = CTX['enumw']
         CTX['enumw_ret'] = caller; CTX['enumw_n'] = n
@@ -682,7 +685,7 @@ def finish(reason):
     ev('end', reason=reason, eip=mu.reg_read(UC_X86_REG_EIP), api_calls=CALLS[0], veh=CTX.get('veh_count', 0),
        exceptions={hex(k): v for k, v in EXCN.items()}, top_api=collections.Counter(CCOUNT).most_common(12),
        api_unused=sorted(n for n in RESOLVED if n and n not in CCOUNT),   # resolve qua GetProcAddress mà chưa gọi: hành vi chưa chạy tới
-       seconds=round(time.time() - t0))
+       seconds=round(time.time() - t0), **({'unhandled': CTX['unhandled']} if CTX.get('unhandled') else {}))
 t0 = time.time()
 reason = 'max-steps'
 for i in range(A.max_steps):

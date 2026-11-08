@@ -48,6 +48,7 @@ for cmd, want in ((f'python3 {T}/flow.py next CASE', 'allow'), (f'python3 {T}/ca
                   (f'python3 {T}/flow.py lạ x', 'ask'), (f'python3 {T}/flow.py next CASE --accept C9=x', 'ask'),
                   # plugin là mã Python tùy ý, snapshot là pickle
                   (f'python3 {T}/winemu/winemu.py --blob x --plugin evil.py', 'ask'), (f'python3 {T}/winemu/winemu.py --resume s.bin', 'ask'),
+                  (f'python3 {T}/winemu/step.py --out-dir w -- --blob x', 'ask'),   # step.py tự resume: không có allow, luôn hỏi
                   # allow phải neo đường dẫn: script mẫu mang tên flow.py hoặc tham số flow.py không được tự duyệt
                   ('python3 work/sample/flow.py x', 'ask'), ('python3 work/sample/x.py flow.py a', 'ask'), ('python3 -c "import os" flow.py a', 'ask'),
                   # lệnh ghép và ghi file không được đi nhờ tiền tố đã allow; sed có lệnh e/w nên không allow

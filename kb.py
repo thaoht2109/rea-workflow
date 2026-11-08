@@ -8,6 +8,7 @@
 #                      quyết định luật lint sau này; không đổi luật nào của case.py/review.py.
 # Dữ liệu chứa IOC: REA_KB mặc định ~/.cache/rea-flow/kb (XDG_CACHE_HOME; mất thì `kb build` dựng lại), không được nằm trong thư mục skill.
 #   flow.py kb build | match CASE | corrections [--since YYYY-MM-DD]
+# Không cần chạy tay lần đầu: new/triage tự dựng khi kho chưa có workspace này, report --final dựng lại khi đóng case.
 import sys, os, re, json, glob, datetime, collections, tempfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [TOOLS, os.path.join(TOOLS, 'static')]
@@ -219,8 +220,15 @@ def match(c, limit=40, header=True):
     return len(rows)
 
 def hint(c):
-    """Sau new/triage: in gợi ý nếu kho đã có; lỗi kho không được làm hỏng triage."""
-    try: match(c, limit=8, header=False)
+    """Sau new/triage: kho chưa có hoặc chưa có workspace này (server mới, workspace mới) thì tự dựng, rồi in gợi ý.
+    Lỗi kho không được làm hỏng triage."""
+    try:
+        d = kb_dir()
+        if not d: return
+        K, ws = load_kb(d), ws_of(c)
+        if K is None or not any(r.get('ws') == ws for r in K):
+            build(ws, quiet=True); print(f'kb: workspace này chưa có trong kho, đã tự dựng {d}')
+        match(c, limit=8, header=False)
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: bỏ qua gợi ý ({type(e).__name__}: {safe(e, 100)})')
 

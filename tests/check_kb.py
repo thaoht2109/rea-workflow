@@ -99,6 +99,27 @@ try:
         r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(ro, 'kb')))
         if os.geteuid() != 0: assert r.returncode and 'không ghi được kho' in r.stderr and 'Traceback' not in r.stderr, r.stderr
     finally: os.chmod(os.path.join(cache, 'ro'), 0o700) if os.path.isdir(os.path.join(cache, 'ro')) else None; shutil.rmtree(cache, ignore_errors=True)
+    # 4d. server mới: kho chưa có thì hint (sau new/triage) tự dựng; đã có workspace này thì không dựng lại; workspace mới thì thêm vào
+    fresh = tempfile.mkdtemp(prefix='rea-kbf-'); old_kb = kb.CFG.KB; kb.CFG.KB = os.path.join(fresh, 'kb')
+    try:
+        out = []; sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
+        try: kb.hint(B)
+        finally: sys.stdout = sys.__stdout__
+        o = ''.join(out); p = os.path.join(fresh, 'kb', 'samples.jsonl')
+        assert 'đã tự dựng' in o and 'trùng sha256' in o and os.path.exists(p), o
+        m = os.path.getmtime(p); out.clear(); sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
+        try: kb.hint(A)
+        finally: sys.stdout = sys.__stdout__
+        assert 'đã tự dựng' not in ''.join(out) and os.path.getmtime(p) == m, out
+        ws3 = tempfile.mkdtemp(prefix='rea-kbw-'); shutil.copytree(A, os.path.join(ws3, 'CASE_Z'))
+        try:
+            sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
+            try: kb.hint(os.path.join(ws3, 'CASE_Z'))
+            finally: sys.stdout = sys.__stdout__
+            S = [json.loads(l) for l in open(p)]
+            assert {os.path.basename(r['ws']) for r in S} == {os.path.basename(ws), os.path.basename(ws3)}, S
+        finally: shutil.rmtree(ws3, ignore_errors=True)
+    finally: kb.CFG.KB = old_kb; shutil.rmtree(fresh, ignore_errors=True)
     # 5. kho trong thư mục skill bị từ chối; off thì tắt
     r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(T, 'kbdata'))); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'kbdata')), r.stderr
     r = run('kb', 'build', env=dict(env, REA_KB='off')); assert r.returncode == 0 and 'off' in r.stdout, r.stdout

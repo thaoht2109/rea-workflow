@@ -159,7 +159,7 @@ python3 $SKILL/case.py add CASE id=c2.main kind=c2 value='host:443' src=E eviden
 python3 $SKILL/case.py add CASE id=scan.hosts kind=string value='8 máy WIN-*' src=S evidence=report/evidence/scan.txt \
         recompute='distinct (WIN-[A-Z0-9]+) report/evidence/scan.txt = 8'     # con số: máy đếm lại
 python3 $SKILL/flow.py review CASE --llm --detach            # cổng phản biện; gọi lại tới khi mã khác 6
-python3 $SKILL/flow.py kb build && python3 $SKILL/flow.py kb match CASE   # gợi ý mẫu tương tự ở case khác (không phải fact)
+python3 $SKILL/flow.py kb match CASE                         # gợi ý mẫu tương tự ở case khác (không phải fact); kho tự dựng ở lần new/triage đầu tiên
 ```
 
 Sửa fact bằng fact mới có `supersedes=<id cũ>`; không sửa hay xoá dòng cũ trong `facts.jsonl`.

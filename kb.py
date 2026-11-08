@@ -96,14 +96,19 @@ def corrections(c):
         last[f['id']] = f
     return out
 
-def gone(ws):   # chỉ coi là đã xóa khi thư mục cha còn mà ws mất: ổ ngoài/NFS chưa mount thì giữ bản ghi
-    return os.path.isdir(os.path.dirname(ws)) and not os.path.exists(ws)
+def gone(ws):   # chỉ tự bỏ workspace tạm đã xóa (test); ổ ngoài/NFS chưa mount thì giữ bản ghi
+    t = os.path.realpath(tempfile.gettempdir())
+    return not os.path.exists(ws) and os.path.realpath(ws).startswith(t + os.sep)
 
 def write_jsonl(p, rows):
     fd, t = tempfile.mkstemp(dir=os.path.dirname(p), prefix='.part-')   # tên riêng: hai build chạy cùng lúc không đụng nhau; 0600 vì có IOC
-    with open(fd, 'w', encoding='utf-8') as fh:
-        for r in rows: fh.write(json.dumps(r, ensure_ascii=False) + '\n')
-    os.replace(t, p)
+    try:
+        with open(fd, 'w', encoding='utf-8') as fh:
+            for r in rows: fh.write(json.dumps(r, ensure_ascii=False) + '\n')
+        os.replace(t, p)
+    except BaseException:
+        if os.path.exists(t): os.unlink(t)
+        raise
 
 def build(ws=None, quiet=False):
     d = kb_dir()
@@ -124,8 +129,11 @@ def build(ws=None, quiet=False):
         try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
         except Exception: old = []
         return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws and not gone(r['ws'])]   # bỏ workspace đã xóa (thư mục tạm của test)
-    S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
-    write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
+    import fcntl
+    with open(os.path.join(d, '.lock'), 'a') as lk:   # đọc-gộp-ghi trong khóa: hai build/refresh cùng lúc không làm mất phần của nhau
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
+        write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
     n = len({r['case'] for r in S})
     json.dump({'built': datetime.datetime.now().isoformat(timespec='seconds'), 'workspace': ws, 'cases': n,
                'files': sum(r.get('kind') != 'case' for r in S), 'corrections': len(K)}, open(os.path.join(d, 'meta.json'), 'w'), indent=1)
@@ -172,7 +180,7 @@ def match(c, limit=40, header=True):
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
     me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
-    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws) and os.path.isdir(r.get('ws', mws))]   # bỏ chính case này và workspace đã xóa; case trùng tên ở workspace khác vẫn so
+    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws) and not gone(r.get('ws', mws))]   # bỏ chính case này và workspace đã xóa; case trùng tên ở workspace khác vẫn so
     for r in K:
         if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
     F = [r for r in K if r.get('kind') != 'case']; C = [r for r in K if r.get('kind') == 'case']

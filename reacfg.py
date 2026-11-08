@@ -31,6 +31,7 @@ GHIDRA = get('GHIDRA_INSTALL_DIR')               # thư mục cài Ghidra (có s
 JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = Ghidra tự tìm java trên PATH
 SHARE_PYLIB = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'pylib')   # ngoài skill: update không mất
 PYLIB = get('REA_PYLIB') or next((p for p in (os.path.join(TOOLS, 'pylib'), SHARE_PYLIB) if os.path.isdir(p)), SHARE_PYLIB)   # unicorn cho winemu
+KB = get('REA_KB') or os.path.join(os.path.dirname(SHARE_PYLIB), 'kb')   # kho tra chéo giữa các case (flow.py kb); chứa IOC: ngoài skill; off = tắt
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
 REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|claude|codex|gemini|copilot|cursor|api|cmd|manual
 REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible
@@ -129,6 +130,11 @@ def doctor():
         ok, why = api_probe(); row(ok, 'endpoint lớp 2', why, 'model phải có trên server', False)
         if API_LOCAL: print('Lưu ý LLM local: đặt ngữ cảnh >= 32k token (Ollama mặc định 2–4k và cắt bớt im lặng: OLLAMA_CONTEXT_LENGTH=32768 hoặc PARAMETER num_ctx 32768);'
                            ' review tự báo lỗi nếu server nhận ít token hơn nhiều so với prompt.')
+    kbr = os.path.realpath(KB); off = KB.lower() in ('off', '0', 'none', 'no')
+    inside = not off and (kbr == os.path.realpath(TOOLS) or kbr.startswith(os.path.realpath(TOOLS) + os.sep))
+    row(not inside, 'REA_KB', 'tắt' if off else KB, 'kho tra chéo (flow.py kb), chứa IOC: phải nằm ngoài thư mục skill; off = tắt', False)
+    for m, use in (('tlsh', 'kb: so khớp mờ TLSH (pip: py-tlsh)'), ('cryptography', 'kb: chủ thể/serial chứng thư Authenticode')):
+        row(importlib.util.find_spec(m) is not None, 'python:' + m, '', 'tùy chọn, ' + use, False)
     row(os.path.isdir(WINE_DLL_DIR), 'WINE_DLL_DIR', WINE_DLL_DIR, 'tên export cho DLL giả của winemu', False)
     print('Đăng nhập claude: kiểm bằng `claude -p hi` (dùng chung tài khoản, không cần API key riêng; cần mạng tới api.anthropic.com)')
     return 1 if bad else 0

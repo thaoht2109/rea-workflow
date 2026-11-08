@@ -42,6 +42,8 @@ def checks():
         ('python: pefile', has_mod('pefile'), True, ['python3-pefile'], 'pefile', None, 'triage PE'),
         ('python: capstone', has_mod('capstone'), True, ['python3-capstone'], 'capstone', None, 'disassembly, winemu'),
         ('python: unicorn 2.1.4', unicorn_ok(), True, [], 'unicorn==2.1.4', None, 'giả lập CPU (winemu, tầng T3)'),
+        ('python: py-tlsh', has_mod('tlsh'), False, [], 'py-tlsh', None, 'flow.py kb: so khớp mờ mẫu tương tự (TLSH)'),
+        ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
         ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
         (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), True,
@@ -107,7 +109,9 @@ def main(a):
         subprocess.run(['sudo', 'apt-get', 'update'], check=False)
         if subprocess.run(['sudo', 'apt-get', 'install', '-y'] + apt_pkgs).returncode and '7zip' in apt_pkgs:   # bản cũ: p7zip-full
             subprocess.run(['sudo', 'apt-get', 'install', '-y'] + [('p7zip-full' if p == '7zip' else p) for p in apt_pkgs])
-    if pip_pkgs: subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + pip_pkgs, check=False)
+    req_pip = [c[4] for c in miss if c[4] in pip_pkgs and c[2]]
+    for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
     if 'ghidra' in steps: ghidra_install()
     node = ver(out('node', '--version'))
     if 'rea' in steps and node and node >= NODE_MIN: rea_install()

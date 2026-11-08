@@ -119,10 +119,58 @@ def sens_hits(names):
 def run(*a):
     r = subprocess.run(a, capture_output=True, text=True, errors='replace'); return r.stdout if r.returncode == 0 else ''
 
+# Đặc trưng tra chéo giữa các case (flow.py kb match): chỉ để gợi ý mẫu tương tự, không tự thành fact. Tên lấy từ mẫu (PDB,
+# chủ thể chứng thư) giữ nguyên trong triage.json, khi in thì qua show(). tlsh, cryptography không bắt buộc: thiếu thì bỏ trường đó.
+def tlsh_of(d):
+    try: import tlsh
+    except ImportError: return None
+    h = tlsh.hash(d) if len(d) >= 50 else ''
+    return h if h and h != 'TNULL' else None
+
+def der_len(b):
+    """Độ dài SEQUENCE DER ở đầu b (bỏ phần đệm WIN_CERTIFICATE phía sau); None nếu không phải DER."""
+    if len(b) < 2 or b[0] != 0x30: return None
+    if b[1] < 0x80: return 2 + b[1]
+    n = b[1] & 0x7f
+    return 2 + n + int.from_bytes(b[2:2 + n], 'big') if 0 < n <= 4 and len(b) >= 2 + n else None
+
+def certs(d, sig):
+    """Metadata chứng thư trong vùng Authenticode (không verify chữ ký): chủ thể, nơi cấp, serial, hạn. None = thiếu cryptography."""
+    try: from cryptography.hazmat.primitives.serialization import pkcs7
+    except ImportError: return None
+    b = d[sig['offset'] + 8:sig['offset'] + sig['size']]   # bỏ header WIN_CERTIFICATE 8 byte
+    n = der_len(b)
+    try: cs = pkcs7.load_der_pkcs7_certificates(b[:n]) if n else []
+    except Exception: return []
+    day = lambda c, k: (getattr(c, k + '_utc', None) or getattr(c, k)).date().isoformat()
+    return [{'subject': c.subject.rfc4514_string()[:200], 'issuer': c.issuer.rfc4514_string()[:200], 'serial': format(c.serial_number, 'x'),
+             'not_before': day(c, 'not_valid_before'), 'not_after': day(c, 'not_valid_after')} for c in cs[:8]]
+
+def pe_pivots(pe, d, R):
+    P = R.setdefault('pivot', {})
+    try: P['imphash'] = pe.get_imphash() or None
+    except Exception: P['imphash'] = None
+    try:   # fast_load không dựng RICH_HEADER: tự parse, hash như get_rich_header_hash (md5 phần đã giải XOR)
+        rh = getattr(pe, 'RICH_HEADER', None); clear = rh.clear_data if rh else (pe.parse_rich_header() or {}).get('clear_data')
+        P['rich'] = hashlib.md5(clear, usedforsecurity=False).hexdigest() if clear else None
+    except Exception: P['rich'] = None
+    P['timestamp'] = getattr(getattr(pe, 'FILE_HEADER', None), 'TimeDateStamp', None)
+    for e in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', []):
+        cv = getattr(e, 'entry', None); pdb = getattr(cv, 'PdbFileName', None)
+        if isinstance(pdb, bytes) and pdb.strip(b'\0'):
+            P['pdb'] = pdb.split(b'\0')[0].decode('utf-8', 'replace')[:260]
+            g = getattr(cv, 'Signature_String', None)
+            if g: P['pdb_guid'] = g   # GUID + Age như symbol server
+            break
+    if 'signature' in R:
+        cs = certs(d, R['signature'])
+        if cs is not None: P['certs'] = cs
+
 def pe_info(d, R):
     pe = pefile.PE(data=d, fast_load=True); pe.parse_data_directories()
     R['type'] = 'PE32+' if pe.OPTIONAL_HEADER.Magic == 0x20b else 'PE32'
-    R['sections'] = [{'name': s.Name.rstrip(b'\0').decode('latin1'), 'raw': s.SizeOfRawData, 'entropy': entropy(s.get_data())} for s in pe.sections]
+    R['sections'] = [{'name': s.Name.rstrip(b'\0').decode('latin1'), 'raw': s.SizeOfRawData, 'entropy': entropy(s.get_data()),
+                      'md5': hashlib.md5(s.get_data(), usedforsecurity=False).hexdigest() if s.SizeOfRawData else None} for s in pe.sections]
     ov = pe.get_overlay_data_start_offset()
     if ov: R['overlay'] = {'offset': ov, 'size': len(d) - ov, 'entropy': entropy(d[ov:])}
     R['imports'] = {e.dll.decode(): len(e.imports) for e in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])}
@@ -133,6 +181,7 @@ def pe_info(d, R):
     if NSIS_SIG in d: R['flags'].append('NSIS')
     sd = pe.OPTIONAL_HEADER.DATA_DIRECTORY[4]   # vùng chữ ký Authenticode: địa chỉ ở đây là offset file
     if sd.VirtualAddress and sd.Size: R['signature'] = {'offset': sd.VirtualAddress, 'size': sd.Size}
+    pe_pivots(pe, d, R)
 
 def only_in_signature(d, x, sig):
     """Chuỗi chỉ xuất hiện trong vùng chữ ký (URL CA/CRL/OCSP/CPS của chứng thư): không phải hành vi của mã."""
@@ -155,6 +204,23 @@ def elf_info(path, d, R):
     R['imported_funcs'] = sorted({n.split('@')[0] for _, ndx, n in syms if ndx == 'UND'})
     R['exports'] = sorted({n.split('@')[0] for _, ndx, n in syms if ndx != 'UND'})[:40]
     if 'statically linked' in run('file', '-b', path): R['flags'].append('static')
+    P = R.setdefault('pivot', {})
+    m = re.search(r'Build ID: ([0-9a-f]+)', run('readelf', '-W', '-n', path))
+    if m: P['build_id'] = m.group(1)
+    if R['imported_funcs']: P['impfuncs_md5'] = hashlib.md5(','.join(sorted(n.lower() for n in R['imported_funcs'])).encode(), usedforsecurity=False).hexdigest()
+
+def pivot_of(path):
+    """Đặc trưng tra chéo của một file cho flow.py kb, không chạy triage đầy đủ (không giải nén, không ghi file). Chỉ đọc byte."""
+    d = open(path, 'rb').read()
+    R = {'size': len(d), 'md5': hashlib.md5(d, usedforsecurity=False).hexdigest(), 'sha256': hashlib.sha256(d).hexdigest(), 'flags': [],
+         'type': next((t for m, t in MAGIC if d.startswith(m)), 'unknown')}
+    try:
+        if R['type'] == 'PE': pe_info(d, R)
+        elif R['type'] == 'ELF': elf_info(path, d, R)
+    except Exception as e: R['error'] = f'{type(e).__name__}: {e}'[:120]   # PE/ELF hỏng: vẫn còn hash và TLSH
+    t = tlsh_of(d)
+    if t: R.setdefault('pivot', {})['tlsh'] = t
+    return R
 
 def iocs(strs):
     url = re.compile(r'(?:https?|ftp|tcp|udp|wss?)://[^\s"\'<>]{4,120}?(?=(?:https?|ftp|wss?)://|[\s"\'<>)]|$)', re.I)
@@ -229,6 +295,8 @@ def main():
         R['ioc_in_signature'] = [x for x in R['ioc_candidates'] if only_in_signature(d, x, R['signature'])]
         R['ioc_candidates'] = [x for x in R['ioc_candidates'] if x not in R['ioc_in_signature']]
     R['entropy'] = entropy(d)
+    t = tlsh_of(d)
+    if t: R.setdefault('pivot', {})['tlsh'] = t
     if 'NSIS' in R['flags']: nsis(A.file, A.out, R)
     if R.get('imported_funcs'): R['sensitive_api'] = sens_hits(R['imported_funcs'])
     R['next'] = route(R, A.out)
@@ -242,6 +310,14 @@ def main():
     for k, lab, n in (('imported_funcs', 'hàm import', 30), ('exports', 'export', 20)):   # tên từ mẫu: chỉ in định danh hợp lệ
         if R.get(k): ok, bad = idents(R[k], n); print(f"  {lab} ({len(R[k])}):", ' '.join(ok) + (f' (+{bad} tên lạ không in, xem triage.json)' if bad else ''))
     if R.get('go'): print('  go:', ' | '.join(R['go'][:3]))
+    pv = R.get('pivot', {}); bits = [f'{k} {pv[k]}' for k in ('imphash', 'rich', 'build_id', 'pdb_guid') if pv.get(k)]
+    if pv.get('pdb'): bits.append('pdb ' + show(pv['pdb'])[:100])   # tên do mẫu đặt: in dạng chuỗi có thoát
+    if pv.get('certs'):
+        cs = pv['certs']; leafs = [c for c in cs if not any(o['issuer'] == c['subject'] for o in cs if o is not c)] or cs
+        leaf = next((c for c in leafs if not re.search(r'time ?stamp|\btsa\b', c['subject'], re.I)), leafs[0])   # bỏ chứng thư đóng dấu thời gian
+        bits.append(f'cert({len(cs)}) ' + show(leaf['subject'])[:90])
+    if pv.get('tlsh'): bits.append('tlsh ' + pv['tlsh'][:16] + '…')
+    if bits: print('  pivot (tra chéo: flow.py kb match; không phải fact):', ' | '.join(bits))
     for mục, hit in R.get('sensitive_api', {}).items():   # tên API từ bảng import: decompile xref của các hàm này trước
         ok, bad = idents(hit, 14); print(f'  {mục}:', ' '.join(ok) + (f' (+{bad} tên lạ không in)' if bad else ''))
     if 'nsis' in R:

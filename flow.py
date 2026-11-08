@@ -15,6 +15,8 @@
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
+#   flow.py kb build | match CASE | corrections [--since NGÀY]   kho tra chéo local (REA_KB, ngoài skill): dựng từ mọi case | gợi ý mẫu
+#                                      tương tự (KHÔNG phải fact, phải tự chứng minh lại) | thống kê đính chính để theo dõi luật lint sau này
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
@@ -360,11 +362,12 @@ if __name__ == '__main__':
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if a[:1] == ['opencode']: sys.exit(opencode(a[1:]))
+    if a[:1] == ['kb']: import kb; sys.exit(kb.main(a[1:]))
     if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])
     cmd, c = a[0], a[1]
-    if cmd == 'new': new(c, a[2:])
-    elif cmd == 'triage': triage(c, a[2:] or samples(c))
+    if cmd == 'new': new(c, a[2:]); import kb; kb.hint(c)
+    elif cmd == 'triage': triage(c, a[2:] or samples(c)); import kb; kb.hint(c)
     elif cmd == 'dec': dec(c, a[2], a[3:])
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
@@ -376,6 +379,7 @@ if __name__ == '__main__':
             rt = review.report_todo(c)
             if rt: raise SystemExit(f'CHẶN report --final: cập nhật {c}/report/README.md và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md')
+        if '--final' in a: import kb; kb.refresh(c)   # case đã đóng vào kho tra chéo + thống kê đính chính
     elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))

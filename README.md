@@ -168,6 +168,7 @@ codex --profile ollama-launch --sandbox workspace-write -c 'web_search="disabled
 
 - `flow.py opencode` sinh cấu hình chặn sẵn lệnh chạy mẫu và lệnh mạng. Luật này chỉ để tránh chạy nhầm, không phải ranh giới bảo mật. Vì vậy hãy chạy trong máy ảo không có Internet, và không dùng `opencode --auto`.
 - Ollama không có xác thực. Đặt Ollama ở máy khác thì chỉ mở cổng cho mạng nội bộ (`OLLAMA_HOST=0.0.0.0` kèm firewall).
+- Phản biện khi chạy bằng Ollama: dùng backend `api` như khai ở đầu mục này, không dùng `REVIEW_LLM=codex`. Backend codex chạy với `HOME` tạm nên không có profile Ollama.
 - Không dùng model có tag `-cloud`: các model này chạy trên hạ tầng bên ngoài.
 
 ## Cấu hình
@@ -199,7 +200,7 @@ File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhậ
 
 - Giả lập CPU chỉ có cho Windows x86-32. ELF, x64 và .NET được phân tích tĩnh.
 - `rea` không hỗ trợ MIPS/PPC. Với các kiến trúc này skill dùng Ghidra headless, nên lần phân tích đầu một file lớn mất vài phút.
-- Phản biện qua `gemini`, `cursor` hoặc lệnh tự khai (`REVIEW_LLM_CMD`) chưa được cô lập khỏi cấu hình người dùng; skill in cảnh báo khi dùng. Nên dùng `claude`, `codex`, `copilot` hoặc API/LLM local.
+- Phản biện qua `gemini`, `cursor` hoặc lệnh tự khai (`REVIEW_LLM_CMD`) chưa được cô lập khỏi cấu hình người dùng; skill in cảnh báo khi dùng. Nên dùng `claude`, `copilot`, `codex` (cô lập qua `HOME` tạm) hoặc API/LLM local.
 - Chất lượng khi chạy bằng LLM local phụ thuộc model; model dưới khoảng 32B dễ lạc hướng ở vòng phân tích dài.
 - Phần nhận định trong báo cáo do agent hoặc người viết; skill chỉ sinh bảng và kiểm bằng chứng.
 

@@ -160,6 +160,7 @@ python3 $SKILL/case.py add CASE id=scan.hosts kind=string value='8 máy WIN-*' s
         recompute='distinct (WIN-[A-Z0-9]+) report/evidence/scan.txt = 8'     # con số: máy đếm lại
 python3 $SKILL/flow.py review CASE --llm --detach            # cổng phản biện; gọi lại tới khi mã khác 6
 python3 $SKILL/flow.py kb match CASE                         # gợi ý mẫu tương tự ở case khác (không phải fact); kho tự dựng ở lần new/triage đầu tiên
+python3 $SKILL/flow.py kb export kb-srv1.jsonl.gz --name srv1  # chia sẻ/backup kho; máy khác: flow.py kb import kb-srv1.jsonl.gz
 ```
 
 Sửa fact bằng fact mới có `supersedes=<id cũ>`; không sửa hay xoá dòng cũ trong `facts.jsonl`.
@@ -343,7 +344,7 @@ File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Bi
 
 - **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công:** quy tắc đầy đủ ở `SKILL.md` ("Quy tắc bắt buộc"), lệnh `rea` được phép/bị cấm ở `FLOW.md` mục 4a. Tải payload thật chỉ khi người dùng cho phép.
 - `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại.
-- Kho `flow.py kb` (`REA_KB`) chứa hash và IOC của mọi case: chỉ ở máy, quyền 0600, không đưa lên repo. Gợi ý của kho không thành fact và không vào báo cáo; hồ sơ gửi phiên phản biện lớp 2 chỉ gồm fact, evidence và mẫu, không có kho.
+- Kho `flow.py kb` (`REA_KB`) chứa hash và IOC của mọi case: chỉ ở máy, quyền 0600, không đưa lên repo. File `kb export` cũng vậy (không có mẫu nhưng có IOC): chỉ chép qua kênh tin cậy; `kb import` coi nội dung là dữ liệu, kiểm định dạng và giới hạn 512 MiB. Gợi ý của kho không thành fact và không vào báo cáo; hồ sơ gửi phiên phản biện lớp 2 chỉ gồm fact, evidence và mẫu, không có kho.
 - Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1, 4.2).
 - Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo, commit message hay mô tả PR.
 - Với agent không phải Claude Code, quy tắc "không thực thi mẫu" chỉ là hướng dẫn bằng chữ: bật chế độ hỏi trước khi chạy lệnh hoặc sandbox của agent.

@@ -146,6 +146,12 @@ def certs(d, sig):
     return [{'subject': c.subject.rfc4514_string()[:200], 'issuer': c.issuer.rfc4514_string()[:200], 'serial': format(c.serial_number, 'x'),
              'not_before': day(c, 'not_valid_before'), 'not_after': day(c, 'not_valid_after')} for c in cs[:8]]
 
+def leaf_cert(cs):
+    """Chứng thư người ký: không là nơi cấp của chứng thư nào khác trong bộ, bỏ chứng thư đóng dấu thời gian."""
+    if not cs: return None
+    leafs = [c for c in cs if not any(o['issuer'] == c['subject'] for o in cs if o is not c)] or cs
+    return next((c for c in leafs if not re.search(r'time ?stamp|\btsa\b', c['subject'], re.I)), leafs[0])
+
 def pe_pivots(pe, d, R):
     P = R.setdefault('pivot', {})
     try: P['imphash'] = pe.get_imphash() or None
@@ -313,9 +319,7 @@ def main():
     pv = R.get('pivot', {}); bits = [f'{k} {pv[k]}' for k in ('imphash', 'rich', 'build_id', 'pdb_guid') if pv.get(k)]
     if pv.get('pdb'): bits.append('pdb ' + show(pv['pdb'])[:100])   # tên do mẫu đặt: in dạng chuỗi có thoát
     if pv.get('certs'):
-        cs = pv['certs']; leafs = [c for c in cs if not any(o['issuer'] == c['subject'] for o in cs if o is not c)] or cs
-        leaf = next((c for c in leafs if not re.search(r'time ?stamp|\btsa\b', c['subject'], re.I)), leafs[0])   # bỏ chứng thư đóng dấu thời gian
-        bits.append(f'cert({len(cs)}) ' + show(leaf['subject'])[:90])
+        bits.append(f"cert({len(pv['certs'])}) " + show(leaf_cert(pv['certs'])['subject'])[:90])
     if pv.get('tlsh'): bits.append('tlsh ' + pv['tlsh'][:16] + '…')
     if bits: print('  pivot (tra chéo: flow.py kb match; không phải fact):', ' | '.join(bits))
     for mục, hit in R.get('sensitive_api', {}).items():   # tên API từ bảng import: decompile xref của các hàm này trước

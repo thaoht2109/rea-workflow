@@ -163,6 +163,36 @@ try:
         r = run('kb', 'import', bad, env=env2); assert r.returncode and 'không phải file kb export' in r.stderr and 'Traceback' not in r.stderr, r.stderr
         open(bad, 'wb').write(b'not gzip'); r = run('kb', 'import', bad, env=env2); assert r.returncode and 'Traceback' not in r.stderr, r.stderr
         r = run('kb', 'export', os.path.join(T, 'x.gz')); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'x.gz'))
+        # server mới cùng đường dẫn workspace: kho chỉ có bản nhập thì new/triage vẫn tự dựng phần cục bộ
+        env3 = dict(env, REA_KB=os.path.join(xd, 'kb3')); assert run('kb', 'import', exp, env=env3).returncode == 0
+        old_kb = kb.CFG.KB; kb.CFG.KB = os.path.join(xd, 'kb3'); out = []; sys.stdout = types.SimpleNamespace(write=out.append, flush=lambda: None)
+        try: kb.hint(B)
+        finally: sys.stdout = sys.__stdout__; kb.CFG.KB = old_kb
+        S3 = kb.read_jsonl(os.path.join(xd, 'kb3', 'samples.jsonl'))
+        assert 'đang dựng' in ''.join(out) and any(not x.get('peer') for x in S3) and any(x.get('peer') for x in S3), out
+        # backup của chính máy này nhập vào kho đang có bản cục bộ: không đếm case hai lần (trùng sha256 vẫn mạnh, không thành phổ biến)
+        assert run('kb', 'import', exp, '--name', 'bk').returncode == 0
+        o = run('kb', 'match', 'CASE_B').stdout
+        assert 'CASE_A/work/sample/drop.bin: trùng sha256 (mạnh)' in o and 'bk:CASE_B' not in o, o
+        # case cùng tên + cùng đường dẫn ở máy khác nhưng khác nội dung vẫn được so
+        rows = [json.loads(l) for l in gzip.open(exp, 'rt')]
+        fake = dict(t='s', case='CASE_C', file='work/sample/x.bin', sha256='ab' * 32, ws=rows[1]['ws'])   # khác nội dung với CASE_C cục bộ
+        fakec = dict(t='s', kind='case', case='CASE_C', ws=rows[1]['ws'], hashes=[], atoms={'c2': ['other.example.org']}); f2 = os.path.join(xd, 'p2.gz')
+        with gzip.open(f2, 'wt') as fh:
+            fh.write(json.dumps(dict(rows[0], name='p2')) + '\n' + json.dumps(fake) + '\n' + json.dumps(fakec) + '\n')
+            fh.write(json.dumps(dict(t='s', case='Z', file='f', sha256='0' * 64, exports={'a': 1})) + '\n')   # sai dạng: bị bỏ
+            fh.write(json.dumps(dict(t='s', kind='case', case='Z', atoms={'c2': [{'x': 1}]})) + '\n')         # sai dạng: bị bỏ
+            fh.write(json.dumps(dict(t='c', case='Z', type='x')) + '\n' + 'không phải json\n')                # thiếu trường / hỏng: bị bỏ
+        r = run('kb', 'import', f2); assert r.returncode == 0 and 'bỏ 4 bản ghi sai dạng' in r.stdout, r.stdout + r.stderr
+        o = run('kb', 'match', 'CASE_C').stdout; assert 'c2 trùng với p2:CASE_C: other.example.org' in o, o
+        assert run('kb', 'corrections', '--all').returncode == 0
+        # dòng rất dài không vượt trần đọc
+        big = os.path.join(xd, 'big.gz')
+        with gzip.open(big, 'wt') as fh: fh.write(json.dumps(rows[0]) + '\n' + 'x' * 5000)
+        old_max, kb.MAX_IMPORT, kb.CFG.KB = kb.MAX_IMPORT, 1000, os.path.join(xd, 'kb4')
+        try: kb.import_(big); raise AssertionError('phải dừng')
+        except SystemExit as e: assert 'MiB' in str(e) or 'lớn hơn' in str(e), e
+        finally: kb.MAX_IMPORT, kb.CFG.KB = old_max, old_kb
     finally: shutil.rmtree(xd, ignore_errors=True)
     # 5. kho trong thư mục skill bị từ chối; off thì tắt
     r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(T, 'kbdata'))); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'kbdata')), r.stderr

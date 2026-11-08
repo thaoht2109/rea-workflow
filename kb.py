@@ -199,23 +199,52 @@ def export(path, name=None):
           '\n  file chứa hash và IOC, không có mẫu: chỉ chép qua kênh tin cậy, không đưa lên repo public')
     return 0
 
+S_STR = ('case', 'file', 'sha256', 'type', 'kind', 'ws', 'imphash', 'rich', 'pdb', 'pdb_guid', 'build_id', 'impfuncs_md5', 'tlsh', 'signer', 'libs')
+S_INT, S_LIST = ('size', 'imp_n', 'mtime_ns', 'pv'), ('exports', 'sec_md5', 'certs', 'hashes')
+C_STR = ('case', 'ws', 'id', 'old_id', 'kind', 'old_kind', 'type', 'old_status', 'status', 'old_src', 'src', 'origin', 'caught', 'ts', 'note')
+
+def norm(r, tag):
+    """Chuẩn hóa một bản ghi nhập theo danh sách trường cho phép; None = sai dạng (bỏ). Chuỗi cắt 500 ký tự, danh sách 500 phần tử."""
+    if not isinstance(r, dict): return None
+    s = lambda v: v is None or isinstance(v, str)
+    ls = lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v)
+    if tag == 'c':
+        if not all(s(r.get(k)) for k in C_STR) or not all(isinstance(r.get(k), str) for k in ('case', 'type', 'old_kind', 'origin', 'caught')): return None
+        if not (r.get('lag_h') is None or (isinstance(r['lag_h'], (int, float)) and not isinstance(r['lag_h'], bool))): return None
+        return dict({k: r[k][:500] for k in C_STR if r.get(k) is not None}, lag_h=r.get('lag_h'))
+    if not all(s(r.get(k)) for k in S_STR) or not isinstance(r.get('case'), str): return None
+    if not all(r.get(k) is None or (isinstance(r[k], int) and not isinstance(r[k], bool)) for k in S_INT): return None
+    if not all(ls(r.get(k, [])) for k in S_LIST): return None
+    out = {k: r[k][:500] for k in S_STR if r.get(k) is not None}
+    out.update({k: r[k] for k in S_INT if r.get(k) is not None}); out.update({k: [x[:500] for x in r.get(k, [])[:500]] for k in S_LIST})
+    if r.get('kind') == 'case':
+        at = r.get('atoms', {})
+        if not (isinstance(at, dict) and all(isinstance(k, str) and ls(v) for k, v in at.items())): return None
+        out['atoms'] = {k[:40]: [x[:500] for x in v[:500]] for k, v in at.items()}
+    elif not (isinstance(r.get('file'), str) and re.fullmatch(r'[0-9a-f]{64}', r.get('sha256') or '')): return None
+    return out
+
 def import_(path, name=None):
     """Nạp file của kb export vào kho dưới tên nguồn. Dữ liệu từ máy khác chỉ là dữ liệu: kiểm dạng, giới hạn kích thước, không chạy gì."""
     d = kb_dir()
     if not d: raise SystemExit('REA_KB=off: không nhập')
-    writable(d); S, K, size = [], [], 0
+    writable(d); S, K, size, bad = [], [], 0, 0
     try:
         with gzip.open(path, 'rt', encoding='utf-8') as fh:
-            hdr = json.loads(fh.readline() or '{}')
+            hdr = json.loads(fh.readline(1 << 16) or '{}')
             if not isinstance(hdr, dict) or hdr.get('kind') != EXPORT_KIND or not isinstance(hdr.get('ver'), int) or hdr['ver'] > EXPORT_VER:
                 raise SystemExit(f'{path}: không phải file kb export hợp lệ (hoặc bản mới hơn skill này)')
-            for l in fh:
+            while True:
+                l = fh.readline(MAX_IMPORT - size + 1)   # đọc có giới hạn: một dòng rất dài cũng không vượt trần bộ nhớ
+                if not l: break
                 size += len(l)
                 if size > MAX_IMPORT: raise SystemExit(f'{path}: lớn hơn {MAX_IMPORT >> 20} MiB sau giải nén, dừng')
-                r = json.loads(l)
-                if not isinstance(r, dict) or not isinstance(r.get('case'), str) or r.get('t') not in ('s', 'c'): continue
-                if r['t'] == 's' and r.get('kind') != 'case' and not re.fullmatch(r'[0-9a-f]{64}', str(r.get('sha256', ''))): continue
-                (S if r.pop('t') == 's' else K).append(r)
+                try: r = json.loads(l)
+                except ValueError: bad += 1; continue
+                t = r.get('t') if isinstance(r, dict) else None
+                x = norm(r, t) if t in ('s', 'c') else None
+                if x is None: bad += 1; continue
+                (S if t == 's' else K).append(x)
     except (OSError, ValueError, EOFError) as e: raise SystemExit(f'không đọc được {path}: {type(e).__name__}: {safe(e, 100)}')
     name = clean_name(name or hdr.get('name'))
     if not name: raise SystemExit('file không có tên nguồn: thêm --name TÊN')
@@ -226,7 +255,7 @@ def import_(path, name=None):
         meta = (read_jsonl(os.path.join(d, 'meta.json')) or [{}])[0]
         save(d, oldS + S, oldK + K, meta.get('workspace', ''))
     print(f"kb import {name}: {sum(r.get('kind') != 'case' for r in S)} file, {sum(r.get('kind') == 'case' for r in S)} case, {len(K)} đính chính"
-          f" (xuất lúc {safe(hdr.get('ts', '?'), 20)}; nhập lại cùng tên sẽ thay)")
+          f" (xuất lúc {safe(hdr.get('ts', '?'), 20)}; nhập lại cùng tên sẽ thay)" + (f'; bỏ {bad} bản ghi sai dạng' if bad else ''))
     return 0
 
 def tlsh_diff(a, b):
@@ -271,9 +300,19 @@ def match(c, limit=40, header=True):
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
     me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
-    # bỏ chính case này (cả bản nhập lại từ backup cùng đường dẫn) và workspace tạm đã xóa; case trùng tên ở workspace/máy khác vẫn so
-    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws) and (r.get('peer') or not gone(r.get('ws', mws)))]
+    mine = [file_rec(c, p) for p in files_of(c)]; cr = case_rec(c); mysha = {n['sha256'] for n in mine}
+    # bỏ chính case này: bản cục bộ, và bản nhập (backup) cùng đường dẫn + tên mà có chung file; case cùng tên ở máy khác nhưng khác nội dung vẫn so
+    selfp = {r['peer'] for r in K if r.get('peer') and r['case'] == me and r.get('ws') == mws and r.get('sha256') in mysha}
+    K = [r for r in K if not ((r['case'], r.get('ws', mws)) == (me, mws) and (not r.get('peer') or r['peer'] in selfp))
+         and (r.get('peer') or not gone(r.get('ws', mws)))]
+    shas = collections.defaultdict(set)   # danh tính case để đếm độ phổ biến: (tên gốc, tập sha256), bản sao ở máy/workspace khác không bị đếm hai lần
     for r in K:
+        if r.get('sha256'): shas[(r.get('peer'), r.get('ws'), r['case'])].add(r['sha256'])
+    ident = {}
+    for r in K:
+        g = (r.get('peer'), r.get('ws'), r['case']); ident[g] = (r['case'], frozenset(shas[g]))
+    for r in K:
+        r['_id'] = ident[(r.get('peer'), r.get('ws'), r['case'])]
         if r.get('peer'): r['case'] = f"{r['peer']}:{r['case']}"   # nhập từ máy khác
         elif r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # workspace khác trên máy này
     F = [r for r in K if r.get('kind') != 'case']; C = [r for r in K if r.get('kind') == 'case']
@@ -282,9 +321,8 @@ def match(c, limit=40, header=True):
         seen = collections.defaultdict(set)
         for r in F:
             for v in (r.get(k) if isinstance(r.get(k), list) else [r.get(k)]):
-                if v: seen[v].add(r['case'])
+                if v: seen[v].add(r['_id'])
         freq[k] = collections.Counter({v: len(s) + 1 for v, s in seen.items()})   # +1: tính cả case đang xét
-    mine = [file_rec(c, p) for p in files_of(c)]; cr = case_rec(c)
     rows = []
     for n in mine:
         for o in F:

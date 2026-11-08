@@ -320,7 +320,7 @@ def hint(c):
         if not d: return
         K, ws = load_kb(d), ws_of(c)
         cs = cases(ws)
-        if cs and (K is None or not any(r.get('ws') == ws for r in K)):   # workspace chưa có case hợp lệ thì chưa dựng (khỏi dựng lại mỗi lần)
+        if cs and (K is None or not any(r.get('ws') == ws and not r.get('peer') for r in K)):   # workspace chưa có case hợp lệ thì chưa dựng (khỏi dựng lại mỗi lần)
             print(f'kb: workspace này chưa có trong kho, đang dựng từ {len(cs)} case...', flush=True)
             build(ws, quiet=True); print(f'kb: đã dựng {d}')
         match(c, limit=8, header=False)

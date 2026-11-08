@@ -28,6 +28,9 @@ def kb_dir():
     if d == t or d.startswith(t + os.sep): raise SystemExit(f'REA_KB={CFG.KB} nằm trong thư mục skill (repo public): đặt ra ngoài')
     return d
 
+def ws_of(c):   # workspace của case: chỉ resolve thư mục cha (case có thể là symlink), khớp realpath(ws) trong build
+    return os.path.realpath(os.path.dirname(os.path.abspath(c)))
+
 def safe(x, n=80): return CTRL.sub('?', str(x))[:n]
 
 def cases(ws):
@@ -115,7 +118,7 @@ def build(ws=None, quiet=False):
         p = os.path.join(d, name)
         try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
         except Exception: old = []
-        return [r for r in old if r.get('ws') not in (None, ws)]
+        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws]
     S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
     write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
     n = len({r['case'] for r in S})
@@ -163,7 +166,7 @@ def match(c, limit=40, header=True):
     if K is None:
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
-    me, mws = os.path.basename(os.path.abspath(c)), os.path.dirname(os.path.realpath(c))
+    me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
     K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws)]   # bỏ chính case này; case trùng tên ở workspace khác vẫn so
     for r in K:
         if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
@@ -211,7 +214,7 @@ def hint(c):
 def refresh(c):
     """Sau report --final: dựng lại kho để case vừa đóng vào dữ liệu tra chéo và thống kê đính chính."""
     try:
-        if kb_dir(): build(os.path.dirname(os.path.realpath(c)), quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
+        if kb_dir(): build(ws_of(c), quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: không cập nhật được ({type(e).__name__}: {safe(e, 100)})')
 

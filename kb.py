@@ -109,7 +109,7 @@ def build(ws=None, quiet=False):
             try: S.append(file_rec(c, p))
             except Exception as e: err += 1; print(f'  bỏ {safe(os.path.relpath(p, ws), 100)}: {type(e).__name__}', file=sys.stderr)
         S.append(case_rec(c)); K += corrections(c)
-    ws = os.path.abspath(ws)
+    ws = os.path.realpath(ws)   # symlink tới cùng workspace: một khóa duy nhất
     for r in S + K: r['ws'] = ws
     def keep(name):   # kho dùng chung: giữ bản ghi của workspace khác, chỉ thay phần của workspace đang dựng
         p = os.path.join(d, name)
@@ -163,7 +163,7 @@ def match(c, limit=40, header=True):
     if K is None:
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
-    me, mws = os.path.basename(os.path.abspath(c)), os.path.dirname(os.path.abspath(c))
+    me, mws = os.path.basename(os.path.abspath(c)), os.path.dirname(os.path.realpath(c))
     K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws)]   # bỏ chính case này; case trùng tên ở workspace khác vẫn so
     for r in K:
         if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
@@ -211,7 +211,7 @@ def hint(c):
 def refresh(c):
     """Sau report --final: dựng lại kho để case vừa đóng vào dữ liệu tra chéo và thống kê đính chính."""
     try:
-        if kb_dir(): build(os.path.dirname(os.path.abspath(c)), quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
+        if kb_dir(): build(os.path.dirname(os.path.realpath(c)), quiet=True); print(f'kb: đã cập nhật {kb_dir()}')
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: không cập nhật được ({type(e).__name__}: {safe(e, 100)})')
 

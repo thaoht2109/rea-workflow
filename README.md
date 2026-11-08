@@ -1,6 +1,6 @@
 <div align="center">
 
-# rea-flow
+# rea-workflow
 
 **Quy trình dịch ngược mã độc có kiểm chứng cho AI coding agent**
 
@@ -15,7 +15,9 @@
 
 ---
 
-rea-flow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
+rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
+
+> Skill được cài với định danh `rea-flow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-flow`), thư mục cấu hình (`~/.config/rea-flow`) và khi gọi skill trong agent.
 
 ## Tính năng
 
@@ -98,7 +100,7 @@ Từ đó, gõ `claude` trong thư mục này sẽ mở phiên chỉ giữ công
 
 Mở agent trong thư mục chứa case và giao việc bằng lời:
 
-> Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) theo rea-flow
+> Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) bằng skill rea-flow
 
 Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và viết báo cáo. Bạn chỉ cần trả lời khi agent hỏi, và gõ `/clear` khi được đề nghị để giảm ngữ cảnh.
 

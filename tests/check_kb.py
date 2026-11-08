@@ -87,7 +87,7 @@ try:
     pe = types.SimpleNamespace(get_imphash=lambda: 'ih', parse_rich_header=lambda: {'clear_data': b'rich'}, FILE_HEADER=types.SimpleNamespace(TimeDateStamp=7),
                                DIRECTORY_ENTRY_DEBUG=[types.SimpleNamespace(entry=None), types.SimpleNamespace(entry=cv)])
     R = {}; triage.pe_pivots(pe, b'', R); P = R['pivot']
-    assert P == {'imphash': 'ih', 'rich': hashlib.md5(b'rich').hexdigest(), 'timestamp': 7, 'pdb': 'C:\\b\\x.pdb', 'pdb_guid': 'ABCD1'}, P
+    assert P == {'imphash': 'ih', 'rich': hashlib.md5(b'rich', usedforsecurity=False).hexdigest(), 'timestamp': 7, 'pdb': 'C:\\b\\x.pdb', 'pdb_guid': 'ABCD1'}, P
     R = {'signature': {'offset': 0, 'size': 16}}; triage.pe_pivots(types.SimpleNamespace(), b'\x00' * 16, R)
     assert R['pivot']['imphash'] is None and R['pivot']['rich'] is None and R['pivot'].get('certs') in (None, []), R
 finally:

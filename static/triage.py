@@ -152,7 +152,7 @@ def pe_pivots(pe, d, R):
     except Exception: P['imphash'] = None
     try:   # fast_load không dựng RICH_HEADER: tự parse, hash như get_rich_header_hash (md5 phần đã giải XOR)
         rh = getattr(pe, 'RICH_HEADER', None); clear = rh.clear_data if rh else (pe.parse_rich_header() or {}).get('clear_data')
-        P['rich'] = hashlib.md5(clear).hexdigest() if clear else None
+        P['rich'] = hashlib.md5(clear, usedforsecurity=False).hexdigest() if clear else None
     except Exception: P['rich'] = None
     P['timestamp'] = getattr(getattr(pe, 'FILE_HEADER', None), 'TimeDateStamp', None)
     for e in getattr(pe, 'DIRECTORY_ENTRY_DEBUG', []):
@@ -170,7 +170,7 @@ def pe_info(d, R):
     pe = pefile.PE(data=d, fast_load=True); pe.parse_data_directories()
     R['type'] = 'PE32+' if pe.OPTIONAL_HEADER.Magic == 0x20b else 'PE32'
     R['sections'] = [{'name': s.Name.rstrip(b'\0').decode('latin1'), 'raw': s.SizeOfRawData, 'entropy': entropy(s.get_data()),
-                      'md5': hashlib.md5(s.get_data()).hexdigest() if s.SizeOfRawData else None} for s in pe.sections]
+                      'md5': hashlib.md5(s.get_data(), usedforsecurity=False).hexdigest() if s.SizeOfRawData else None} for s in pe.sections]
     ov = pe.get_overlay_data_start_offset()
     if ov: R['overlay'] = {'offset': ov, 'size': len(d) - ov, 'entropy': entropy(d[ov:])}
     R['imports'] = {e.dll.decode(): len(e.imports) for e in getattr(pe, 'DIRECTORY_ENTRY_IMPORT', [])}
@@ -207,12 +207,12 @@ def elf_info(path, d, R):
     P = R.setdefault('pivot', {})
     m = re.search(r'Build ID: ([0-9a-f]+)', run('readelf', '-W', '-n', path))
     if m: P['build_id'] = m.group(1)
-    if R['imported_funcs']: P['impfuncs_md5'] = hashlib.md5(','.join(sorted(n.lower() for n in R['imported_funcs'])).encode()).hexdigest()
+    if R['imported_funcs']: P['impfuncs_md5'] = hashlib.md5(','.join(sorted(n.lower() for n in R['imported_funcs'])).encode(), usedforsecurity=False).hexdigest()
 
 def pivot_of(path):
     """Đặc trưng tra chéo của một file cho flow.py kb, không chạy triage đầy đủ (không giải nén, không ghi file). Chỉ đọc byte."""
     d = open(path, 'rb').read()
-    R = {'size': len(d), 'md5': hashlib.md5(d).hexdigest(), 'sha256': hashlib.sha256(d).hexdigest(), 'flags': [],
+    R = {'size': len(d), 'md5': hashlib.md5(d, usedforsecurity=False).hexdigest(), 'sha256': hashlib.sha256(d).hexdigest(), 'flags': [],
          'type': next((t for m, t in MAGIC if d.startswith(m)), 'unknown')}
     try:
         if R['type'] == 'PE': pe_info(d, R)

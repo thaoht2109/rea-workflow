@@ -120,7 +120,7 @@ def build(ws=None, quiet=False):
         p = os.path.join(d, name)
         try: old = [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
         except Exception: old = []
-        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws]
+        return [r for r in old if r.get('ws') and os.path.realpath(r['ws']) != ws and os.path.isdir(r['ws'])]   # bỏ workspace đã xóa (thư mục tạm của test)
     S = keep('samples.jsonl') + S; K = keep('corrections.jsonl') + K
     write_jsonl(os.path.join(d, 'samples.jsonl'), S); write_jsonl(os.path.join(d, 'corrections.jsonl'), K)
     n = len({r['case'] for r in S})
@@ -169,7 +169,7 @@ def match(c, limit=40, header=True):
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
     me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
-    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws)]   # bỏ chính case này; case trùng tên ở workspace khác vẫn so
+    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws) and os.path.isdir(r.get('ws', mws))]   # bỏ chính case này và workspace đã xóa; case trùng tên ở workspace khác vẫn so
     for r in K:
         if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
     F = [r for r in K if r.get('kind') != 'case']; C = [r for r in K if r.get('kind') == 'case']

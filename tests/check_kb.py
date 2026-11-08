@@ -80,6 +80,9 @@ try:
         kb.refresh(os.path.join(ws, 'CASE_A'))   # in-process, cwd không phải workspace
         S = [json.loads(l) for l in open(os.path.join(kbd, 'samples.jsonl'))]
         assert {os.path.basename(r['ws']) for r in S} == {os.path.basename(ws), os.path.basename(ws2)}, S
+        shutil.rmtree(ws2); kb.refresh(os.path.join(ws, 'CASE_A'))   # workspace đã xóa: bản ghi bị bỏ khi dựng lại
+        assert {os.path.basename(r['ws']) for r in map(json.loads, open(os.path.join(kbd, 'samples.jsonl')))} == {os.path.basename(ws)}
+        shutil.copytree(A, os.path.join(ws2, 'CASE_B')); assert run('kb', 'build', env=dict(env, REA_WORKSPACE=ws2)).returncode == 0
         o = run('kb', 'match', 'CASE_B').stdout
         assert f'{os.path.basename(ws2)}:CASE_B' in o and 'CASE_A/work/sample/drop.bin' in o, o
     finally: shutil.rmtree(ws2, ignore_errors=True); shutil.rmtree(empty, ignore_errors=True)

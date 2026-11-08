@@ -302,15 +302,16 @@ def match(c, limit=40, header=True):
     me, mws = os.path.basename(os.path.abspath(c)), ws_of(c)
     mine = [file_rec(c, p) for p in files_of(c)]; cr = case_rec(c); mysha = {n['sha256'] for n in mine}
     # bỏ chính case này: bản cục bộ, và bản nhập (backup) cùng đường dẫn + tên mà có chung file; case cùng tên ở máy khác nhưng khác nội dung vẫn so
-    selfp = {r['peer'] for r in K if r.get('peer') and r['case'] == me and r.get('ws') == mws and r.get('sha256') in mysha}
-    K = [r for r in K if not ((r['case'], r.get('ws', mws)) == (me, mws) and (not r.get('peer') or r['peer'] in selfp))
+    myn = {me, clean_name(me) or '?'}   # tên case nhập đã qua clean_name
+    selfp = {r['peer'] for r in K if r.get('peer') and r['case'] in myn and r.get('ws') == mws and r.get('sha256') in mysha}
+    K = [r for r in K if not (r.get('ws', mws) == mws and ((not r.get('peer') and r['case'] == me) or (r.get('peer') in selfp and r['case'] in myn)))
          and (r.get('peer') or not gone(r.get('ws', mws)))]
     shas = collections.defaultdict(set)   # danh tính case để đếm độ phổ biến: (tên gốc, tập sha256), bản sao ở máy/workspace khác không bị đếm hai lần
     for r in K:
         if r.get('sha256'): shas[(r.get('peer'), r.get('ws'), r['case'])].add(r['sha256'])
     ident = {}
     for r in K:
-        g = (r.get('peer'), r.get('ws'), r['case']); ident[g] = (r['case'], frozenset(shas[g]))
+        g = (r.get('peer'), r.get('ws'), r['case']); ident[g] = (clean_name(r['case']) or '?', frozenset(shas[g]))
     for r in K:
         r['_id'] = ident[(r.get('peer'), r.get('ws'), r['case'])]
         if r.get('peer'): r['case'] = f"{r['peer']}:{r['case']}"   # nhập từ máy khác

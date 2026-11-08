@@ -493,7 +493,9 @@ def on_stub(uc, addr, size, _):
            **({} if res is not None else {'unhandled': True}))
     if res is None:
         log(f'[api] {dll}!{name} chưa hỗ trợ, caller={caller:#x}')
-        if A.snap_unhandled: save_snapshot(os.path.join(A.out, 'snap_unhandled.bin'), addr); ev('unhandled_snap', api=name, dll=dll)
+        if A.snap_unhandled:   # lưu bộ đếm như trước lần gọi này: resume chạy lại stub và đếm lại nó (như --snap-at)
+            CCOUNT[name] -= 1; save_snapshot(os.path.join(A.out, 'snap_unhandled.bin'), addr); CCOUNT[name] += 1
+            ev('unhandled_snap', api=name, dll=dll)
         CTX['unhandled'] = f'{dll}!{name}'; CTX['stop'] = True; uc.emu_stop(); return
     if res == 'enumwindows':
         cb, lp, n = CTX['enumw']

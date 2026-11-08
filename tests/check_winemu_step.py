@@ -15,18 +15,20 @@ fn = 'def h(uc, dll, name, caller, addr, res):\n' + m.group(1) + "    return 'ti
 
 def run_unhandled(snap):
     calls = []
-    ns = {'os': os, 'A': types.SimpleNamespace(snap_unhandled=snap, out='/o'), 'CTX': {'stop': False}, 'log': lambda *a: None,
-          'save_snapshot': lambda p, e: calls.append(('snap', p, e)), 'ev': lambda k, **kw: calls.append((k, kw))}
+    cc = {'FooBar': 3}   # on_stub đã tăng bộ đếm cho lần gọi này trước khi api() trả None
+    ns = {'os': os, 'A': types.SimpleNamespace(snap_unhandled=snap, out='/o'), 'CTX': {'stop': False}, 'log': lambda *a: None, 'CCOUNT': cc,
+          'save_snapshot': lambda p, e: calls.append(('snap', p, e, dict(cc))), 'ev': lambda k, **kw: calls.append((k, kw))}
     exec(fn, ns)   # nosec B102 - chạy đúng đoạn nguồn winemu vừa trích ở trên (không phải input ngoài)
     uc = types.SimpleNamespace(emu_stop=lambda: calls.append(('stop',)))
-    return ns['h'](uc, 'kernel32.dll', 'FooBar', 0x401000, 0x7ff00010, None), ns['CTX'], calls
+    return ns['h'](uc, 'kernel32.dll', 'FooBar', 0x401000, 0x7ff00010, None), ns['CTX'], calls, cc
 
-r, ctx, calls = run_unhandled(True)
+r, ctx, calls, cc = run_unhandled(True)
 assert r is None and ctx == {'stop': True, 'unhandled': 'kernel32.dll!FooBar'}, (r, ctx)
-assert calls[0] == ('snap', '/o/snap_unhandled.bin', 0x7ff00010), calls      # snapshot tại stub, trước khi dừng
+# snapshot tại stub, bộ đếm như trước lần gọi (resume chạy lại stub sẽ đếm lại); sau đó trả lại giá trị cho event end
+assert calls[0] == ('snap', '/o/snap_unhandled.bin', 0x7ff00010, {'FooBar': 2}) and cc == {'FooBar': 3}, (calls, cc)
 assert ('unhandled_snap', {'api': 'FooBar', 'dll': 'kernel32.dll'}) in calls and calls[-1] == ('stop',), calls
-r, ctx, calls = run_unhandled(False)                                          # không bật cờ: không ghi snapshot, vẫn ghi CTX
-assert ctx['unhandled'] == 'kernel32.dll!FooBar' and not any(c[0] == 'snap' for c in calls), calls
+r, ctx, calls, cc = run_unhandled(False)                                          # không bật cờ: không ghi snapshot, vẫn ghi CTX
+assert ctx['unhandled'] == 'kernel32.dll!FooBar' and not any(c[0] == 'snap' for c in calls) and cc == {'FooBar': 3}, calls
 
 # ---- 2. finish() ghi 'unhandled' vào event end chỉ khi có ----
 m = re.search(r'\n(def finish\(reason\):\n.*?)\nt0 = time\.time\(\)', src, re.S)

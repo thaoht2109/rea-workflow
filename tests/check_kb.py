@@ -68,6 +68,23 @@ try:
     assert t['b.u1r']['caught'] == 'phản biện' and t['a.u1r']['caught'] == 'tự sửa', t
     r = run('kb', 'corrections'); assert '3 fact bị thay ở 2 case' in r.stdout and 'url 2' in r.stdout, r.stdout
     r = run('kb', 'corrections', '--since', '2026-02-01'); assert '1 fact bị thay ở 1 case' in r.stdout, r.stdout
+    # 4b. kho dùng chung nhiều workspace: dựng ở workspace khác (hoặc thư mục không có case) không xóa bản ghi của workspace này;
+    #     report --final dựng theo workspace của case chứ không theo cwd; case trùng tên ở workspace khác vẫn được so, có tên workspace
+    ws2 = tempfile.mkdtemp(prefix='rea-kb2-'); empty = tempfile.mkdtemp(prefix='rea-kb3-')
+    try:
+        shutil.copytree(A, os.path.join(ws2, 'CASE_B'))   # cùng tên CASE_B, nội dung như CASE_A
+        assert run('kb', 'build', env=dict(env, REA_WORKSPACE=ws2)).returncode == 0
+        assert run('kb', 'build', env=dict(env, REA_WORKSPACE=empty)).returncode == 0
+        S = [json.loads(l) for l in open(os.path.join(kbd, 'samples.jsonl'))]
+        assert {(os.path.basename(r['ws']), r['case']) for r in S} >= {(os.path.basename(ws), 'CASE_A'), (os.path.basename(ws2), 'CASE_B')}, S
+        kb.refresh(os.path.join(ws, 'CASE_A'))   # in-process, cwd không phải workspace
+        S = [json.loads(l) for l in open(os.path.join(kbd, 'samples.jsonl'))]
+        assert {os.path.basename(r['ws']) for r in S} == {os.path.basename(ws), os.path.basename(ws2)}, S
+        o = run('kb', 'match', 'CASE_B').stdout
+        assert f'{os.path.basename(ws2)}:CASE_B' in o and 'CASE_A/work/sample/drop.bin' in o, o
+    finally: shutil.rmtree(ws2, ignore_errors=True); shutil.rmtree(empty, ignore_errors=True)
+    r = subprocess.run([sys.executable, os.path.join(T, 'reacfg.py')], capture_output=True, text=True, cwd=T, env=dict(env, REA_KB='off'))
+    assert any('REA_KB' in l and l.startswith('OK') and 'tắt' in l for l in r.stdout.splitlines()), r.stdout
     # 5. kho trong thư mục skill bị từ chối; off thì tắt
     r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(T, 'kbdata'))); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'kbdata')), r.stderr
     r = run('kb', 'build', env=dict(env, REA_KB='off')); assert r.returncode == 0 and 'off' in r.stdout, r.stdout

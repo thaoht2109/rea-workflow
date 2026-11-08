@@ -163,7 +163,10 @@ def match(c, limit=40, header=True):
     if K is None:
         if header: print(f'kb: chưa có kho ở {d}: chạy flow.py kb build')
         return 0
-    me = os.path.basename(os.path.abspath(c)); K = [r for r in K if r['case'] != me]
+    me, mws = os.path.basename(os.path.abspath(c)), os.path.dirname(os.path.abspath(c))
+    K = [r for r in K if (r['case'], r.get('ws', mws)) != (me, mws)]   # bỏ chính case này; case trùng tên ở workspace khác vẫn so
+    for r in K:
+        if r.get('ws', mws) != mws: r['case'] = f"{os.path.basename(r['ws'])}:{r['case']}"   # nêu rõ workspace khác
     F = [r for r in K if r.get('kind') != 'case']; C = [r for r in K if r.get('kind') == 'case']
     freq = collections.defaultdict(collections.Counter)
     for k in ('imphash', 'pdb_guid', 'build_id', 'rich', 'impfuncs_md5'):

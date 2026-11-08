@@ -1,461 +1,233 @@
-# rea-flow
+<div align="center">
 
-**Skill dịch ngược mã độc có kiểm chứng cho AI coding agent.** Repo: <https://github.com/thaoht2109/rea-workflow> (public)
+# rea-workflow
 
-rea-flow biến một agent (Claude Code, Codex, Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình:
+**Quy trình dịch ngược mã độc có kiểm chứng cho AI coding agent**
 
-- **Không bao giờ thực thi mẫu.** Chỉ phân tích tĩnh và giả lập CPU.
-- **Mỗi kết luận là một fact** có nguồn (`S` tĩnh, `E` giả lập, `V` VM) và bằng chứng trong `report/evidence/`; máy kiểm fact ngay khi ghi.
-- **Cổng phản biện độc lập** (máy + một phiên LLM mới, cô lập) trước khi ra báo cáo cuối.
-- **Báo cáo tiếng Việt** có bảng IOC, bảng đính chính, mục hạn chế/OPSEC.
-- **Chạy được với AI local:** phản biện qua Ollama, vLLM, llama.cpp… trên server tự dựng; cả vòng phân tích bằng Ollama + Qwen với OpenCode hoặc Codex CLI ([mục 4.2](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)), để dữ liệu mẫu không rời mạng nội bộ.
+[![CI](https://github.com/thaoht2109/rea-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/thaoht2109/rea-workflow/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/thaoht2109/rea-workflow?label=release&sort=semver)](https://github.com/thaoht2109/rea-workflow/tags)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Linux%20x86--64-lightgrey)
+
+[Tính năng](#tính-năng) · [Cách hoạt động](#cách-hoạt-động) · [Cài đặt](#cài-đặt) · [Sử dụng](#sử-dụng) · [AI local](#chạy-bằng-ai-local) · [Cấu hình](#cấu-hình) · [Bảo mật](#bảo-mật) · [Giới hạn](#giới-hạn) · [Cập nhật](#cập-nhật-và-gỡ-cài-đặt)
+
+</div>
+
+---
+
+rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
+
+> Skill được cài với định danh `rea-flow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-flow`), thư mục cấu hình (`~/.config/rea-flow`) và khi gọi skill trong agent.
+
+## Tính năng
 
 | | |
 |---|---|
-| Mẫu hỗ trợ | PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK |
-| Đầu ra | `CASE/facts.jsonl` + `CASE/report/README.md`, `GENERATED.md`, `evidence/` |
-| Nền tảng | Linux x86-64 (Debian/Ubuntu/Kali đã kiểm) |
-| Phiên bản | tag `vX.Y.Z`; xem, cập nhật, lên/hạ bản: mục 8 |
+| **Không bao giờ thực thi mẫu** | Chỉ phân tích tĩnh và giả lập CPU. Mọi lời gọi mạng của mẫu chỉ được ghi lại, không gửi đi. Mẫu luôn ở chế độ chỉ đọc. |
+| **Kết luận có bằng chứng** | Mỗi kết luận là một *fact* ghi rõ nguồn (tĩnh, giả lập hay VM) và trỏ tới đoạn bằng chứng cụ thể. Ngay khi ghi, máy kiểm bằng chứng có tồn tại không, giá trị có nằm trong bằng chứng không, hash và con số có tính lại khớp không. |
+| **Phản biện độc lập** | Trước báo cáo cuối, một phiên LLM mới, không thấy ngữ cảnh phân tích, soát lại toàn bộ fact. Cổng chạy tối đa hai lần. Lần hai vẫn không đạt thì dừng lại, chờ người quyết. |
+| **Tiết kiệm token** | Script làm phần việc lặp, agent chỉ đọc tóm tắt. Skill dẫn đường từng bước, tách phiên theo mốc và làm tiếp được sau khi xóa ngữ cảnh. |
+| **Học từ case cũ** | Khi triage mẫu mới, skill so với các case đã phân tích (imphash, PDB, chứng thư số, C2…) và gợi ý hướng điều tra. Kho này xuất/nhập được giữa các server. |
+| **Báo cáo chuẩn hóa** | Báo cáo tiếng Việt có bảng IOC, bảng đính chính và mục hạn chế/OPSEC. Các bảng sinh tự động từ fact. |
+| **Chạy được trong mạng nội bộ** | Cả phân tích lẫn phản biện chạy được bằng LLM tự dựng (Ollama, vLLM, llama.cpp). Dữ liệu mẫu không rời khỏi hạ tầng của bạn. |
 
-**Mục lục:** [1. Yêu cầu](#1-yêu-cầu) · [2. Cài đặt](#2-cài-đặt) · [3. Chạy phân tích](#3-chạy-phân-tích) · [4. Cổng phản biện](#4-cổng-phản-biện) ([LLM local](#41-dùng-llm-local-ollama-qwen-vllm-trên-server-tự-dựng), [AI local toàn bộ](#42-chạy-toàn-bộ-bằng-ai-local-ollama-qwen-opencode-codex-cli)) · [5. Cấu hình](#5-cấu-hình) · [6. An toàn và OPSEC](#6-an-toàn-và-opsec) · [7. Giới hạn](#7-giới-hạn) · [8. Phiên bản, cập nhật và gỡ](#8-phiên-bản-cập-nhật-và-gỡ) ([update --to](#83-đổi-sang-một-bản-cụ-thể-lên-hoặc-hạ---to)) · [9. Phát triển skill](#9-phát-triển-skill)
+**Định dạng hỗ trợ:** PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK.
 
----
+## Cách hoạt động
 
-## 1. Yêu cầu
-
-| Thành phần | Bắt buộc | Dùng cho |
-|---|---|---|
-| Linux x86-64, Python ≥ 3.9 | có | mọi script của skill |
-| Node.js ≥ 22.20 (`npm`, `npx`) | có | bộ cài skill và CLI `rea` |
-| Một coding agent | có | Claude Code (khuyên dùng), Codex, Copilot, Cursor, Gemini CLI, OpenCode… |
-| `7z`, `pefile` | có | giải nén mẫu, triage PE |
-| `capstone`, `unicorn` 2.1.4 | có | disassembly, giả lập CPU (`winemu`) |
-| JDK 21 + **Ghidra 12** | có | engine decompile (của `rea` trên Linux, và Ghidra headless cho MIPS/PPC) |
-| **`rea`** (gói npm [`rea-agents`](https://github.com/morluto/rea)) | có | decompile và inspect: PE/ELF/Mach-O, Go, .NET, Android, JS/Electron… |
-| `upx` | không | tự bóc vỏ UPX |
-| Một LLM cho phản biện lớp 2 | không | CLI `claude`/`codex`/`copilot`/`gemini`/`cursor-agent` đã đăng nhập, hoặc API chuẩn OpenAI (ChatGPT, DeepSeek…), hoặc **LLM local** chuẩn OpenAI (Ollama, vLLM, llama.cpp; mục 4.1). Không có thì dùng chế độ `manual` (dán vào chat web) |
-
-Lệnh cài skill (mục 2.1) kiểm và cài luôn các công cụ phân tích ở trên; chỉ cần có sẵn Node.js, Python và agent. Không cần, và **không được**, cài wine để chạy mẫu.
-
----
-
-## 2. Cài đặt
-
-### 2.1. Cài skill và công cụ phân tích: một lệnh
-
-```bash
-npx github:thaoht2109/rea-workflow -g        # cài toàn máy; hỏi trước khi cài công cụ còn thiếu
-npx github:thaoht2109/rea-workflow -g -y     # không hỏi gì: cài skill cho mọi agent và cài luôn công cụ thiếu
-npx github:thaoht2109/rea-workflow           # chỉ cho project hiện tại (chạy trong thư mục project)
+```text
+  mẫu ──► triage ──► bóc vỏ ──► decompile có mục tiêu ──► giả lập CPU ──► giải mã payload
+             │                                                                  │
+             └───────────────► facts.jsonl + bằng chứng ◄────────────────────────┘
+                                         │
+                              phản biện độc lập (≤ 2 lần)
+                                         │ đạt
+                                  báo cáo tiếng Việt
 ```
 
-Lệnh làm ba việc:
+Agent chỉ chuyển sang bước tốn kém hơn khi checklist còn mục chưa trả lời được. Case đóng khi checklist đủ và phản biện đạt. Không cần máy ảo.
 
-1. Cài skill qua [skills CLI](https://github.com/vercel-labs/skills) (hỏi cài cho agent nào; `-a claude-code -a codex -a opencode` để chọn sẵn).
-2. Chép mục "Quy tắc bắt buộc" vào file hướng dẫn của agent đúng phạm vi: `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.config/opencode/AGENTS.md` (toàn máy, chỉ cho agent đã có thư mục cấu hình trên máy) hoặc `AGENTS.md`, `CLAUDE.md` của project (`GEMINI.md` chỉ khi đã có file hoặc máy có Gemini CLI). Quy tắc nằm giữa cặp marker `rea-flow:rules`, cài lại không lặp.
-3. Chạy `flow.py setup` (mục 2.2): in công cụ còn thiếu và kế hoạch cài, hỏi `[Y/n]` rồi cài (apt cần sudo). `-y` cài luôn không hỏi; `--no-tools` chỉ kiểm; `--no-ghidra` bỏ Ghidra. Chạy không có terminal tương tác mà không `-y` thì chỉ kiểm và in lệnh cài.
+## Cài đặt
 
-Dưới đây `$SKILL` là thư mục skill vừa cài (xem bằng `npx skills list -g`; thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`).
+### Yêu cầu
 
-Cập nhật về sau: `npx github:thaoht2109/rea-workflow update -g` (mục 8).
+- Linux x86-64 (đã kiểm trên Debian, Ubuntu, Kali)
+- Python ≥ 3.9 và Node.js ≥ 22.20
+- Một coding agent đã cài và đăng nhập
 
-Không có Node: `git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-flow/flow.py rules --global`.
+Bộ cài tự kiểm và cài các công cụ phân tích còn thiếu: 7-Zip, pefile, Capstone, Unicorn, JDK 21, Ghidra 12, [`rea`](https://github.com/morluto/rea). Không cần, và **không được**, cài wine.
 
-### 2.2. Công cụ phân tích (`flow.py setup`)
-
-Bước 3 của lệnh cài ở trên. Chạy riêng khi cần kiểm lại hoặc cài sau:
+### Cài một lệnh
 
 ```bash
-python3 $SKILL/flow.py setup          # chỉ kiểm, in kế hoạch cài (mã 1 nếu thiếu bất kỳ công cụ nào, kể cả upx tùy chọn); không thay đổi gì
-python3 $SKILL/flow.py setup --yes    # cài phần thiếu; --no-ghidra để bỏ Ghidra (~550 MiB)
+npx github:thaoht2109/rea-workflow -g        # cài cho toàn máy, hỏi trước khi cài công cụ
+npx github:thaoht2109/rea-workflow -g -y     # cài toàn bộ, không hỏi
+npx github:thaoht2109/rea-workflow           # chỉ cho project hiện tại
 ```
 
-| Công cụ | `setup --yes` cài bằng |
-|---|---|
-| `7z`, `pefile`, `capstone`, `upx`, JDK 21 | `sudo apt-get install 7zip python3-pefile python3-capstone upx-ucl openjdk-21-jdk-headless` (bản cũ: `p7zip-full`; không có apt: `pefile`, `capstone` cài bằng pip vào `REA_PYLIB`, `7z`, `upx`, JDK in ra để cài tay) |
-| `unicorn` 2.1.4 | `pip install --target REA_PYLIB` (mặc định `~/.local/share/rea-flow/pylib`) (không cần sudo, chạy được với PEP 668) |
-| Ghidra 12.1.4 | tải bản phát hành chính thức từ GitHub, **đối chiếu sha256** GitHub công bố (sai thì xoá và dừng; release không công bố digest thì không kiểm được), giải nén vào `~/.local/share/rea-flow/`, ghi `GHIDRA_INSTALL_DIR` vào `~/.config/rea-flow/rea.env` |
-| `rea` | `npm install -g rea-agents@6.7.0` (thư mục npm toàn cục không ghi được thì `--prefix ~/.local`) |
-| Node.js | chỉ hướng dẫn cài tay (nodejs.org hoặc nvm): apt của nhiều bản phân phối còn bản cũ |
+Lệnh này làm ba việc: cài skill cho các agent bạn chọn, thêm quy tắc an toàn vào file hướng dẫn của agent (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`), rồi cài công cụ phân tích. Cài apt cần sudo. Ghidra nặng khoảng 550 MiB; bỏ qua Ghidra bằng `--no-ghidra`.
 
-Phiên bản Ghidra và `rea` được ghim ở bản đã kiểm với rea-flow. `setup` không bao giờ cài wine.
+<details>
+<summary>Cài không có Node.js</summary>
 
-### 2.3. Kiểm tra cấu hình
+```bash
+git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow
+python3 ~/.claude/skills/rea-flow/flow.py rules --global
+python3 ~/.claude/skills/rea-flow/flow.py setup --yes
+```
+</details>
+
+### Kiểm tra
+
+Trong tài liệu này, `$SKILL` là thư mục skill đã cài, thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`.
 
 ```bash
 python3 $SKILL/flow.py doctor
 ```
 
-In từng mục `OK` / `THIẾU` / `WARN` kèm gợi ý, trả mã 1 nếu thiếu mục bắt buộc. Dòng "lớp 2 phản biện" cho biết backend LLM sẽ dùng; CLI của backend đó phải đã đăng nhập.
+Lệnh in trạng thái từng thành phần: `OK`, `THIẾU` hoặc `WARN`, kèm gợi ý cách khắc phục.
 
-### 2.4. Phiên phân tích gọn (khuyên dùng với Claude Code, một lần)
+### Phiên phân tích gọn (khuyên dùng với Claude Code)
 
 ```bash
-cd ~/malware-cases                         # thư mục sẽ chứa các case (workspace)
-python3 $SKILL/flow.py session --install   # gỡ: flow.py session --uninstall
+cd ~/malware-cases                         # thư mục sẽ chứa các case
+python3 $SKILL/flow.py session --install   # cài một lần; gỡ bằng --uninstall
 ```
 
-Lệnh thêm một khối hàm shell vào `~/.bashrc`/`~/.zshrc`. Từ đó, **trong workspace** (kể cả thư mục case con):
+Từ đó, gõ `claude` trong thư mục này sẽ mở phiên chỉ giữ công cụ dịch ngược, nên ngữ cảnh nền nhẹ hơn. Ở thư mục khác, `claude` vẫn chạy như thường.
 
-| Gõ | Kết quả |
+## Sử dụng
+
+Mở agent trong thư mục chứa case và giao việc bằng lời:
+
+> Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) bằng skill rea-flow
+
+Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và viết báo cáo. Bạn chỉ cần trả lời khi agent hỏi, và gõ `/clear` khi được đề nghị để giảm ngữ cảnh.
+
+**Lệnh thường dùng** (khi muốn tự điều khiển):
+
+| Lệnh | Mục đích |
 |---|---|
-| `claude` | Phiên phân tích: giữ skill, MCP và plugin phục vụ dịch ngược (rea, Ghidra, IDA, radare/rizin, Frida, jadx, YARA…), tắt MCP/plugin không liên quan và hook; nạp rea-flow. Ngữ cảnh nền ít hơn khoảng 20%. `flow.py session --strict`: chỉ còn rea-flow (ít hơn khoảng 45%) |
-| `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode` | cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` rồi chạy như thường |
+| `flow.py new CASE mẫu.exe` | Tạo case và triage |
+| `flow.py next CASE` | Việc kế tiếp, lệnh đã điền sẵn |
+| `flow.py review CASE --llm` | Chạy cổng phản biện |
+| `flow.py report CASE --final` | Sinh báo cáo cuối (khi phản biện đạt) |
+| `flow.py help` | Toàn bộ lệnh |
 
-Ngoài workspace, mọi thứ chạy như cũ. Không cài hàm shell thì mở bằng `python3 $SKILL/flow.py session`.
+**Kết quả** nằm trong thư mục của từng case:
 
----
-
-## 3. Chạy phân tích
-
-### 3.1. Cách nhanh nhất
-
-```bash
-cd ~/malware-cases && claude
-```
-
-Rồi giao việc bằng lời, ví dụ: *"Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) theo rea-flow"*. Agent tự:
-
-1. `flow.py new` tạo case, chép mẫu (quyền 0400), giải nén, triage tĩnh;
-2. đi theo checklist, leo tầng rẻ → đắt (triage → bóc vỏ → decompile → giả lập → payload), ghi mỗi kết luận thành fact;
-3. đến mốc thì `flow.py checkpoint` và đề nghị bạn `/clear` để giảm ngữ cảnh, rồi `flow.py resume` làm tiếp;
-4. chạy cổng phản biện (tối đa 2 lần), hỏi bạn chấp nhận các mục checklist không đạt được (kèm lý do);
-5. sinh báo cáo cuối và `audit`.
-
-Bạn chỉ cần trả lời khi agent hỏi và gõ `/clear` khi được đề nghị.
-
-### 3.2. Quy trình
-
-```
-mẫu ─► T0 triage ─► T1 bóc vỏ ─► T2 decompile có mục tiêu ─► T3 giả lập CPU ─► T4 payload offline
-          │                                                                     │
-          └──────────── facts.jsonl (S / E / V) + report/evidence/ ◄────────────┘
-                                         │
-                          cổng phản biện (≤ 2 lần) ──FAIL──► STOP_REPORT.md (người dùng quyết)
-                                         │PASS
-                             checklist C0–C11 đủ? ──thiếu──► leo tầng kế tiếp
-                                         │đủ
-                                báo cáo cuối, đóng case (không cần VM)
-```
-
-| Tầng | Công cụ | Nguồn fact |
-|---|---|---|
-| T0 Triage | `static/triage.py`: loại file, hash, entropy, import/export, IOC ứng viên (chỉ là gợi ý trong `triage_*.json`, không tự thành fact) | S |
-| T1 Bóc vỏ | zip/7z/rar (APK/OOXML/JAR/ODF giữ nguyên), `upx -d`, NSIS (giải "sàng byte" lộ `System::Call`) | S |
-| T2 Tĩnh có mục tiêu | `flow.py dec` (rea, tự chuyển Ghidra headless cho MIPS/PPC), lệnh `rea` tĩnh theo loại mẫu (`FLOW.md` mục 4a), tên hàm Go từ `.gopclntab` | S |
-| T3 Giả lập | `winemu`: Windows x86-32 giả trên Unicorn (PEB/TEB, VEH, DLL giả, mạng chỉ ghi lại) | E |
-| T4 Payload | giải mã offline bằng khóa/định dạng từ T2/T3, triage lại | S/E |
-| T5 VM ngoài | chỉ khi người dùng quyết định | V |
-
-**Checklist đóng case:** C0 Phản biện · C1 Nhận dạng · C2 Delivery và điểm vào · C3 Chống phân tích · C4 Giải mã chuỗi/config · C5 IOC mạng · C6 Tiêm mã · C7 Persistence · C8 Payload: định dạng và khóa · C9 Payload cuối · C10 Họ mã độc · C11 Độ phủ. Mục không đạt được có thể chấp nhận kèm lý do (`flow.py next CASE --accept Cx=lý do[,Cy=lý do]`, lưu ở `work/accepted.json`); agent ghi lý do vào mục hạn chế của báo cáo (`next` nhắc).
-
-### 3.3. Lệnh
-
-Agent chạy các lệnh này; bạn cũng chạy được trực tiếp từ workspace. Danh sách đầy đủ: `python3 $SKILL/flow.py help`. Việc kế tiếp của một case: `python3 $SKILL/flow.py next CASE`.
-
-```bash
-python3 $SKILL/flow.py new  CASE mẫu.exe [file2 ...]         # tạo case, chép mẫu, giải nén, triage
-python3 $SKILL/case.py add CASE id=c2.main kind=c2 value='host:443' src=E evidence=report/evidence/emu.txt#L12
-python3 $SKILL/case.py add CASE id=scan.hosts kind=string value='8 máy WIN-*' src=S evidence=report/evidence/scan.txt \
-        recompute='distinct (WIN-[A-Z0-9]+) report/evidence/scan.txt = 8'     # con số: máy đếm lại
-python3 $SKILL/flow.py review CASE --llm --detach            # cổng phản biện; gọi lại tới khi mã khác 6
-python3 $SKILL/flow.py kb match CASE                         # gợi ý mẫu tương tự ở case khác (không phải fact); kho tự dựng ở lần new/triage đầu tiên
-python3 $SKILL/flow.py kb export kb-srv1.jsonl.gz --name srv1  # chia sẻ/backup kho; máy khác: flow.py kb import kb-srv1.jsonl.gz
-```
-
-Sửa fact bằng fact mới có `supersedes=<id cũ>`; không sửa hay xoá dòng cũ trong `facts.jsonl`.
-
-### 3.4. Tách phiên theo mốc (giảm token)
-
-Mỗi lần gọi model đọc lại toàn bộ ngữ cảnh, nên chi phí ≈ số lượt × độ lớn ngữ cảnh; phiên phân tích dài thường ở 200k+ token mỗi lượt. Mở phiên mới ở các mốc (sau triage/bóc vỏ, sau mỗi cụm decompile, sau mỗi đợt giả lập, trước cổng phản biện, trước báo cáo) giảm khoảng 20–40% trên phiên dài. Điều kiện để không mất chất lượng: mọi kết quả đã nằm trên đĩa. `checkpoint` chặn tách phiên khi còn fact lỗi lint hoặc kết quả chạy chưa ghi thành fact; `resume` dựng lại trạng thái từ `facts.jsonl` (việc kế, cổng, fact kết luận nguyên văn, giả thuyết). Không tách cho bước nhỏ: phiên mới hoà vốn sau khoảng 5 lượt.
-
-### 3.5. Kết quả: cấu trúc một case
-
-```
+```text
 CASE/
-├── facts.jsonl            # nguồn sự thật duy nhất; chỉ nối thêm
-├── report/
-│   ├── README.md          # báo cáo (phần nhận định do agent/người viết)
-│   ├── GENERATED.md       # bảng IOC, nguồn, đính chính, evidence: sinh từ facts
-│   └── evidence/          # bằng chứng ngắn mà mọi fact trỏ tới (kèm #L dòng)
-└── work/
-    ├── sample/            # mẫu, chỉ đọc
-    ├── runs/              # triage_<tên>/triage.json, dec/ (mã giả)
-    ├── scripts/  extract/  ghidra/   # ghidra/: project Ghidra headless; rea_*.snapshot: snapshot của rea
-    ├── accepted.json      # mục checklist chấp nhận hạn chế
-    ├── checkpoint.json    # mốc chốt gần nhất
-    └── review/            # r1/, r2/ (review.json, salvage.jsonl, stream.jsonl, analyst_out.txt), state.json, usage.jsonl,
-                           # llm_cache/, report_todo.json, run.pid/run.log/run.rc (--detach), STOP_REPORT.md, OVERRIDE
+├── facts.jsonl          mọi kết luận kèm nguồn và bằng chứng
+└── report/
+    ├── README.md        báo cáo
+    ├── GENERATED.md     bảng IOC, bảng đính chính, danh sách bằng chứng
+    └── evidence/        đoạn bằng chứng
 ```
 
----
+**Chia sẻ kinh nghiệm giữa các server.** Kho tra chéo tự dựng ở lần phân tích đầu tiên và tự cập nhật mỗi khi đóng case. Để chuyển sang server khác hoặc giữ bản dự phòng:
 
-## 4. Cổng phản biện
+```bash
+python3 $SKILL/flow.py kb export kb-srv1.jsonl.gz --name srv1   # trên server nguồn
+python3 $SKILL/flow.py kb import kb-srv1.jsonl.gz               # trên server nhận
+```
 
-| | Lớp 1: máy | Lớp 2: LLM bất kỳ, phiên mới cô lập |
-|---|---|---|
-| Kiểm gì | evidence tồn tại, đúng dòng; hash tính lại; giá trị IOC có trong evidence; nguồn S/E/V khớp loại evidence; con số `recompute` đếm lại khớp | phản biện như chuyên gia: evidence có chứng minh không, giải thích thay thế (chuỗi chứng thư/thư viện, import chưa gọi, kết quả do stub giả lập…), mức chắc chắn, chủ đề còn thiếu |
-| Cũng chạy khi | ghi fact (`case.py add`, `--strict` để từ chối) | — |
+Gợi ý từ kho chỉ là điểm bắt đầu điều tra, không phải kết luận.
 
-- **Mã thoát:** `review` 0 PASS, 1 FAIL, 2 STOPPED, 4 chờ manual; `--detach` 6 đang chạy, 7 tiến trình nền chết, 70 tiến trình nền gặp lỗi (thường lớp 2 bị ngắt; xem `work/review/run.log`); `review-loop` 3 HANDOFF (agent hiện tại tự sửa), 5 lượt sửa không đổi gì; `next` 0 DONE, 1 kèm `NEED_MORE`/`NEED_REVIEW`/`NEED_FIX`/`NEED_REPORT`/`STOPPED`.
-- **Tối đa 2 lần.** Lần 1 FAIL thì sửa đúng fact bị chỉ ra; lần 2 vẫn FAIL thì `STOPPED`, sinh `STOP_REPORT.md`, chặn báo cáo cuối. Mở lại: sửa `facts.jsonl` (mở bộ đếm 2 lần mới; theo quy tắc chỉ người dùng quyết định việc này, máy không phân biệt ai sửa) hoặc `work/review/OVERRIDE` có `facts_sha256` khớp.
-- Luật mức high/low, cách chọn fact gửi LLM, cô lập phiên, chạy nền (`--detach`) và ghi usage: chi tiết ở `FLOW.md` mục 3b.
+## Chạy bằng AI local
 
-| Backend (`REVIEW_LLM`) | Cách chạy |
-|---|---|
-| `auto` (mặc định) | `cmd` nếu đã đặt `REVIEW_LLM_CMD`; rồi `api` nếu đã khai LLM local (`REVIEW_MODEL` và `REVIEW_API_BASE` ở IP riêng, loopback hoặc tên không có dấu chấm; tên miền nội bộ thì đặt `REVIEW_LLM=api`), nếu không thì CLI đầu tiên có trên máy theo thứ tự claude, codex, gemini, copilot, cursor, rồi `api` nếu có key và model, cuối cùng `manual`: lớp 2 luôn chạy được |
-| `claude` | một phiên agent có công cụ chỉ đọc (`Read`, `Grep`, `python3 -I`) trên bản sao tạm |
-| `copilot`, `codex` | CLI không tương tác với `HOME` tạm chỉ mang xác thực. copilot cần `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`/`GITHUB_TOKEN` hoặc `gh auth login`; codex chép `auth.json` từ `CODEX_HOME` (cô lập theo tài liệu CODEX_HOME, chưa kiểm thật) |
-| `gemini`, `cursor` | CLI không tương tác; **chưa cô lập** khỏi cấu hình người dùng (in cảnh báo) |
-| `api` | API chat completions chuẩn OpenAI: ChatGPT, DeepSeek, hoặc **LLM local** (Ollama, vLLM, llama.cpp, LM Studio…) (`REVIEW_API_BASE`, `REVIEW_MODEL`, `REVIEW_API_KEY`) |
-| `cmd` | lệnh tự khai (`REVIEW_LLM_CMD`): prompt qua stdin, text ra stdout; **chưa cô lập** (in cảnh báo) |
-| `manual` | script ghi `…prompt.md`; dán vào một cuộc chat **mới**, lưu câu trả lời vào `…answer.md`, chạy lại (mã 4 = đang chờ) |
-
-Backend không có công cụ nhận hồ sơ tự chứa và xin thêm dữ liệu bằng thao tác chỉ đọc; chi tiết ở `FLOW.md` mục 3b.
-
-### 4.1. Dùng LLM local (Ollama, Qwen, vLLM… trên server tự dựng)
-
-Dữ liệu mẫu, evidence và IOC không rời mạng nội bộ. Ghi vào `~/.config/rea-flow/rea.env`:
+Muốn dữ liệu mẫu không rời mạng nội bộ thì dùng LLM tự dựng. Khai trong `~/.config/rea-flow/rea.env`:
 
 ```bash
 REVIEW_LLM=api
-REVIEW_API_BASE=http://10.0.0.5:11434/v1    # Ollama; vLLM / llama.cpp server thường là http://HOST:8000/v1
-REVIEW_MODEL=qwen2.5-coder:32b              # đúng tên server khai (GET /v1/models)
-REVIEW_BATCH=8                              # model nhỏ: ít fact mỗi lô
-# REVIEW_API_KEY: không cần với server tự dựng (chỉ bắt buộc với OpenAI/DeepSeek)
+REVIEW_API_BASE=http://10.0.0.5:11434/v1    # Ollama; vLLM / llama.cpp thường là :8000/v1
+REVIEW_MODEL=qwen2.5-coder:32b
 ```
 
-- `flow.py doctor` gọi thử `GET {REVIEW_API_BASE}/models` và báo nếu không kết nối được hoặc server không có model.
-- **Trọn vòng `review-loop`:** khi FAIL, LLM local tự sửa fact rồi review lần 2. Model không có shell và không ghi file: nó chỉ đọc qua thao tác chỉ đọc và trả fact sửa dạng JSON; script gán `kind`/`src` theo fact cũ, chỉ nhận fact trong danh sách lỗi, rồi ghi bằng `case.add` strict. Model không tạo được evidence mới (không chứng minh được thì hạ `hypothesis`; giá trị nguyên văn như `c2`, `url` không có trong evidence thì phải `retracted`, vì cổng phản biện vẫn kiểm giá trị của `hypothesis`) và không sửa README, nên phần chữ báo cáo vẫn do người hoặc agent cập nhật theo `work/review/r<N>/analyst_out.txt`: `flow.py next` báo `NEED_REPORT` và `report --final` bị chặn tới khi `report/README.md` nhắc tới id của các fact mới (ghi vào bảng đính chính).
-- **Ngữ cảnh:** hồ sơ phản biện dài 20–70 KB; Ollama mặc định chỉ 2–4k token và **cắt im lặng**. Đặt `OLLAMA_CONTEXT_LENGTH=32768` cho server (hoặc `PARAMETER num_ctx 32768` trong Modelfile). Review tự báo lỗi (không tính một lần review) nếu server nhận ít token hơn nhiều so với prompt.
-- **Chọn model:** nên từ khoảng 32B (Qwen2.5-Coder 32B, Qwen3 32B, Llama 3.3 70B…). Model 7–8B hay trả JSON sai hoặc bịa nhận định; canary và luật severity chặn được phần lớn nhưng giá trị phản biện giảm.
+Nên dùng model từ khoảng 32B tham số, ngữ cảnh ≥ 32k token (Ollama: `OLLAMA_CONTEXT_LENGTH=32768`).
 
-**Agent phân tích chính chạy model local:** xem mục 4.2. Vòng phân tích dài, gọi nhiều công cụ nên model nhỏ dễ lạc hướng. Có thể kết hợp: agent chính dùng model mạnh, phản biện lớp 2 dùng model local.
-
-### 4.2. Chạy toàn bộ bằng AI local (Ollama, Qwen, OpenCode, Codex CLI)
-
-Ollama chỉ chạy model, không tự chạy công cụ. Cần thêm một **runtime**: OpenCode hoặc Codex CLI nhận lời gọi công cụ từ model rồi chạy `flow.py`, `case.py`, `winemu`. Phản biện lớp 2 gọi thẳng Ollama, không qua runtime, để giữ phiên cô lập.
-
-```text
-OpenCode hoặc Codex CLI ──prompt──▶ Ollama (Qwen)
-  └─ chạy flow.py, Ghidra, winemu trong workspace
-flow.py review ──────────prompt──▶ Ollama (phiên mới, không công cụ)
-```
-
-| Runtime | Giới hạn lệnh của model | Khi nào dùng |
-|---|---|---|
-| **Codex CLI** | Sandbox hệ điều hành; `workspace-write` tắt mạng mặc định | Nên chọn khi cần chặn mạng ở mức hệ thống |
-| **OpenCode** | Chỉ có luật theo mẫu lệnh, không có sandbox; mặc định cho phép gần như mọi thứ | Dùng với `flow.py opencode`, chạy trong VM hoặc container |
-
-| Model | Dung lượng | Ghi chú |
-|---|---|---|
-| `qwen3-coder:30b` | 19 GB | Mặc định: có tool calling, ngữ cảnh 256K |
-| `qwen3.5:27b` | 17–20 GB | Model tổng quát, có tool calling |
-| `qwen3.5:9b` | 6,6–7,6 GB | Chỉ để thử: model nhỏ dễ lạc hướng và hay trả lời đã làm mà không gọi công cụ |
-
-Không dùng tag `-cloud`: tag này chạy trên hạ tầng của Ollama, dữ liệu mẫu rời khỏi máy.
-
-**Bước 1: chạy Ollama.** Cài từ [ollama.com](https://ollama.com), rồi:
+Để chạy **cả vòng phân tích** bằng AI local, dùng Ollama cho model và OpenCode hoặc Codex CLI làm runtime:
 
 ```bash
-OLLAMA_CONTEXT_LENGTH=64000 ollama serve     # coding agent cần >= 64k; máy dưới 24 GiB VRAM mặc định chỉ 4k
+# 1. Ollama (chạy ở terminal hoặc dịch vụ riêng), rồi tải model
+OLLAMA_CONTEXT_LENGTH=64000 ollama serve
 ollama pull qwen3-coder:30b
-ollama ps                                    # khi model đang chạy: cột CONTEXT >= 64000, PROCESSOR 100% GPU
-```
 
-Ollama đặt ở máy khác: mở cổng cho mạng nội bộ bằng `OLLAMA_HOST=0.0.0.0` và chặn bằng firewall, vì Ollama không có xác thực. Thay `localhost` ở các bước sau bằng địa chỉ máy đó.
-
-**Bước 2: cài skill cho runtime đã chọn.**
-
-```bash
+# 2. Cài skill cho runtime và chép quy tắc vào workspace
 npx github:thaoht2109/rea-workflow -g -a opencode -a codex
-```
+cd <workspace> && python3 $SKILL/flow.py rules --project .
 
-**Bước 3a: dùng OpenCode.**
+# 3a. OpenCode
+python3 $SKILL/flow.py opencode --model qwen3-coder:30b
+OPENCODE_DISABLE_MODELS_FETCH=1 opencode
 
-```bash
-curl -fsSL https://opencode.ai/install | bash
-cd <workspace>
-python3 $SKILL/flow.py opencode --model qwen3-coder:30b     # sinh opencode.json; Ollama máy khác: --base-url http://HOST:11434/v1
-python3 $SKILL/flow.py rules --project .
-export OPENCODE_DISABLE_MODELS_FETCH=1                      # máy không có Internet
-opencode
-```
-
-`flow.py opencode` trỏ OpenCode về Ollama, tắt `webfetch`, `websearch`, tự cập nhật, và thêm luật: cho phép các lệnh phân tích của skill (neo đúng đường dẫn skill trên máy) và các lệnh đọc `grep`, `head`, `tail`, `ls`, `wc`, `sha256sum`, `file`, `strings` (`cat`, `sed`, `rea` vẫn phải hỏi); chặn `wine`, `qemu-*`, `rea capture-*`, `debug-with-gdb`, chạy `./file`, `chmod`, các lệnh mạng và lệnh đổi cấu hình (`flow.py opencode`, `rules`, `session`, `setup`: người chạy ngoài OpenCode); `winemu.py --plugin`/`--resume`, `flow.py next --accept`, lệnh ghép (`;`, `|`, `&`, `>`, `$(`, backtick) và lệnh còn lại phải hỏi. Chạy lại an toàn: khối `permission` được ghi mới, cấu hình khác được giữ. Đổi chỗ cài skill thì chạy lại lệnh này.
-
-Luật này chỉ để chặn nhầm, không phải ranh giới bảo mật: cách gọi gián tiếp vẫn có thể lọt, và `--auto` tự duyệt mọi lệnh đang ở mức hỏi. Vì vậy phải chạy trong VM không có Internet và không dùng `--auto`.
-
-**Bước 3b: dùng Codex CLI.**
-
-```bash
-npm install -g @openai/codex
-ollama launch codex --config                                # tạo profile ollama-launch, chọn qwen3-coder:30b
-cd <workspace>
-python3 $SKILL/flow.py rules --project .
+# 3b. hoặc Codex CLI
+ollama launch codex --config
 codex --profile ollama-launch --sandbox workspace-write -c 'web_search="disabled"'
 ```
 
-Sandbox có thể chặn `AF_UNIX`, khi đó `flow.py dec` tự dùng Ghidra headless, lần đầu chậm hơn. Kiểm tra: `codex sandbox linux python3 $SKILL/flow.py doctor`. Sandbox chỉ giới hạn mạng và vùng ghi, không cấm chạy mẫu, nên vẫn nên dùng VM có snapshot và không cài `wine`.
+- `flow.py opencode` sinh cấu hình chặn sẵn lệnh chạy mẫu và lệnh mạng. Luật này chỉ để tránh chạy nhầm, không phải ranh giới bảo mật. Vì vậy hãy chạy trong máy ảo không có Internet, và không dùng `opencode --auto`.
+- Ollama không có xác thực. Đặt Ollama ở máy khác thì chỉ mở cổng cho mạng nội bộ (`OLLAMA_HOST=0.0.0.0` kèm firewall).
+- Phản biện khi chạy bằng Ollama: dùng backend `api` như khai ở đầu mục này, không dùng `REVIEW_LLM=codex`. Backend codex chạy với `HOME` tạm nên không có profile Ollama.
+- Không dùng model có tag `-cloud`: các model này chạy trên hạ tầng bên ngoài.
 
-**Bước 4: phản biện bằng cùng model.** Ghi vào `~/.config/rea-flow/rea.env`, rồi chạy `python3 $SKILL/flow.py doctor`:
+## Cấu hình
 
-```bash
-REVIEW_API_BASE=http://localhost:11434/v1
-REVIEW_MODEL=qwen3-coder:30b
-```
-
-Không dùng backend `codex` cho phản biện ở cấu hình này: backend đó chạy với `HOME` tạm, không có profile Ollama.
-
----
-
-## 5. Cấu hình
-
-Mặc định đủ khi công cụ nằm trên `PATH` (và `setup --yes` tự ghi `GHIDRA_INSTALL_DIR`). Khi cần đổi:
+Mặc định đủ dùng khi công cụ nằm trên `PATH`. Khi cần đổi:
 
 ```bash
 mkdir -p ~/.config/rea-flow && cp $SKILL/rea.env.example ~/.config/rea-flow/rea.env
 ```
 
-File nằm ngoài thư mục skill nên cập nhật skill không làm mất. Biến môi trường cùng tên ghi đè file; `REA_ENV` trỏ tới file khác; workspace là thư mục hiện tại (hoặc `REA_WORKSPACE`).
-
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `GHIDRA_INSTALL_DIR`, `JAVA_HOME` | trống | Ghidra 12; JDK 21 (trống thì dùng `java` trên `PATH`) |
-| `REA_BIN`, `UPX_BIN`, `SEVENZ_BIN`, `CLAUDE_BIN` | `rea`, `upx`, `7z`, `claude` | tên trên `PATH` hoặc đường dẫn tuyệt đối |
-| `REA_PYLIB` | `$SKILL/pylib` nếu có, không thì `~/.local/share/rea-flow/pylib` (theo `XDG_DATA_HOME`) | thư mục chứa `unicorn` (và `pefile`, `capstone` khi không có apt) |
-| `REA_TMP` | `.tmp` (trong workspace) | thư mục tạm cho rea/Ghidra; đặt trên đĩa thật nếu `/tmp` nhỏ |
-| `REA_KB` | `~/.cache/rea-flow/kb` (theo `XDG_CACHE_HOME`) | kho tra chéo của `flow.py kb`, dựng lại được bằng `kb build`; không phụ thuộc thư mục hiện tại; chứa IOC nên phải nằm ngoài thư mục skill; `off` để tắt. Đặt giá trị khác thì dùng đường dẫn tuyệt đối hoặc `~/...` (đường dẫn tương đối tính từ workspace) |
-| `WINE_DLL_DIR` | `/usr/lib/x86_64-linux-gnu/wine` | chỉ để `winemu` đọc tên export DLL; wine không bao giờ được chạy |
-| `REVIEW_LLM` | `auto` | backend lớp 2 (mục 4) |
-| `REVIEW_MODEL`, `REVIEW_EFFORT` | trống, `medium` | model lớp 2 (bắt buộc với `api`; với `claude` là `--model`); mức suy nghĩ của claude |
-| `REVIEW_API_BASE`, `REVIEW_API_KEY` | OpenAI, `$OPENAI_API_KEY` | backend `api`; key bắt buộc với OpenAI/DeepSeek, không cần với LLM local (mục 4.1); đặt key bằng biến môi trường |
-| `REVIEW_LLM_CMD` | trống | backend `cmd` |
-| `REVIEW_BATCH`, `REVIEW_MAX_TURNS` | `20`, `6` | backend không công cụ: số fact mỗi lô, số lượt mỗi lô |
-| `REVIEW_IDLE`, `REVIEW_TIMEOUT` | `300`, `3600` | giây im lặng / tổng tối đa của một lần gọi LLM |
-| `REVIEW_WS_DIR` | `/var/tmp` | thư mục làm việc của phản biện; phải nằm ngoài mọi thư mục có file hướng dẫn agent |
-| `ANALYST_LLM_CMD` | trống | lệnh agent có quyền sửa file cho `review-loop` (ưu tiên hơn phiên sửa fact có sẵn của `api`/`cmd`) |
-| `REA_SHELL_RC` | `~/.bashrc:~/.zshrc` | file rc mà `session --install` ghi; **chỉ đọc từ biến môi trường**, không đọc `rea.env` |
-| `REA_SESSION_MCP`, `REA_SESSION_PLUGINS` | trống | MCP/plugin giữ thêm trong `flow.py session` (tên, phân cách dấu phẩy) |
+| `GHIDRA_INSTALL_DIR` | bộ cài tự ghi | thư mục Ghidra 12 |
+| `JAVA_HOME` | trống (dùng `java` trên `PATH`) | JDK 21 cho Ghidra |
+| `REA_TMP` | `.tmp` | thư mục tạm; đặt trên đĩa thật nếu `/tmp` nhỏ |
+| `REVIEW_LLM`, `REVIEW_MODEL` | `auto`, trống | LLM dùng để phản biện |
+| `REA_KB` | `~/.cache/rea-flow/kb` | kho tra chéo; `off` để tắt |
 
----
+File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhật. Biến môi trường cùng tên được ưu tiên hơn file. Danh sách đầy đủ có giải thích nằm trong [`rea.env.example`](rea.env.example).
 
-## 6. An toàn và OPSEC
+## Bảo mật
 
-- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công:** quy tắc đầy đủ ở `SKILL.md` ("Quy tắc bắt buộc"), lệnh `rea` được phép/bị cấm ở `FLOW.md` mục 4a. Tải payload thật chỉ khi người dùng cho phép.
-- `winemu` không có mạng thật: mọi API mạng chỉ được ghi lại.
-- Kho `flow.py kb` (`REA_KB`) chứa hash và IOC của mọi case: chỉ ở máy, quyền 0600, không đưa lên repo. File `kb export` cũng vậy (không có mẫu nhưng có IOC): chỉ chép qua kênh tin cậy; `kb import` coi nội dung là dữ liệu, kiểm định dạng và giới hạn 512 MiB. Gợi ý của kho không thành fact và không vào báo cáo; hồ sơ gửi phiên phản biện lớp 2 chỉ gồm fact, evidence và mẫu, không có kho.
-- Lớp 2 gửi `facts.jsonl`, evidence và chuỗi trích từ mẫu tới nhà cung cấp LLM đang dùng; cân nhắc chính sách dữ liệu trước khi chọn backend. Cần giữ dữ liệu trong mạng nội bộ thì dùng LLM local (mục 4.1, 4.2).
-- Repo skill là **public**: không đưa mẫu, thư mục case, IOC, tên case hay đường dẫn máy vào repo, commit message hay mô tả PR.
-- Với agent không phải Claude Code, quy tắc "không thực thi mẫu" chỉ là hướng dẫn bằng chữ: bật chế độ hỏi trước khi chạy lệnh hoặc sandbox của agent.
+- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công, không tra mẫu trên dịch vụ bên ngoài.** Quy tắc chi tiết nằm ở [`SKILL.md`](SKILL.md). Chỉ tải payload thật khi người dùng cho phép.
+- Phản biện gửi fact, bằng chứng và chuỗi trích từ mẫu tới nhà cung cấp LLM bạn chọn. Dữ liệu nhạy cảm thì dùng LLM local.
+- Kho tra chéo và file `kb export` chứa hash và IOC. File chỉ chủ máy đọc được (quyền 0600). Chỉ chép qua kênh tin cậy (SSH, ổ mã hoá); không gửi qua email hay chat, không đưa lên repo công khai.
+- Với agent khác Claude Code, quy tắc không thực thi mẫu chỉ là hướng dẫn bằng chữ. Hãy bật chế độ xác nhận lệnh hoặc sandbox của agent.
 
-## 7. Giới hạn
+## Giới hạn
 
-- Giả lập (T3) chỉ có cho Windows x86-32; ELF, x64 và .NET phân tích tĩnh.
-- `rea` không hỗ trợ MIPS/PPC (dùng Ghidra headless; lần đầu chậm vài phút với file lớn).
-- IOC ứng viên từ strings chỉ thành fact khi thấy chỗ mã dùng nó (xref, tham số API trong giả lập).
-- Phiên gọn (`flow.py session`) chỉ có cho Claude Code; agent khác chỉ được bảo đảm quy tắc qua `AGENTS.md`/`GEMINI.md`.
-- LLM local: chất lượng phản biện phụ thuộc model (nên từ khoảng 32B) và ngữ cảnh của server (≥ 32k token).
-- Agent chính chạy model local: dễ lạc hướng hơn model mạnh ở vòng phân tích dài; `opencode.json` do `flow.py opencode` sinh chỉ chặn nhầm, không thay được VM cô lập.
-- Với skill cài toàn máy, `~/.config/opencode/AGENTS.md` làm OpenCode không còn đọc `~/.claude/CLAUDE.md` (đây là hành vi của OpenCode).
-- Phần nhận định trong báo cáo do agent/người viết; script sinh bảng và kiểm bằng chứng.
+- Giả lập CPU chỉ có cho Windows x86-32. ELF, x64 và .NET được phân tích tĩnh.
+- `rea` không hỗ trợ MIPS/PPC. Với các kiến trúc này skill dùng Ghidra headless, nên lần phân tích đầu một file lớn mất vài phút.
+- Phản biện qua `gemini`, `cursor` hoặc lệnh tự khai (`REVIEW_LLM_CMD`) chưa được cô lập khỏi cấu hình người dùng; skill in cảnh báo khi dùng. Nên dùng `claude`, `copilot`, `codex` (cô lập qua `HOME` tạm) hoặc API/LLM local.
+- Chất lượng khi chạy bằng LLM local phụ thuộc model; model dưới khoảng 32B dễ lạc hướng ở vòng phân tích dài.
+- Phần nhận định trong báo cáo do agent hoặc người viết; skill chỉ sinh bảng và kiểm bằng chứng.
 
-## 8. Phiên bản, cập nhật và gỡ
-
-Mỗi bản phát hành là một tag `vX.Y.Z` trên GitHub, lấy theo `version` trong `package.json` ([danh sách tag](https://github.com/thaoht2109/rea-workflow/tags)). Bộ cài `npx github:thaoht2109/rea-workflow` luôn lấy từ `main`, nên các lệnh dưới đây dùng được dù skill đang ở bản nào.
-
-### 8.1. Xem phiên bản
+## Cập nhật và gỡ cài đặt
 
 ```bash
-npx github:thaoht2109/rea-workflow version [-g]   # hoặc: python3 $SKILL/flow.py version
+npx github:thaoht2109/rea-workflow version -g               # bản đang dùng và các bản phát hành
+npx github:thaoht2109/rea-workflow update -g                # lên bản mới nhất
+npx github:thaoht2109/rea-workflow update -g --to v1.5.0    # lên hoặc hạ về đúng một bản
+python3 $SKILL/flow.py session --uninstall                 # trước khi gỡ: bỏ hàm shell `claude` (nếu đã cài)
+npx github:thaoht2109/rea-workflow remove -g                # gỡ skill và quy tắc
 ```
 
-```
-rea-flow 1.1.0 (skills CLI, theo main) tại ~/.claude/skills/rea-flow
-các bản: v1.0.0, [v1.1.0]
-cập nhật lên main: npx github:thaoht2109/rea-workflow update [-g]; đổi sang bản cụ thể (lên hoặc hạ): ... update [-g] --to vX.Y.Z
-```
+Mỗi bản phát hành là một [tag `vX.Y.Z`](https://github.com/thaoht2109/rea-workflow/tags). Gỡ cài đặt không xóa cấu hình, công cụ đã cài, kho tra chéo hay các case.
 
-Dòng đầu: bản đang cài và nguồn cài: `skills CLI, theo main`, `skills CLI, ghim vX.Y.Z` (đọc từ lock của skills CLI), hoặc `clone git <git describe>`. Dòng hai: các bản trên GitHub, bản đang dùng trong `[...]`; có bản mới hơn thì báo `có bản mới vX.Y.Z`. Không có mạng thì in dòng đầu và báo không lấy được danh sách.
+## Đóng góp
 
-### 8.2. Cập nhật lên bản mới nhất
+Mọi thay đổi đi qua pull request, có CI (lint, test, quét bảo mật) và review tự động. Trước khi gửi:
 
 ```bash
-npx github:thaoht2109/rea-workflow update [-g] [-y] [--no-tools] [--no-ghidra]
+ruff check . && python3 -m pytest --import-mode=importlib -q -p no:cacheprovider tests
 ```
 
-Không tải lại cả bộ:
+- Test chỉ dùng dữ liệu tổng hợp. Không đưa mẫu, tên case hay IOC vào repo, commit hoặc mô tả PR.
+- Đổi hành vi thì tăng `version` trong `package.json` theo [SemVer](https://semver.org): sửa lỗi tăng số cuối, thêm tính năng tăng số giữa, đổi định dạng dữ liệu hoặc cấu hình tăng số đầu.
+- Tài liệu cho agent: [`SKILL.md`](SKILL.md) (quy tắc và lệnh), [`FLOW.md`](FLOW.md) (quy trình chi tiết).
 
-- Skill cài bằng `npx`: `skills update` kéo phần thay đổi, giữ các agent đã chọn.
-- Skill là bản clone git (thư mục hoặc symlink tới clone): `git pull --ff-only`.
-- Đang ghim một bản (mục 8.3): quay về `main` (`skills add` lại không ref, hoặc `git checkout main` rồi pull).
+## Giấy phép
 
-Sau đó chép lại khối quy tắc vào `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` và kiểm công cụ (bản Ghidra/`rea` ghim có thể đổi theo phiên bản); thiếu thì hỏi trước khi cài, `-y` cài luôn, `--no-tools` chỉ kiểm. Chưa cài skill thì báo lỗi kèm lệnh cài.
-
-### 8.3. Đổi sang một bản cụ thể (lên hoặc hạ): `--to`
-
-```bash
-npx github:thaoht2109/rea-workflow update -g --to v1.0.0    # hạ xuống (hoặc lên) đúng bản v1.0.0; "1.0.0" cũng được
-npx github:thaoht2109/rea-workflow update -g                 # bỏ ghim, về bản mới nhất
-```
-
-- Skill cài bằng `npx`: `skills add` lại với ref là tag; lock của skills CLI ghi `ref`, `skills update` về sau giữ nguyên bản này cho tới khi chạy `update` không `--to`. Không có `-a` thì CLI hỏi cài cho agent nào (với `-y`: mọi agent).
-- Bản clone git: `git fetch --tags` rồi `git checkout` tag (HEAD tách rời; thay đổi chưa commit được git giữ hoặc báo lỗi nếu xung đột).
-- `--to` nhận `vX.Y.Z` hoặc `X.Y.Z`; tag không có thì skills CLI/git báo lỗi và bản đang cài giữ nguyên.
-- `v1.0.0` chưa có lệnh `version`; khi đang ở bản đó vẫn `update` được bình thường.
-
-Dùng khi bản mới làm hỏng một case đang làm dở, hoặc cần chạy lại đúng bản đã dùng để ra một báo cáo (ghi bản `version` vào mục hạn chế của báo cáo nếu cần tái lập).
-
-### 8.4. Gỡ
-
-```bash
-python3 $SKILL/flow.py session --uninstall         # gỡ hàm shell (nếu đã cài)
-npx github:thaoht2109/rea-workflow remove [-g]     # gỡ khối quy tắc rồi gỡ skill
-```
-
-Gỡ không xoá `~/.config/rea-flow`, `~/.local/share/rea-flow` (Ghidra, unicorn) và các case trong workspace.
-
-## 9. Phát triển skill
-
-```
-SKILL.md            điểm vào của skill: quy tắc bắt buộc + lệnh (agent nạp file này)
-FLOW.md             quy trình chi tiết: ghi fact, cổng phản biện, định tuyến theo loại file, lệnh rea được phép
-flow.py             điều phối: new, triage, dec, status, resume, checkpoint, review, review-loop, gate, next,
-                    report, audit, doctor, setup, rules, session, opencode, version, help
-case.py             kho fact (add + lint + recompute, show, search), checklist C0–C11, sinh báo cáo
-review.py           cổng phản biện lớp 1, review-loop, gate, next
-reviewer.py         lớp 2: hồ sơ tự chứa, thao tác chỉ đọc, kết nối mọi LLM, cô lập
-review/             prompt phản biện, kiến thức RE chung (re-knowledge.md), prompt sửa fact
-install_tools.py    kiểm và cài công cụ phân tích (flow.py setup)
-reacfg.py           cấu hình theo máy + doctor;  rea.env.example: mẫu cấu hình
-install.mjs         bộ cài một lệnh (npx github:thaoht2109/rea-workflow [update|version|remove]): skills add/update + flow.py rules + flow.py setup
-static/             triage, gopclntab, NSIS, script Ghidra
-winemu/             giả lập Windows x86-32, summarize, plugin theo họ mã độc
-templates/          khung báo cáo (README.md), luật quyền OpenCode (opencode.json)
-tests/              check_*.py: kiểm bằng dữ liệu tổng hợp, không cần mẫu (CI chạy bằng pytest)
-evals/              evaluation hành vi của agent khi dùng skill (evals.json + run.py), chạy tay
-.github/            CI (ruff, actionlint, pytest, bandit theo baseline, gitleaks, pip-audit), AI review, gắn tag
-```
-
-Kiểm sau khi sửa:
-
-```bash
-python3 $SKILL/case.py --selftest && python3 $SKILL/review.py --selftest
-python3 $SKILL/reviewer.py --selftest && python3 $SKILL/install_tools.py --selftest
-python3 $SKILL/flow.py doctor
-cd $SKILL && ruff check . && python3 -m pytest --import-mode=importlib -q -p no:cacheprovider tests   # giống CI
-```
-
-Hồi quy trên mẫu thật cần mẫu có trên từng máy nên không nằm trong repo.
-
-**Evaluation hành vi agent** (`evals/`): mỗi bài dựng workspace tạm (ngoài mọi thư mục có `CLAUDE.md`, chỉ nạp skill rea-flow chép vào `.claude/skills/`), chạy `claude -p` không tương tác rồi chấm bằng máy trên transcript và file trên đĩa. Bài hiện có: không chạy mẫu khi bị ép, ghi fact IOC có evidence, dừng ở cổng STOPPED (không tự tạo `OVERRIDE`, không sửa `facts.jsonl` hay `state.json`), tra facts sau `/clear`. Mẫu trong fixture là script vô hại do bộ eval sinh ra; nếu bị chạy nó chỉ ghi file canary để bài chấm bắt được. Chỉ lệnh đọc được duyệt sẵn, lệnh khác bị từ chối nhưng vẫn được chấm. Tốn lượt gọi LLM thật nên CI không chạy; CI chỉ kiểm bộ chấm (`tests/check_evals.py`).
-
-```bash
-python3 $SKILL/evals/run.py --model haiku,sonnet,opus      # mọi bài trên ba model; --only ID, --keep (giữ workspace), --dry-run
-```
-
-Mã thoát 0 = mọi bài đạt, 1 = có bài trượt, 2 = có lỗi hạ tầng (mạng, hạn mức, hết giờ: không chấm hành vi), ID lạ trong `--only` hoặc không bài nào chạy. Có bài trượt thì trả 1 kể cả khi bài khác lỗi hạ tầng; bài cần chạy lại là bài có `ok: null` trong `results.json`. Khi lỗi hạ tầng, các check an toàn vẫn được chấm: check đọc từ đĩa (canary, `OVERRIDE`, `facts.jsonl`, `state.json`) và lệnh chạy mẫu đã có trong transcript; trượt thì bài là FAIL, không phải lỗi hạ tầng, và workspace được giữ làm bằng chứng. Transcript và `results.json` lưu ở `REVIEW_WS_DIR`.
-
-Giấy phép: MIT (`LICENSE`).
-
-Phát hành: tăng `version` trong `package.json` trong PR (sửa lỗi: số cuối; thêm tính năng: số giữa; đổi định dạng facts/cấu hình: số đầu). Khi PR vào `main`, workflow `.github/workflows/tag.yml` gắn tag `vX.Y.Z` cho commit đó; người dùng thấy bản mới qua `version` và chọn bản qua `update --to`. AI review (`ai-review.yml`) chạy sau CI, kết quả nằm trong comment của bot; PASS thì bot tự merge, trừ PR có nhãn `no-auto-merge`/`ai-review-*-needs-human` hoặc sửa `.github/` hay file cổng (`GATE_FILES_RE` trong `.github/ci/ai-review-lib.sh`).
+[MIT](LICENSE)

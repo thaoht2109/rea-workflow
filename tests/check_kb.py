@@ -85,6 +85,17 @@ try:
     finally: shutil.rmtree(ws2, ignore_errors=True); shutil.rmtree(empty, ignore_errors=True)
     r = subprocess.run([sys.executable, os.path.join(T, 'reacfg.py')], capture_output=True, text=True, cwd=T, env=dict(env, REA_KB='off'))
     assert any('REA_KB' in l and l.startswith('OK') and 'tắt' in l for l in r.stdout.splitlines()), r.stdout
+    # 4c. mặc định: cache của người dùng, không phụ thuộc cwd; thư mục không ghi được thì báo rõ, không traceback
+    cache = tempfile.mkdtemp(prefix='rea-kbc-'); e0 = {k: v for k, v in env.items() if k != 'REA_KB'}
+    try:
+        for cwd in (ws, T):
+            r = subprocess.run([sys.executable, '-c', 'import reacfg; print(reacfg.KB)'], capture_output=True, text=True, cwd=cwd,
+                               env=dict(e0, XDG_CACHE_HOME=cache, REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
+            assert r.stdout.strip() == os.path.join(cache, 'rea-flow', 'kb'), r.stdout + r.stderr
+        ro = os.path.join(cache, 'ro'); os.makedirs(ro); os.chmod(ro, 0o500)
+        r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(ro, 'kb')))
+        if os.geteuid() != 0: assert r.returncode and 'không ghi được kho' in r.stderr and 'Traceback' not in r.stderr, r.stderr
+    finally: os.chmod(os.path.join(cache, 'ro'), 0o700) if os.path.isdir(os.path.join(cache, 'ro')) else None; shutil.rmtree(cache, ignore_errors=True)
     # 5. kho trong thư mục skill bị từ chối; off thì tắt
     r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(T, 'kbdata'))); assert r.returncode and 'thư mục skill' in r.stderr and not os.path.exists(os.path.join(T, 'kbdata')), r.stderr
     r = run('kb', 'build', env=dict(env, REA_KB='off')); assert r.returncode == 0 and 'off' in r.stdout, r.stdout

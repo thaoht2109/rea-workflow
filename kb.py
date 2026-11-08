@@ -6,7 +6,7 @@
 #                      Không lưu kết luận họ mã độc (fact family) của case khác: gợi ý chỉ nói đặc trưng nào trùng.
 #   corrections.jsonl  mọi fact bị thay bằng supersedes -> `kb corrections` thống kê lỗi hay gặp. Chỉ để theo dõi, làm dữ liệu
 #                      quyết định luật lint sau này; không đổi luật nào của case.py/review.py.
-# Dữ liệu chứa IOC: REA_KB mặc định ~/.local/share/rea-flow/kb, không được nằm trong thư mục skill (repo public).
+# Dữ liệu chứa IOC: REA_KB mặc định ~/.cache/rea-flow/kb (XDG_CACHE_HOME; mất thì `kb build` dựng lại), không được nằm trong thư mục skill.
 #   flow.py kb build | match CASE | corrections [--since YYYY-MM-DD]
 import sys, os, re, json, glob, datetime, collections
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +105,9 @@ def write_jsonl(p, rows):
 def build(ws=None, quiet=False):
     d = kb_dir()
     if not d: print('REA_KB=off: không dựng kho'); return 0
-    ws = ws or CFG.REA; os.makedirs(d, mode=0o700, exist_ok=True)
+    ws = ws or CFG.REA
+    try: os.makedirs(d, mode=0o700, exist_ok=True); open(os.path.join(d, '.w'), 'w').close(); os.remove(os.path.join(d, '.w'))
+    except OSError as e: raise SystemExit(f'không ghi được kho {d} ({e.strerror}): đặt REA_KB tới thư mục ghi được, hoặc REA_KB=off')
     S, K, err = [], [], 0
     for c in cases(ws):
         for p in files_of(c):

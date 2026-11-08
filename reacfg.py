@@ -31,7 +31,9 @@ GHIDRA = get('GHIDRA_INSTALL_DIR')               # thư mục cài Ghidra (có s
 JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = Ghidra tự tìm java trên PATH
 SHARE_PYLIB = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'pylib')   # ngoài skill: update không mất
 PYLIB = get('REA_PYLIB') or next((p for p in (os.path.join(TOOLS, 'pylib'), SHARE_PYLIB) if os.path.isdir(p)), SHARE_PYLIB)   # unicorn cho winemu
-KB = get('REA_KB') or os.path.join(os.path.dirname(SHARE_PYLIB), 'kb')   # kho tra chéo giữa các case (flow.py kb); chứa IOC: ngoài skill; off = tắt
+# kho tra chéo (flow.py kb): dữ liệu dựng lại được từ các case nên đặt ở cache của người dùng. Có trên mọi máy Linux, không phụ thuộc
+# thư mục hiện tại, sandbox của agent thường cho ghi. Chứa IOC: phải ngoài skill; off = tắt
+KB = get('REA_KB') or os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'rea-flow', 'kb')
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
 REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|claude|codex|gemini|copilot|cursor|api|cmd|manual
 REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible

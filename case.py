@@ -26,7 +26,7 @@ LOG_LINES = 40   # evidence dài hơn mức này phải trỏ #L hoặc tách đ
 WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh đó
 
 def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
-def _line_id(t): return hashlib.sha1(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
+def _line_id(t): return hashlib.sha256(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
 def _relocate(lines, ln, lid):
     """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), dòng gần ln nhất nếu đã dời, None nếu mất."""
     if not lid or _line_id(lines[ln - 1]) == lid: return ln

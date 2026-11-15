@@ -5,7 +5,7 @@
 #   flow.py tool CASE seal {NAME}
 # Quy tắc không chạy mẫu vẫn nguyên: chỉ ĐỌC file mẫu, không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch/runtime nào.
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
-import json, os, sys, time
+import hashlib, json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này: `import tên` (cũng vào dấu băm của công cụ)
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
@@ -37,11 +37,21 @@ def status_path():
 
 def status(checks, cov):
     """Ghi kết quả tự kiểm ra file riêng (không qua stdout, nên chuỗi lấy từ mẫu không giả được). `flow.py tool CASE seal` đọc file này."""
-    json.dump({'argv': sys.argv[1:], 'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time()},
-              open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
+    sys.stdout.flush()
+    json.dump({'argv': sys.argv[1:], 'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time(),
+               'out_sha256': _OUT.h.hexdigest()}, open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
+
+class _Tee:
+    """Băm mọi thứ công cụ in ra stdout: `tool seal` chỉ nhận file output có đúng dấu băm này, nên output và kết quả tự kiểm luôn cùng một lần chạy."""
+    def __init__(s, real): s.real = real; s.h = hashlib.sha256()
+    def write(s, t): s.h.update(t.encode('utf-8')); return s.real.write(t)
+    def flush(s): s.real.flush()
+_OUT = None
 
 def main():
     if len(sys.argv) < 2: raise SystemExit('dùng: python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out')
+    global _OUT
+    sys.stdout.reconfigure(encoding='utf-8', newline='\n'); _OUT = sys.stdout = _Tee(sys.stdout)   # stdout phải được chuyển thẳng vào file output (không qua bộ lọc)
     try: os.remove(status_path())      # xóa trạng thái của lần chạy trước NGAY ĐẦU: lần này dừng giữa chừng thì không còn trạng thái cũ để seal nhầm
     except FileNotFoundError: pass
     path = sys.argv[1]; res = parse(path); show(res)

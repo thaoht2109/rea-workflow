@@ -18,12 +18,14 @@ def one(x, n=300): return ' '.join(str(x).split())[:n]   # ép về một dòng:
 
 def scan(path):
     """Đọc tĩnh một file công cụ (không import, không chạy). Trả (ghi chú, module cục bộ được import, FORMAT, SCOPE).
+    Module nạp động (importlib, __import__ với tên tính lúc chạy) không lần ra được nên không vào dấu băm: đừng dùng trong công cụ.
     Ghi chú chỉ là lời nhắc về import mạng/tiến trình con: skill không chạy công cụ nên không có gì để chặn; quy tắc không chạy mẫu do agent giữ."""
     try: tree = ast.parse(open(path, encoding='utf-8').read())
     except (OSError, SyntaxError, ValueError) as e: return [f'{os.path.basename(path)}: không phân tích được ({type(e).__name__})'], [], '', ''
     note, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path)
     for n in ast.walk(tree):
-        mods = [a.name for a in n.names] if isinstance(n, ast.Import) else [n.module] if isinstance(n, ast.ImportFrom) and n.module and not n.level else []
+        mods = [a.name for a in n.names] if isinstance(n, ast.Import) else []
+        if isinstance(n, ast.ImportFrom): mods = ([n.module] if n.module else []) + ([a.name for a in n.names] if n.level or not n.module else [])   # cả `from . import x`, `from .x import y`
         for m in mods:
             top = m.split('.')[0]
             if os.path.isfile(os.path.join(here, top + '.py')): local.append(top)
@@ -70,7 +72,7 @@ def header(text):
 def issues(case, f, rel, text):
     """Luật cổng cho fact dẫn evidence tool_*, dùng chung cho lint khi ghi (case.lint_fact) và lớp 1 phản biện (review.mech).
     Trả [(check, vấn đề, cách sửa)]."""
-    if not os.path.basename(rel).startswith('tool_'): return []
+    if not re.fullmatch(r'tool_[A-Za-z]\w*_\d+\.txt', os.path.basename(rel)) and not text.startswith(HEAD): return []   # chỉ file theo đúng mẫu tên của `tool seal` (hoặc mang phần đầu của nó)
     H = header(text); redo = 'chạy lại công cụ, `flow.py tool CASE seal TÊN`, rồi ghi fact mới (supersedes) dẫn evidence mới'
     if H is None: return [('tool_selfcheck', 'evidence tool_* không do `flow.py tool seal` sinh (thiếu phần đầu chuẩn)', redo)]
     out = []
@@ -107,10 +109,9 @@ def seal(c, name, out=None):
     try: st = json.load(open(sp, encoding='utf-8')); checks = [(one(n, 120).replace(':', ';'), bool(ok), one(det)) for n, ok, det in st['checks']]; ran = float(st['time'])
     except (OSError, ValueError, KeyError, TypeError): st, checks, ran = {}, [], 0.0
     newest = max(os.path.getmtime(os.path.join(d, m + '.py')) for m in mods)
-    if (st and ran < newest) or os.path.getmtime(out) < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
-    mo = os.path.getmtime(out)
-    if st and ran < mo - 2: st, checks = {}, []      # trạng thái cũ hơn output: là của một lần chạy trước (lần này dừng trước khi tự kiểm) -> coi như không có
-    if st and ran - mo > 300: print('TỪ CHỐI: output và file trạng thái tự kiểm không cùng một lần chạy (lệch thời gian). Chạy lại công cụ, chuyển stdout vào đúng file output, rồi seal.'); return 2
+    if st and ran < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
+    if st and st.get('out_sha256') != hashlib.sha256(open(out, 'rb').read()).hexdigest():   # ràng buộc chính xác: output phải đúng là stdout của lần chạy đã ghi trạng thái
+        print('TỪ CHỐI: file output không phải stdout của lần chạy đã ghi trạng thái tự kiểm (dấu băm khác). Chạy lại công cụ, chuyển thẳng stdout vào file output, rồi seal.'); return 2
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else ''
@@ -143,6 +144,7 @@ def list_(c):
     return 0
 
 def main(c, a):
+    if not os.path.isfile(os.path.join(c, 'facts.jsonl')): raise SystemExit(f'không phải thư mục case (thiếu facts.jsonl): {c}')
     if a[:1] == ['new'] and len(a) == 2: return new(c, a[1])
     if a[:1] == ['seal'] and len(a) in (2, 3): return seal(c, a[1], a[2] if len(a) == 3 else None)
     if a[:1] == ['list']: return list_(c)

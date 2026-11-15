@@ -45,12 +45,12 @@ def mech(c):
         if not os.path.isfile(full): bad('fail', 'evidence_exists', 'file evidence không tồn tại', 'chép bằng chứng vào report/evidence/'); continue
         txt = open(full, encoding='utf-8', errors='replace').read()
         m = re.search(r'#L(\d+)$', f['evidence'])
-        if m and int(m.group(1)) > txt.count('\n') + 1:
+        if m and not 1 <= int(m.group(1)) <= txt.count('\n') + 1 and C._relocate(txt.splitlines(), int(m.group(1)), f.get('ev_line')) is None:   # dòng đã dời mà tìm lại được theo dấu vân tay thì không fail
             bad('fail', 'evidence_line', f'dòng {m.group(1)} vượt quá file ({txt.count(chr(10)) + 1} dòng)', 'trỏ đúng dòng chứa bằng chứng')
         for p, r in C.recompute(c, f): bad('fail', 'recompute', p, r)   # con số đếm lại được: máy kiểm, không cần LLM
         base = os.path.basename(rel)
-        if f['src'] == 'S' and base.startswith(('emu_', 'vm_')): bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM', 'đổi src hoặc dẫn evidence tĩnh')
-        if f['src'] == 'V' and not base.startswith('vm_'): bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM', 'đổi src hoặc dẫn evidence vm_*')
+        sv = C.src_evidence_issue(f['src'], base)   # cùng một luật với lint khi ghi (case.py)
+        if sv: bad('fail', 'src_vs_evidence', *sv)
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])

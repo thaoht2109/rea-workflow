@@ -28,10 +28,18 @@ WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh
 def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
 def _line_id(t): return hashlib.sha256(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
 def _relocate(lines, ln, lid):
-    """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), dòng gần ln nhất nếu đã dời, None nếu mất."""
-    if not lid or _line_id(lines[ln - 1]) == lid: return ln
+    """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), dòng gần ln nhất nếu đã dời,
+    None nếu mất hoặc ln ngoài phạm vi mà không có dấu để tìm."""
+    inside = 1 <= ln <= len(lines)
+    if not lid: return ln if inside else None
+    if inside and _line_id(lines[ln - 1]) == lid: return ln
     hit = [i + 1 for i, t in enumerate(lines) if _line_id(t) == lid]
     return min(hit, key=lambda i: abs(i - ln)) if hit else None
+def src_evidence_issue(src, base):
+    """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
+    host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""
+    if src == 'S' and base.startswith(('emu_', 'vm_', 'host_')): return 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh'
+    if src == 'V' and not base.startswith(('vm_', 'host_')): return 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src'
 
 def _work_hashes(case):
     hs = set()
@@ -53,18 +61,15 @@ def lint_fact(case, f):
     lines = open(full, encoding='utf-8', errors='replace').read().splitlines()
     whole = _normnum('\n'.join(lines)).replace('\\\\', '\\').lower()
     base = os.path.basename(rel)
-    if f['src'] == 'S' and base.startswith(('emu_', 'vm_', 'host_')):
-        bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh')
-    if f['src'] == 'V' and not base.startswith(('vm_', 'host_')):   # host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu
-        bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src')
+    sv = src_evidence_issue(f['src'], base)
+    if sv: bad('fail', 'src_vs_evidence', *sv)
     scope, anchor = whole, None
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m:
-        ln = int(m.group(1))
-        if ln > len(lines):
-            bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(lines)} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+        ln = int(m.group(1)); moved = _relocate(lines, ln, f.get('ev_line')); inside = 1 <= ln <= len(lines)
+        if not inside and moved is None:
+            bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(lines)} dòng)' if ln > len(lines) else f'#L{ln} không hợp lệ (dòng tính từ 1)', 'trỏ đúng dòng chứa bằng chứng')
         else:
-            moved = _relocate(lines, ln, f.get('ev_line'))
             if moved is None: bad('warn', 'evidence_moved', f'nội dung dòng {ln} đã đổi so với lúc ghi fact và không tìm thấy dòng cũ trong file', 'kiểm lại bằng chứng, ghi fact mới (supersedes) trỏ đúng dòng')
             elif moved != ln:
                 bad('warn', 'evidence_moved', f'dòng bằng chứng đã dời từ #L{ln} sang #L{moved} (evidence bị sửa sau khi ghi fact); đang kiểm theo dòng mới', f'ghi fact mới (supersedes) trỏ #L{moved}, hoặc chỉ thêm vào CUỐI file evidence')
@@ -143,8 +148,9 @@ def add(case, strict=False, lint=False, **f):
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m and not f.get('ev_line'):   # dấu vân tay dòng được trỏ: lint tìm lại được dòng khi evidence bị chèn dòng về sau
         try:
-            ls = open(full, encoding='utf-8', errors='replace').read().splitlines(); f['ev_line'] = _line_id(ls[int(m.group(1)) - 1])
-        except IndexError: pass
+            ls = open(full, encoding='utf-8', errors='replace').read().splitlines(); n = int(m.group(1))
+            if 1 <= n <= len(ls): f['ev_line'] = _line_id(ls[n - 1])
+        except OSError: pass
     issues = lint_fact(case, f) if lint else []
     fails = [i for i in issues if i['level'] == 'fail']
     if strict and fails:

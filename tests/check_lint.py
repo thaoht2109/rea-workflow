@@ -100,6 +100,9 @@ def main():
         assert 'src_vs_evidence' in r.stdout, r.stdout
         r = run(c, 'id=f16', 'kind=process', 'value=powershell.exe', 'src=V', 'evidence=report/evidence/net.txt#L1')
         assert 'src_vs_evidence' in r.stdout, r.stdout
+        sys.path.insert(0, SKILL); import review          # lớp 1 của cổng phản biện phải áp cùng luật với lint khi ghi
+        sv = {x['id'] for x in review.mech(c) if x['check'] == 'src_vs_evidence'}
+        assert 'f14' not in sv and {'f15', 'f16'} <= sv, sv
         ok += 1
 
         # 11. #L neo theo nội dung: chèn dòng vào evidence sau khi ghi fact -> lint tìm lại dòng, chỉ warn evidence_moved
@@ -117,6 +120,18 @@ def main():
         open(os.path.join(E, 'cfg.txt'), 'w').write('nội dung khác hẳn\n' * 30)   # dòng cũ mất: warn + fail vì giá trị không còn
         ch = [i['check'] for i in case.lint_fact(c, f17)]
         assert 'evidence_moved' in ch and 'value_in_evidence' in ch, ch
+        # xóa dòng phía trên làm #L vượt độ dài file: vẫn tìm lại theo dấu vân tay, chỉ warn; cổng review cũng không fail evidence_line
+        open(os.path.join(E, 'cfg.txt'), 'w').write('đầu file\nkhóa cấu hình ALPHA_BRAVO_KEY ở đây\n')
+        iss = case.lint_fact(c, f17)
+        assert [(i['check'], i['level']) for i in iss] == [('evidence_moved', 'warn')] and '#L2' in iss[0]['problem'], iss
+        assert not any(x['id'] == 'f17' and x['check'] == 'evidence_line' for x in review.mech(c))
+        assert any(i['check'] == 'evidence_line' for i in case.lint_fact(c, old))            # không có dấu: vẫn fail như trước
+        # #L0 và file rỗng: trả lỗi lint, không ném ngoại lệ; add không lưu dấu vân tay cho dòng không hợp lệ
+        r = run(c, 'id=f18', 'kind=config', 'value=ALPHA_BRAVO_KEY', 'src=S', 'evidence=report/evidence/cfg.txt#L0')
+        f18 = [f for f in facts(c) if f['id'] == 'f18'][0]
+        assert 'evidence_line' in r.stdout and 'ev_line' not in f18, (r.stdout, f18)
+        open(os.path.join(E, 'cfg.txt'), 'w').close()
+        assert any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f18)) and any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f17))
         ok += 1
     finally:
         shutil.rmtree(c, ignore_errors=True)

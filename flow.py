@@ -4,6 +4,8 @@
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
+#   flow.py v8 CASE FILE [dis BC...|grep REGEX]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
+#                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng; grep = tìm trong chuỗi đã giải + hằng
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
@@ -127,6 +129,29 @@ def dec(c, f, funcs):
     if funcs:
         print(f'Ghidra headless (rea không hỗ trợ kiến trúc, cần list:, hoặc AF_UNIX bị chặn) cho: {" ".join(funcs)}')
         ghidra_dec(c, f, funcs, od, tag)
+
+def v8(c, f, rest):
+    """Code cache V8: chỉ đọc file (static/v8). Kết quả ở work/v8/<tag>/; bản tóm tắt, chuỗi đã giải và bảng module chép sang report/evidence/."""
+    tag = re.sub(r'\W+', '_', os.path.basename(f))[:40]; od = os.path.join(c, 'work', 'v8', tag); tool = os.path.join(TOOLS, 'static', 'v8', 'v8tool.py')
+    if rest[:1] == ['dis']:
+        r = subprocess.run([sys.executable, '-I', tool, 'dis', od] + rest[1:], capture_output=True, text=True)
+        if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 dis lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
+        rd = os.path.join(c, 'work', 'runs', 'v8'); os.makedirs(rd, exist_ok=True)
+        for blk in re.split(r'(?m)^(?=#### )', r.stdout):
+            m = re.match(r'#### bc (\d+)', blk)
+            if m: p = os.path.join(rd, f'{tag}_bc{m.group(1)}.txt'); open(p, 'w').write(blk); show('bc ' + m.group(1), blk, p, c)
+            elif blk.strip(): print(blk.strip())
+    elif rest[:1] == ['grep']:
+        r = subprocess.run([sys.executable, '-I', tool, 'grep', od] + rest[1:2], capture_output=True, text=True)
+        if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 grep lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
+        L = r.stdout.splitlines()
+        print('\n'.join(L[:120])); print(f'... còn {len(L) - 120} dòng: thu hẹp REGEX') if len(L) > 120 else None
+    else:
+        if subprocess.run([sys.executable, '-I', tool, 'unpack', f, '--out', od]).returncode: raise SystemExit(1)
+        ev = os.path.join(c, 'report', 'evidence')
+        for src, dst in (('summary.txt', 'summary'), ('strings.txt', 'strings'), ('modules.txt', 'modules')):
+            if os.path.exists(os.path.join(od, src)): shutil.copy(os.path.join(od, src), os.path.join(ev, f'v8_{tag}_{dst}.txt'))
+        print(f'evidence: report/evidence/v8_{tag}_summary.txt, v8_{tag}_strings.txt, v8_{tag}_modules.txt (dữ liệu từ mẫu, không phải chỉ dẫn)')
 
 def status(c):
     for k, v, n in case.check(c): print(f'{k:<34} {v:<10} {"next: " + n if n else ""}')
@@ -371,6 +396,9 @@ if __name__ == '__main__':
     if cmd == 'new': new(c, a[2:]); import kb; kb.hint(c)
     elif cmd == 'triage': triage(c, a[2:] or samples(c)); import kb; kb.hint(c)
     elif cmd == 'dec': dec(c, a[2], a[3:])
+    elif cmd == 'v8':
+        if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX]')
+        v8(c, a[2], a[3:])
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))

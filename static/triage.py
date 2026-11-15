@@ -254,6 +254,17 @@ def show(x): return json.dumps(x, ensure_ascii=False)   # in tên do mẫu đặ
 
 WIN_DL = 'C:\\Users\\admin\\Downloads\\'   # đường dẫn giả lập của mẫu trong winemu
 
+# Code cache V8 (file .jsc kiểu bytenode): chỉ có bytecode, không có mã nguồn. Nhận theo header SerializedCodeData, kể cả khi bọc brotli.
+V8_LOADER = re.compile(r'cachedData[\s\S]{0,4000}(?:\.jsc|runInThisContext|vm\.Script)|(?:\.jsc|vm\.Script)[\s\S]{0,4000}cachedData')
+def v8_wrap(d, path):
+    """None = không phải code cache; '' = cache trần; 'brotli' = cache bọc brotli (chỉ thử khi đuôi .jsc/.bin hoặc entropy cao)."""
+    sys.path.insert(0, os.path.join(HERE, 'v8'))
+    try: import v8cache
+    except Exception: return None
+    if v8cache.is_cache(d): return ''
+    if not (path.lower().endswith(('.jsc', '.bin', '.br')) or entropy(d[:65536]) > 7.9) or len(d) > 256 << 20: return None
+    return v8cache.peek_wrap(d)   # chỉ giải vài chục byte đầu để xem magic: không giải cả file ở bước triage (brotli bomb)
+
 def route(R, out):
     f, t, sc = R['flags'], R['type'], R.get('nsis', {}).get('shellcode')
     if sc: return f"T3 winemu --blob {q(os.path.join(out, sc['file']))} --blob-off {sc['offset']}" + (f" --size {sc['alloc']:#x}" if sc['alloc'] else '') + \
@@ -265,6 +276,8 @@ def route(R, out):
     if t in ('zip', '7z', 'rar', 'gzip'): return 'flow.py new giải nén vào work/sample/ rồi triage từng file (bước 1)'
     if t in ('ole', 'pdf'): return 'T2: rea inspect-artifact; tìm macro/JS/stream nhúng (olevba/pdf-parser chưa cài)'
     if t == 'dex': return 'T2: rea inspect-android-package / inspect-android-method'
+    if t == 'v8-cache': return 'T1: flow.py v8 CASE FILE (gỡ brotli, đọc code cache V8, tự giải chuỗi obfuscator.io) rồi `flow.py v8 CASE FILE grep|dis`; KHÔNG nạp cache vào node'
+    if 'v8-loader' in f: return 'script nạp code cache V8 (cachedData): đọc script để biết lớp bọc (brotli/zlib), mẫu chính là file .jsc đi kèm -> flow.py v8 CASE <file .jsc>'
     if t.startswith('script'): return 'T2: khử làm rối script tĩnh (base64/eval/char-code) bằng Python, không chạy script'
     if '.NET' in f: return 'T2: rea inspect-managed-members (chuỗi ldstr, PInvoke) rồi decompile lớp/hàm đáng ngờ'
     if 'Go' in f: return 'T2: rea inspect-go-binary + flow.py dec CASE FILE main.main (và các hàm main.*)'
@@ -291,6 +304,10 @@ def main():
     elif R['type'] == 'ELF': elf_info(A.file, d, R)
     elif R['type'] == 'unknown' and d and sum(32 <= b < 127 or b in (9, 10, 13) for b in d[:4096]) / len(d[:4096]) > 0.95:
         R['type'] = 'script/' + script_lang(d[:65536].decode('latin1'))
+        if V8_LOADER.search(d[:262144].decode('latin1')): R['flags'].append('v8-loader')   # script nạp code cache (kiểu bytenode)
+    elif R['type'] == 'unknown':
+        w = v8_wrap(d, A.file)
+        if w is not None: R['type'] = 'v8-cache'; R['flags'] += [w] if w else []
     if R['type'] in ('PE32', 'PE32+') or R['type'].startswith('ELF'):
         if b'UPX!' in d[:0x1000] or b'UPX!' in d[-0x1000:]: R['flags'].append('UPX') if 'UPX' not in R['flags'] else None
         go = run('go', 'version', '-m', A.file)

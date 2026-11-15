@@ -114,6 +114,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 | Go, Rust, Dart/Flutter | `inspect-go-binary`, `inspect-rust-binary`, `inspect-dart-aot`, `identify-flutter-build` |
 | .NET | `inspect-managed-artifact`, `inspect-managed-members`, `inspect-managed-native-boundaries`, `compare-managed-members`, `project-managed-application-graph` |
 | Android | `inspect-android-package`, `decode-android-resources`, `inspect-android-class`, `inspect-android-method`, `search-android-classes`, `trace-android-references`, `project-android-application-graph` |
+| Code cache V8 (`.jsc`/bytenode, kể cả bọc brotli) | không dùng `rea`: `flow.py v8 CASE FILE` rồi `flow.py v8 CASE FILE grep REGEX` / `dis BC...` (bộ đọc tĩnh `static/v8`, V8 10.2/Node 18) |
 | JavaScript/Electron/WASM (file có sẵn) | `analyze-javascript-application`, `recover-javascript-sources`, `trace-javascript-semantics`, `compare-javascript-export-shapes`, `inspect-electron-fuses`, `inspect-wasm-artifact`, `compare-wasm-interfaces` |
 | Firmware | `extract-firmware`, `inspect-firmware-regions` |
 | Apple khác | `inspect-plist`, `inspect-keyed-archive`, `inspect-asset-catalog`, `decode-interface-builder` |
@@ -146,5 +147,6 @@ Hồi quy trên mẫu thật (triage/định tuyến, lõi winemu) phụ thuộc
 
 - **T3 chỉ có cho Windows x86‑32.** ELF, x64 và .NET chỉ phân tích tĩnh được.
 - **`rea` không hỗ trợ MIPS/PPC,** nên phải dùng Ghidra headless. Lần phân tích đầu một file Go MIPS cỡ vài MB mất vài phút.
+- **Code cache V8 chỉ hỗ trợ V8 10.2 (Node.js 18.x), không pointer compression.** Bản khác thì `flow.py v8` dừng với lỗi phân tích cú pháp chứ không đoán; muốn hỗ trợ phải thêm bảng opcode/root `static/v8/v8_<bản>.json` và kiểm lại bố cục `BytecodeArray`. Không bao giờ nạp cache vào `node` để "xem thử": đó là chạy mẫu. Bộ giải chuỗi chỉ nhận kiểu obfuscator.io (mảng chuỗi + base64 đảo hoa/thường, có hoặc không RC4); `summary.txt` in tỉ lệ điểm dùng chuỗi giải được, lấy số đó cho fact `dec_coverage`. Chuỗi nằm trong read-only heap của V8 không có trong cache, hiện dạng `⟦roN⟧`: suy theo ngữ cảnh thì ghi là giả thuyết. Hằng chuỗi lớn (mã JS dạng rõ nhúng trong bundle) không đi qua bộ giải chuỗi: `summary.txt` có liệt kê, phải đọc riêng.
 - **IOC ứng viên từ strings là heuristic.** Go nối liền các chuỗi nên URL có thể bị dính ký tự thừa. Ứng viên chỉ được ghi thành fact `url`/`c2` khi đã thấy chỗ mã dùng nó (xref, tham số API trong giả lập); chuỗi chứng thư, banner thư viện, tài liệu, số phiên bản không phải IOC.
 - **Phần nhận định trong README vẫn do người phân tích viết.** Script chỉ sinh bảng (IOC, nguồn, đính chính, evidence).

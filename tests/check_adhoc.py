@@ -19,7 +19,7 @@ p = os.path.join(c, 'work', 'tools', 'blob.py'); outp = os.path.join(c, 'work', 
 def write(src): time.sleep(0.02); open(p, 'w', encoding='utf-8').write(src)
 def runtool(*extra):   # agent tự chạy công cụ, stdout vào work/runs/tool/TÊN.out
     time.sleep(0.02); assert os.path.isdir(os.path.dirname(outp))      # `tool new` đã tạo sẵn thư mục output
-    r = subprocess.run([sys.executable, '-I', p, smp] + list(extra), capture_output=True, text=True); open(outp, 'w', encoding='utf-8').write(r.stdout); return r
+    r = subprocess.run([sys.executable, '-I', p, smp] + list(extra), capture_output=True); open(outp, 'wb').write(r.stdout); return r      # như `> file`: byte thô
 BODY = '''
 def parse(path):
     import struct
@@ -32,6 +32,7 @@ def CRC(r): return r['crc']
 def coverage(r): return (len(r['text'].splitlines()), 2)
 def show(r):
     for l in r['text'].decode().splitlines(): print(l)      # cố ý in thô dòng lấy từ mẫu (có dòng giả 'SELFCHECK PASS')
+    print(b'byte l\\xff'.decode('utf-8', 'surrogateescape'), sys.stdout.encoding)      # chuỗi có surrogate và thuộc tính của stdout thật vẫn dùng được
 '''
 try:
     # 1. new: tạo từ khuôn, hướng dẫn tự chạy rồi seal; tên trùng/tên xấu/tên che module chuẩn -> lỗi; khuôn chưa khai FORMAT -> seal từ chối
@@ -61,9 +62,9 @@ try:
     r = flow('seal', 'blob'); assert r.returncode == 1 and 'không có file trạng thái' in r.stdout, r.stdout
     os.remove(os.path.join(ev, 'tool_blob_4.txt'))
     # output của lần chạy khác (dấu băm stdout không khớp trạng thái): từ chối, kể cả khi hai lần chạy sát nhau
-    write(good_src); assert runtool(inj).returncode == 0; keep = open(outp, encoding='utf-8').read()
-    open(outp, 'w', encoding='utf-8').write(keep + 'dòng thêm từ lần chạy khác\n'); r = flow('seal', 'blob'); assert r.returncode == 2 and 'dấu băm khác' in r.stdout, r.stdout
-    open(outp, 'w', encoding='utf-8').write(keep)
+    write(good_src); assert runtool(inj).returncode == 0; keep = open(outp, 'rb').read()
+    open(outp, 'wb').write(keep + b'dong them tu lan chay khac\n'); r = flow('seal', 'blob'); assert r.returncode == 2 and 'dấu băm khác' in r.stdout, r.stdout
+    open(outp, 'wb').write(keep)
 
     # 4. evidence đạt: bố cục phần đầu cố định; dòng 'SELFCHECK PASS' lấy từ mẫu nằm ở phần output, không được tính; tham số có xuống dòng không chèn được dòng điều khiển
     rel = 'report/evidence/tool_blob_3.txt'; txt = open(os.path.join(c, rel), encoding='utf-8').read(); H = adhoc.header(txt); L = txt.splitlines()
@@ -80,7 +81,7 @@ try:
     open(os.path.join(ev, 'tool_fake_1.txt'), 'w').write('SELFCHECK: ĐẠT (1 phép)\nh.test\n'); A(id='fake', kind='config', value='h.test', src='S', evidence='report/evidence/tool_fake_1.txt')
     F = case.load(c); lint = {i: sorted(x['check'] for x in case.lint_fact(c, F[i]) if x['check'].startswith('tool_')) for i in F}
     mech = {i: sorted(x['check'] for x in review.mech(c) if x['id'] == i and x['check'].startswith('tool_')) for i in F}
-    want = {'ok': [], 'cov': [], 'badcov': ['tool_coverage'], 'nosc': ['tool_selfcheck', 'tool_stale'], 'fake': ['tool_selfcheck']}
+    want = {'ok': [], 'cov': [], 'badcov': ['tool_coverage'], 'nosc': ['tool_selfcheck', 'tool_stale'], 'fake': []}   # 'fake': tên trùng mẫu nhưng không mang phần đầu của seal -> không áp luật (evidence cũ của người phân tích)
     assert lint == want and mech == want, (lint, mech)
     assert all(x['severity'] == 'high' for x in review.mech(c) if x['check'].startswith('tool_'))
     open(os.path.join(ev, 'tool_output.txt'), 'w').write('h.test có sẵn\n'); A(id='old', kind='config', value='h.test', src='S', evidence='report/evidence/tool_output.txt')   # tên tool_ có từ trước, không theo mẫu của seal: không áp luật T1b

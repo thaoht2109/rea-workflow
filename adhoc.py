@@ -72,7 +72,7 @@ def header(text):
 def issues(case, f, rel, text):
     """Luật cổng cho fact dẫn evidence tool_*, dùng chung cho lint khi ghi (case.lint_fact) và lớp 1 phản biện (review.mech).
     Trả [(check, vấn đề, cách sửa)]."""
-    if not re.fullmatch(r'tool_[A-Za-z]\w*_\d+\.txt', os.path.basename(rel)) and not text.startswith(HEAD): return []   # chỉ file theo đúng mẫu tên của `tool seal` (hoặc mang phần đầu của nó)
+    if not text.startswith(HEAD): return []   # chỉ evidence mang phần đầu của `tool seal`; file tên tool_* có từ trước (kể cả ở case đã đóng) không bị áp luật
     H = header(text); redo = 'chạy lại công cụ, `flow.py tool CASE seal TÊN`, rồi ghi fact mới (supersedes) dẫn evidence mới'
     if H is None: return [('tool_selfcheck', 'evidence tool_* không do `flow.py tool seal` sinh (thiếu phần đầu chuẩn)', redo)]
     out = []

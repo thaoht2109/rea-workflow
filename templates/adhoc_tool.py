@@ -44,14 +44,16 @@ def status(checks, cov):
 class _Tee:
     """Băm mọi thứ công cụ in ra stdout: `tool seal` chỉ nhận file output có đúng dấu băm này, nên output và kết quả tự kiểm luôn cùng một lần chạy."""
     def __init__(s, real): s.real = real; s.h = hashlib.sha256()
-    def write(s, t): s.h.update(t.encode('utf-8')); return s.real.write(t)
+    def write(s, t): s.h.update(t.encode('utf-8', 'surrogateescape')); return s.real.write(t)
     def flush(s): s.real.flush()
+    def __getattr__(s, k): return getattr(s.real, k)      # encoding, fileno, isatty...; ghi thẳng qua .buffer thì không được băm: đừng dùng
 _OUT = None
 
 def main():
     if len(sys.argv) < 2: raise SystemExit('dùng: python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out')
     global _OUT
-    sys.stdout.reconfigure(encoding='utf-8', newline='\n'); _OUT = sys.stdout = _Tee(sys.stdout)   # stdout phải được chuyển thẳng vào file output (không qua bộ lọc)
+    sys.stdout.reconfigure(encoding='utf-8', errors='surrogateescape', newline='\n'); _OUT = sys.stdout = _Tee(sys.stdout)   # stdout chuyển thẳng vào file output (không qua bộ lọc)
+    # chỉ output in ra từ đây trở đi được băm: module phụ không được print lúc import
     try: os.remove(status_path())      # xóa trạng thái của lần chạy trước NGAY ĐẦU: lần này dừng giữa chừng thì không còn trạng thái cũ để seal nhầm
     except FileNotFoundError: pass
     path = sys.argv[1]; res = parse(path); show(res)

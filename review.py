@@ -3,7 +3,7 @@
 #   review.py review CASE [--llm]     lớp 1 (máy) [+ lớp 2: reviewer.py, mọi LLM: claude/codex/gemini/copilot/cursor/api/cmd/manual]; tối đa 2 lần review; mã 4 = chờ manual
 #   review.py review-loop CASE        review -> sửa lại fact lỗi (phiên phân tích) -> review lần 2, tự động, dừng nếu vẫn FAIL
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
-#   review.py next CASE [--accept C4=lý do,...]   DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
+#   review.py next CASE [--accept C4=lý do]...     DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
 import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -160,7 +160,7 @@ def detach(c, cmd, flags):
         return rc
     if os.path.exists(pf):
         print(f'Lần chạy nền trước đã chết mà không ghi kết quả. Log {lf}:\n' + tail(lf, 20)
-              + '\nThường gặp: tiến trình nền bị giết khi lệnh cha kết thúc (chạy qua một lệnh nền giữ tiến trình sống), hoặc mạng tới api.anthropic.com bị chặn. Khắc phục rồi gọi lại đúng lệnh này.')
+              + '\nThường gặp: (1) sandbox của agent giết tiến trình con khi lệnh kết thúc: bỏ --detach, chạy `flow.py review CASE --llm` bằng chế độ lệnh nền của chính agent rồi chờ nó báo xong; (2) mạng tới API của backend lớp 2 bị chặn. Khắc phục rồi gọi lại đúng lệnh này.')
         os.remove(pf); return 7
     pr = subprocess.Popen([sys.executable, '-u', os.path.abspath(__file__), '_bg', cmd, c] + flags, stdout=open(lf, 'w'), stderr=subprocess.STDOUT,
                           stdin=subprocess.DEVNULL, start_new_session=True, cwd=os.getcwd())
@@ -391,5 +391,5 @@ if __name__ == '__main__':
     if cmd == 'review': sys.exit(review(c, '--llm' in a))
     elif cmd == 'review-loop': sys.exit(loop(c, '--no-llm' not in a))
     elif cmd == 'gate': ok, why = gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
-    elif cmd == 'next': sys.exit(next_step(c, a[a.index('--accept') + 1] if '--accept' in a else ''))
+    elif cmd == 'next': sys.exit(next_step(c, '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')))
     else: raise SystemExit(f'lệnh lạ: {cmd}')

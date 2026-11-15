@@ -26,6 +26,12 @@ LOG_LINES = 40   # evidence dài hơn mức này phải trỏ #L hoặc tách đ
 WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh đó
 
 def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
+def _line_id(t): return hashlib.sha1(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
+def _relocate(lines, ln, lid):
+    """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), dòng gần ln nhất nếu đã dời, None nếu mất."""
+    if not lid or _line_id(lines[ln - 1]) == lid: return ln
+    hit = [i + 1 for i, t in enumerate(lines) if _line_id(t) == lid]
+    return min(hit, key=lambda i: abs(i - ln)) if hit else None
 
 def _work_hashes(case):
     hs = set()
@@ -47,10 +53,10 @@ def lint_fact(case, f):
     lines = open(full, encoding='utf-8', errors='replace').read().splitlines()
     whole = _normnum('\n'.join(lines)).replace('\\\\', '\\').lower()
     base = os.path.basename(rel)
-    if f['src'] == 'S' and base.startswith(('emu_', 'vm_')):
-        bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM', 'đổi src hoặc dẫn evidence tĩnh')
-    if f['src'] == 'V' and not base.startswith('vm_'):
-        bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM', 'dẫn evidence vm_* hoặc đổi src')
+    if f['src'] == 'S' and base.startswith(('emu_', 'vm_', 'host_')):
+        bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh')
+    if f['src'] == 'V' and not base.startswith(('vm_', 'host_')):   # host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu
+        bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src')
     scope, anchor = whole, None
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m:
@@ -58,6 +64,11 @@ def lint_fact(case, f):
         if ln > len(lines):
             bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(lines)} dòng)', 'trỏ đúng dòng chứa bằng chứng')
         else:
+            moved = _relocate(lines, ln, f.get('ev_line'))
+            if moved is None: bad('warn', 'evidence_moved', f'nội dung dòng {ln} đã đổi so với lúc ghi fact và không tìm thấy dòng cũ trong file', 'kiểm lại bằng chứng, ghi fact mới (supersedes) trỏ đúng dòng')
+            elif moved != ln:
+                bad('warn', 'evidence_moved', f'dòng bằng chứng đã dời từ #L{ln} sang #L{moved} (evidence bị sửa sau khi ghi fact); đang kiểm theo dòng mới', f'ghi fact mới (supersedes) trỏ #L{moved}, hoặc chỉ thêm vào CUỐI file evidence')
+                ln = moved
             anchor = ln
             scope = _normnum('\n'.join(lines[max(0, ln - 1 - WINDOW): ln + WINDOW])).replace('\\\\', '\\').lower()
     elif len(lines) > LOG_LINES and rel.lower().endswith(('.txt', '.log')):
@@ -74,10 +85,10 @@ def lint_fact(case, f):
     elif f['kind'] in LITERAL_KINDS and not f['value'].startswith('n/a'):
         toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
         toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
-        if toks and not any(t in scope for t in toks) and b'\0' in open(full, 'rb').read(4096):   # evidence nhị phân (khóa, blob)
+        if toks and not any(t in scope or _normnum(t) in scope for t in toks) and b'\0' in open(full, 'rb').read(4096):   # evidence nhị phân (khóa, blob)
             if hashlib.sha256(open(full, 'rb').read()).hexdigest() not in f['value'].lower():
                 bad('warn', 'value_in_evidence', 'evidence nhị phân: không so được token; value nên ghi sha256 của file evidence', 'ghi sha256 của file vào value hoặc dẫn evidence dạng text')
-        elif toks and not any(t in scope for t in toks):
+        elif toks and not any(t in scope or _normnum(t) in scope for t in toks):   # scope đã qua _normnum (bỏ dấu ngăn nghìn): IP như 10.20.300.4 bị đổi dạng
             where = f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'
             bad('fail', 'value_in_evidence', f'không token nào của value xuất hiện trong {where}',
                 'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else
@@ -129,6 +140,11 @@ def add(case, strict=False, lint=False, **f):
     f['verified_by'] = sorted(set(vb.split(',') if isinstance(vb, str) else vb))
     f.setdefault('supersedes', None); f.setdefault('stage', ''); f.setdefault('note', '')
     f['ts'] = datetime.datetime.now().isoformat(timespec='seconds')
+    m = re.search(r'#L(\d+)$', f['evidence'])
+    if m and not f.get('ev_line'):   # dấu vân tay dòng được trỏ: lint tìm lại được dòng khi evidence bị chèn dòng về sau
+        try:
+            ls = open(full, encoding='utf-8', errors='replace').read().splitlines(); f['ev_line'] = _line_id(ls[int(m.group(1)) - 1])
+        except IndexError: pass
     issues = lint_fact(case, f) if lint else []
     fails = [i for i in issues if i['level'] == 'fail']
     if strict and fails:

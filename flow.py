@@ -21,7 +21,7 @@
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
-#   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
+#   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]...   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -384,7 +384,7 @@ if __name__ == '__main__':
     elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))
-    elif cmd == 'next': import review; sys.exit(review.next_step(c, a[a.index('--accept') + 1] if '--accept' in a else ''))
+    elif cmd == 'next': import review; sys.exit(review.next_step(c, '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')))
     elif cmd == 'gate':
         import review; ok, why = review.gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
     elif cmd == 'audit':

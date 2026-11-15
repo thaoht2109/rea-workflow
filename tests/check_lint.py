@@ -82,9 +82,45 @@ def main():
         r = run(c, 'id=f11', 'kind=string', 'value=ZoomUnifyChannel', 'src=E', 'evidence=report/evidence/emu_long.txt#L30')
         assert 'lint' not in r.stdout and r.returncode == 0, (r.returncode, r.stdout)
         ok += 1
+
+        # 9. IP trong value: scope bị chuẩn hóa số (bỏ dấu ngăn nghìn) không được làm trượt token
+        E = os.path.join(c, 'report', 'evidence')
+        open(os.path.join(E, 'net.txt'), 'w').write('kết nối tới 10.20.300.4 cổng 443\n')
+        r = run(c, 'id=f12', 'kind=c2', 'value=10.20.300.4', 'src=S', 'evidence=report/evidence/net.txt#L1')
+        assert 'value_in_evidence' not in r.stdout, r.stdout
+        r = run(c, 'id=f13', 'kind=c2', 'value=10.20.300.5', 'src=S', 'evidence=report/evidence/net.txt#L1')
+        assert 'value_in_evidence' in r.stdout, r.stdout
+        ok += 1
+
+        # 10. src=V: nhận vm_* và host_* (quan sát máy thật do người thu mẫu cung cấp); src=S không được dẫn host_*
+        open(os.path.join(E, 'host_proc.txt'), 'w').write('svchost.exe -> powershell.exe -> runtime.exe\n')
+        r = run(c, 'id=f14', 'kind=process', 'value=powershell.exe -> runtime.exe', 'src=V', 'evidence=report/evidence/host_proc.txt#L1')
+        assert 'lint' not in r.stdout, r.stdout
+        r = run(c, 'id=f15', 'kind=process', 'value=powershell.exe', 'src=S', 'evidence=report/evidence/host_proc.txt#L1')
+        assert 'src_vs_evidence' in r.stdout, r.stdout
+        r = run(c, 'id=f16', 'kind=process', 'value=powershell.exe', 'src=V', 'evidence=report/evidence/net.txt#L1')
+        assert 'src_vs_evidence' in r.stdout, r.stdout
+        ok += 1
+
+        # 11. #L neo theo nội dung: chèn dòng vào evidence sau khi ghi fact -> lint tìm lại dòng, chỉ warn evidence_moved
+        sys.path.insert(0, SKILL); import case
+        open(os.path.join(E, 'cfg.txt'), 'w').write('\n'.join(f'dòng đệm {i}' for i in range(1, 21)) + '\nkhóa cấu hình ALPHA_BRAVO_KEY ở đây\n')
+        r = run(c, 'id=f17', 'kind=config', 'value=ALPHA_BRAVO_KEY', 'src=S', 'evidence=report/evidence/cfg.txt#L21')
+        f17 = [f for f in facts(c) if f['id'] == 'f17'][0]
+        assert 'lint' not in r.stdout and len(f17.get('ev_line', '')) == 12, (r.stdout, f17)
+        body = open(os.path.join(E, 'cfg.txt')).read()
+        open(os.path.join(E, 'cfg.txt'), 'w').write('\n'.join(f'chèn thêm {i}' for i in range(12)) + '\n' + body)   # dòng đích dời 21 -> 33
+        iss = case.lint_fact(c, f17)
+        assert [i['check'] for i in iss] == ['evidence_moved'] and iss[0]['level'] == 'warn' and '#L33' in iss[0]['problem'], iss
+        old = dict(f17); old.pop('ev_line')                          # fact cũ không có dấu vân tay: hành vi như trước (fail vì lệch dòng)
+        assert any(i['check'] == 'value_in_evidence' and i['level'] == 'fail' for i in case.lint_fact(c, old))
+        open(os.path.join(E, 'cfg.txt'), 'w').write('nội dung khác hẳn\n' * 30)   # dòng cũ mất: warn + fail vì giá trị không còn
+        ch = [i['check'] for i in case.lint_fact(c, f17)]
+        assert 'evidence_moved' in ch and 'value_in_evidence' in ch, ch
+        ok += 1
     finally:
         shutil.rmtree(c, ignore_errors=True)
-    print(f'OK test_lint ({ok}/8 nhóm)')
+    print(f'OK test_lint ({ok}/11 nhóm)')
 
 if __name__ == '__main__':
     main()

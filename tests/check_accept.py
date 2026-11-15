@@ -16,5 +16,9 @@ try:
     assert acc['C6'] == 'ba' and acc['C9'] == 'bốn' and len(acc) == 4, acc
     r = subprocess.run([sys.executable, os.path.join(T, 'review.py'), 'next', c, '--accept', 'C3=x', '--accept', 'C5=y'], capture_output=True, text=True)
     acc = json.load(open(os.path.join(c, 'work', 'accepted.json'))); assert acc['C3'] == 'x' and acc['C5'] == 'y', acc
+    for tool in ('flow.py', 'review.py'):   # --accept đứng cuối, thiếu giá trị: lỗi rõ, không ghi gì thêm
+        r = subprocess.run([sys.executable, os.path.join(T, tool), 'next', c, '--accept'], capture_output=True, text=True)
+        assert r.returncode != 0 and '--accept cần giá trị' in r.stderr, (tool, r.returncode, r.stderr)
+    assert len(json.load(open(os.path.join(c, 'work', 'accepted.json')))) == 6
 finally: shutil.rmtree(c, ignore_errors=True)
 print('OK check_accept')

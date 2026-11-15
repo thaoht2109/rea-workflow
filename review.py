@@ -303,6 +303,11 @@ def accepted(c):
     p = os.path.join(c, 'work', 'accepted.json')
     return json.load(open(p)) if os.path.exists(p) else {}
 
+def accept_args(a):
+    """Gộp mọi cờ --accept của dòng lệnh; cờ đứng cuối mà thiếu giá trị thì dừng với lỗi rõ thay vì bỏ qua lặng lẽ."""
+    if a and a[-1] == '--accept': raise SystemExit('--accept cần giá trị: --accept Cx=lý do')
+    return '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')
+
 def next_step(c, accept=''):
     acc = accepted(c)
     for kv in filter(None, map(str.strip, re.split(r'[;,]\s*(?=C\d+=)', accept))):   # tách trước 'Cx=' nên lý do được chứa dấu phẩy
@@ -394,5 +399,5 @@ if __name__ == '__main__':
     if cmd == 'review': sys.exit(review(c, '--llm' in a))
     elif cmd == 'review-loop': sys.exit(loop(c, '--no-llm' not in a))
     elif cmd == 'gate': ok, why = gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
-    elif cmd == 'next': sys.exit(next_step(c, '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')))
+    elif cmd == 'next': sys.exit(next_step(c, accept_args(a)))
     else: raise SystemExit(f'lệnh lạ: {cmd}')

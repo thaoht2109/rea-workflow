@@ -43,6 +43,7 @@ def checks():
         ('python: capstone', has_mod('capstone'), True, ['python3-capstone'], 'capstone', None, 'disassembly, winemu'),
         ('python: unicorn 2.1.4', unicorn_ok(), True, [], 'unicorn==2.1.4', None, 'giả lập CPU (winemu, tầng T3)'),
         ('python: py-tlsh', has_mod('tlsh'), False, [], 'py-tlsh', None, 'flow.py kb: so khớp mờ mẫu tương tự (TLSH)'),
+        ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
         ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),

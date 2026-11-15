@@ -91,6 +91,7 @@ def new(c, name):
     d = tdir(c); os.makedirs(d, exist_ok=True); p = os.path.join(d, name + '.py')
     if os.path.exists(p): raise SystemExit(f'đã có {os.path.relpath(p, c)}')
     open(p, 'w', encoding='utf-8').write(open(os.path.join(TOOLS, 'templates', 'adhoc_tool.py'), encoding='utf-8').read().replace('{NAME}', name))
+    os.makedirs(os.path.join(c, 'work', 'runs', 'tool'), exist_ok=True)   # để lệnh chuyển hướng stdout trong hướng dẫn chạy được ngay
     print(f'đã tạo {os.path.relpath(p, c)}. Khai FORMAT/SCOPE, viết parse() và selfcheck() (phép kiểm phải có thể sai khi công cụ sai).\n'
           f'Tự chạy (skill không chạy công cụ; quy tắc không chạy mẫu vẫn nguyên): python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
           f'Rồi niêm phong: flow.py tool {c} seal {name}')
@@ -106,13 +107,15 @@ def seal(c, name, out=None):
     try: st = json.load(open(sp, encoding='utf-8')); checks = [(one(n, 120).replace(':', ';'), bool(ok), one(det)) for n, ok, det in st['checks']]; ran = float(st['time'])
     except (OSError, ValueError, KeyError, TypeError): st, checks, ran = {}, [], 0.0
     newest = max(os.path.getmtime(os.path.join(d, m + '.py')) for m in mods)
-    if st and ran < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
+    if (st and ran < newest) or os.path.getmtime(out) < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
+    if st and abs(os.path.getmtime(out) - ran) > 300: print('TỪ CHỐI: output và file trạng thái tự kiểm không cùng một lần chạy (lệch thời gian). Chạy lại công cụ, chuyển stdout vào đúng file output, rồi seal.'); return 2
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else ''
     ev = edir(c); os.makedirs(os.path.join(ev, 'tools'), exist_ok=True)
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
-    for m in mods: shutil.copy(os.path.join(d, m + '.py'), os.path.join(ev, 'tools', m + '.py'))   # đúng bản đã sinh ra output
+    if not why:   # chỉ lần seal ĐẠT mới thay bản lưu công cụ: lần không đạt không được làm evidence đạt trước đó thành tool_stale
+        for m in mods: shutil.copy(os.path.join(d, m + '.py'), os.path.join(ev, 'tools', m + '.py'))
     body = open(out, encoding='utf-8', errors='replace').read().splitlines()
     H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}",
          'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + \

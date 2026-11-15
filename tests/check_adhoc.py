@@ -18,7 +18,7 @@ flow = lambda *a: subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 't
 p = os.path.join(c, 'work', 'tools', 'blob.py'); outp = os.path.join(c, 'work', 'runs', 'tool', 'blob.out'); ev = os.path.join(c, 'report', 'evidence')
 def write(src): time.sleep(0.02); open(p, 'w', encoding='utf-8').write(src)
 def runtool(*extra):   # agent tự chạy công cụ, stdout vào work/runs/tool/TÊN.out
-    time.sleep(0.02); os.makedirs(os.path.dirname(outp), exist_ok=True)
+    time.sleep(0.02); assert os.path.isdir(os.path.dirname(outp))      # `tool new` đã tạo sẵn thư mục output
     r = subprocess.run([sys.executable, '-I', p, smp] + list(extra), capture_output=True, text=True); open(outp, 'w', encoding='utf-8').write(r.stdout); return r
 BODY = '''
 def parse(path):
@@ -84,6 +84,13 @@ try:
     assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
     time.sleep(0.02); open(os.path.join(ev, 'tools', 'helper_mod.py'), 'a').write('# đổi\n')       # sửa bản lưu của module phụ: evidence cũng thành stale
     assert [x['check'] for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')] == ['tool_stale']
+    # lần seal không đạt không ghi đè bản lưu công cụ: evidence đạt trước đó không vì thế mà thành stale; output không cùng lần chạy với trạng thái -> từ chối
+    shutil.copy(p, os.path.join(ev, 'tools', 'blob.py')); shutil.copy(os.path.join(c, 'work', 'tools', 'helper_mod.py'), os.path.join(ev, 'tools', 'helper_mod.py'))
+    assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
+    good_now = open(p, encoding='utf-8').read(); write(good_now.replace("def CRC(r): return r['crc']", "def CRC(r): return r['crc'] + 2")); assert runtool().returncode == 0
+    assert flow('seal', 'blob').returncode == 1 and not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
+    os.utime(outp, (time.time() + 3600, time.time() + 3600)); r = flow('seal', 'blob'); assert r.returncode == 2 and 'không cùng một lần chạy' in r.stdout, r.stdout
+    time.sleep(0.02); open(os.path.join(ev, 'tools', 'helper_mod.py'), 'a').write('# đổi\n')
     r = flow('list'); assert 'tool_blob_4.txt: blob tự kiểm ĐẠT, COVERAGE 2/2, CŨ' in r.stdout and 'tool_blob_1.txt: blob tự kiểm KHÔNG ĐẠT' in r.stdout, r.stdout
     import ast; tr = ast.parse(open(os.path.join(T, 'adhoc.py'), encoding='utf-8').read())    # bất biến của tầng này: adhoc.py không có đường chạy mã nào
     imps = {a.name.split('.')[0] for n in ast.walk(tr) if isinstance(n, ast.Import) for a in n.names} | {n.module.split('.')[0] for n in ast.walk(tr) if isinstance(n, ast.ImportFrom) and n.module}

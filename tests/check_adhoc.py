@@ -53,7 +53,9 @@ try:
                    'import os.path as p\n',
                    # sửa đường tìm module để import mã lấy từ mẫu; module riêng của thư viện
                    'import sys\nsys.path.insert(0, "x")\n', 'from sys import path\n', 'import sys as s\ns.path.append("x")\n', 'import sys\ny = sys\ny.path.append("x")\n',
-                   'import sys\nsys.path_importer_cache.clear()\n', 'from Crypto.Util._raw_api import load_lib\n', 'import json._x\n'):
+                   'import sys\nsys.path_importer_cache.clear()\n', 'from Crypto.Util._raw_api import load_lib\n', 'import json._x\n',
+                   # thuộc tính riêng qua gán lại/subscript, truy cập khung
+                   'import collections\nm = collections\nm._sys\n', 'import random\n[random][0]._os\n', 'def f(): pass\nf.__globals__\n', 'import json\n(lambda: 0).gi_frame\n', 'x = 1\nx.f_globals\n'):
         open(p, 'w', encoding='utf-8').write(head + badsrc)
         open(os.path.join(c, 'work', 'tools', 'helper.py'), 'w').write('import os\nos.popen("id")\n')
         r = flow('run', 'blob', smp); assert r.returncode == 2 and 'TỪ CHỐI' in r.stdout and not os.path.exists(mark), (badsrc, r.stdout)
@@ -78,6 +80,17 @@ try:
     for src in (f'import sys\nsys.path.insert(0, {zp!r})\nimport lzma_extra_mod\n', f'import sys\nsys.path.append({zp!r})\nimport lzma_extra_mod\n', 'import sys\nsys.meta_path.insert(0, object())\nimport csv\n'):
         r = boot(src); assert r.returncode != 0 and 'PermissionError' in r.stderr and not os.path.exists(mark), (src, r.stderr[-300:])
     r = boot('import json, zlib, struct, csv\nprint("ok")\n'); assert r.returncode == 0 and 'ok' in r.stdout, r.stderr      # import bình thường không bị ảnh hưởng
+    r = boot('import ctypes\nprint("ct")\n'); assert r.returncode == 0 and 'ct' in r.stdout, r.stderr                           # ctypes nạp sẵn trước hook: thư viện dùng ctypes import được
+    for lib, stmt in (('capstone', 'import capstone\nprint(len(list(capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64).disasm(bytes([0x90, 0xc3]), 0))))'), ('Crypto', 'from Crypto.Cipher import AES\nprint(AES.block_size)')):
+        try: __import__(lib)
+        except ImportError: print(f'  (bỏ qua {lib}: chưa cài)'); continue
+        r = boot(stmt + '\n'); assert r.returncode == 0, (lib, r.stderr[-400:])
+    # file trong work/tools trùng tên module chuẩn: không che được stdlib (thư mục công cụ đứng cuối sys.path) và bị `tool run` từ chối
+    td2 = os.path.join(ws, 'shadow'); os.makedirs(td2); open(os.path.join(td2, 'shutil.py'), 'w').write(payload); open(os.path.join(td2, 't.py'), 'w').write('import zipfile, shutil\nprint(shutil.which is not None)\n')
+    r = subprocess.run([sys.executable, '-I', '-c', adhoc.BOOT, os.path.join(td2, 't.py'), od], capture_output=True, text=True); assert r.returncode == 0 and 'True' in r.stdout and not os.path.exists(mark), r.stderr[-300:]
+    open(os.path.join(c, 'work', 'tools', 'shutil.py'), 'w').write(payload); open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nimport zipfile\n")
+    r = flow('run', 'blob', smp); assert r.returncode == 2 and 'trùng tên module chuẩn' in r.stdout and not os.path.exists(mark), r.stdout
+    os.remove(os.path.join(c, 'work', 'tools', 'shutil.py')); assert flow('new', 'struct').returncode != 0 and flow('new', 'brotli').returncode != 0
     r = boot(f'import os\nopen(os.path.join({od!r}, "ok.bin"), "wb").write(b"x")\nprint(open({smp!r}, "rb").read(4).hex())\n'); assert r.returncode == 0 and os.path.exists(os.path.join(od, 'ok.bin')), r.stderr
     open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nimport os\nprint(sorted(os.environ))\n")
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', c, 'run', 'blob', smp], capture_output=True, text=True, env=dict(os.environ, FAKE_API_KEY='bi-mat'))

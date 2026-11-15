@@ -312,7 +312,7 @@ def route(R, out):
         return ('T2: flow.py dec CASE FILE ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
                ' | không có T3 cho ELF trên server (thiếu qemu-user): giải mã bằng tái hiện tĩnh'
     return ('T1b: định dạng chưa có đường đi. Xác định từ dòng probe + strings (magic, lớp nén, cấu trúc lặp); rồi `flow.py tool CASE new TÊN`, '
-            'viết selfcheck() trước, `flow.py tool CASE run TÊN FILE`. Không nạp file vào trình thông dịch/runtime nào để "xem thử"')
+            'viết selfcheck() trước, tự chạy công cụ rồi `flow.py tool CASE seal TÊN`. Không nạp file vào trình thông dịch/runtime nào để "xem thử"')
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('file'); ap.add_argument('--out', required=True); ap.add_argument('--facts')

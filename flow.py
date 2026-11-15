@@ -6,8 +6,8 @@
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py v8 CASE FILE [dis BC...|grep REGEX]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
 #                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng; grep = tìm trong chuỗi đã giải + hằng
-#   flow.py tool CASE new TÊN | run TÊN [THAM SỐ...] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết công cụ ở work/tools/
-#                                      theo khuôn; run quét tĩnh (cấm mạng/tiến trình con), đòi phép tự kiểm đạt, ghi evidence tool_* kèm dấu băm công cụ
+#   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
+#                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# Công cụ tự viết cho MỘT case (tầng T1b), chạy bằng: flow.py tool CASE run {NAME} FILE [tham số...]
-# Dùng khi triage trả loại chưa có đường đi. Chỉ ĐỌC file mẫu: không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch nào.
-# `tool run` quét script theo danh sách cho phép: chỉ import thư viện phân tích dữ liệu và phần đọc của os; không getattr/eval/exec/pickle.
-# Lúc chạy có thêm lớp chặn: tạo tiến trình, socket và ghi file ngoài thư mục os.environ['REA_TOOL_OUT'] đều ném PermissionError.
-# Cần xuất file (blob đã giải, bảng lớn): ghi vào REA_TOOL_OUT rồi in sha256 của nó ra output.
+# Công cụ tự viết cho MỘT case (tầng T1b). Dùng khi triage trả loại chưa có đường đi.
+# Skill KHÔNG chạy file này: agent tự chạy như mọi script phân tích khác, rồi niêm phong kết quả:
+#   python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out
+#   flow.py tool CASE seal {NAME}
+# Quy tắc không chạy mẫu vẫn nguyên: chỉ ĐỌC file mẫu, không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch/runtime nào.
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
-import os, sys   # module phụ: đặt cạnh file này rồi `import tên` (cũng bị quét và băm); không được sửa sys.path
+import json, os, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này: `import tên` (cũng vào dấu băm của công cụ)
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
 SCOPE = ''    # BẮT BUỘC: phạm vi hỗ trợ (phiên bản, biến thể). Ngoài phạm vi thì dừng với lỗi, không đoán.
@@ -28,14 +29,17 @@ def coverage(res):
     return None
 
 def show(res):
-    """In phần kết quả cần làm bằng chứng (có giới hạn). Dữ liệu lấy từ mẫu in bằng repr() để không giả được dòng điều khiển."""
+    """In phần kết quả cần làm bằng chứng ra stdout (có giới hạn). Dữ liệu lấy từ mẫu nên in bằng repr()."""
+
+def status(checks, cov):
+    """Ghi kết quả tự kiểm ra file riêng (không qua stdout, nên chuỗi lấy từ mẫu không giả được). `flow.py tool CASE seal` đọc file này."""
+    name = os.path.splitext(os.path.basename(__file__))[0]; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'runs', 'tool'); os.makedirs(d, exist_ok=True)
+    json.dump({'argv': sys.argv[1:], 'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time()},
+              open(os.path.join(d, name + '.status.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 
 def main():
-    if len(sys.argv) < 2: raise SystemExit('dùng: flow.py tool CASE run {NAME} FILE [tham số...]')
+    if len(sys.argv) < 2: raise SystemExit('dùng: python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out')
     path = sys.argv[1]; res = parse(path); show(res)
-    n = os.environ.get('REA_TOOL_NONCE', '')      # dấu do flow.py cấp mỗi lần chạy: dòng thiếu dấu không được tính (mẫu không giả được)
-    for name, ok, detail in selfcheck(path, res): print(f"SELFCHECK[{n}] {'PASS' if ok else 'FAIL'} {name}: {detail}")
-    cov = coverage(res)
-    if cov: print(f'COVERAGE[{n}] {cov[0]}/{cov[1]}')
+    status(selfcheck(path, res), coverage(res))
 
 if __name__ == '__main__': main()

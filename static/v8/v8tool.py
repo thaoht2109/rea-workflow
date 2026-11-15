@@ -62,12 +62,12 @@ def unpack(A):
         for b in sorted(found):
             if found[b]: f.write('## bc %d\n' % b + ''.join('%d\t%r\n' % x for x in found[b]))
     with open(os.path.join(A.out, 'cpool.txt'), 'w') as f:
-        for b in bcs: f.write(''.join('%d\t%s\n' % (b, x.replace('\n', '\\n')[:300]) for x in h.cpool_strings(b)))
+        for b in bcs: f.write(''.join('%d\t%r\n' % (b, x[:300]) for x in h.cpool_strings(b)))
     if found: open(os.path.join(A.out, 'modules.txt'), 'w').write('\n'.join(modules(h, found)) + '\n')
     # mã JS dạng rõ nhúng làm hằng chuỗi (thư viện, script tiêm vào trang): không qua bộ giải chuỗi, phải đọc riêng
     big = sorted(((len(h.string(o[0]) or ''), o[0]) for o in objs if h.isstr(o[0]) and o[2] > 512), reverse=True)
     if big: P(f'hằng chuỗi lớn (> 4 KB): {len(big)} chuỗi, tổng {sum(n for n, _ in big)} ký tự; lớn nhất: ' + ', '.join(f'obj {i} ({n})' for n, i in big[:5]) + '; có thể là mã JS dạng rõ, đọc bằng `dis`/`grep` hoặc trích riêng')
-    allt = [t for v in found.values() for _, t in v] or [l.split('\t', 1)[1] for l in open(os.path.join(A.out, 'cpool.txt'))]
+    allt = [t for v in found.values() for _, t in v] or [ast.literal_eval(l.split('\t', 1)[1]) for l in open(os.path.join(A.out, 'cpool.txt'))]
     urls = collections.Counter(u for t in allt for u in re.findall(r'(?:https?|wss?|ftp|tcp)://[^\s\'"\\<>]{3,120}', t))
     if urls: P('URL ứng viên (CHƯA là fact; cần xref tới mã): ' + ' '.join(u for u, _ in urls.most_common(40)))
     P('tiếp: đọc modules.txt để chọn module; `flow.py v8 CASE FILE grep REGEX`; `flow.py v8 CASE FILE dis BC...`; mỗi kết luận ghi fact kèm dòng listing')
@@ -91,9 +91,8 @@ def grep(A):
             l = l.rstrip('\n')
             if l.startswith('## bc '): b = l[6:]; continue
             bb, t = (b, l.split('\t', 1)[1]) if tag == 'giải mã' else l.split('\t', 1)
-            if tag == 'giải mã':
-                try: t = ast.literal_eval(t)      # strings.txt lưu dạng repr: so khớp trên chuỗi thật để ^ và $ dùng được
-                except Exception: pass
+            try: t = ast.literal_eval(t)      # strings.txt/cpool.txt lưu dạng repr: so khớp trên chuỗi thật để ^ và $ dùng được
+            except Exception: pass
             if rx.search(t): print(f'{bb}\t{tag}\t{t[:300]!r}')
 
 if __name__ == '__main__':

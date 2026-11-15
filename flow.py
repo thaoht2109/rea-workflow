@@ -142,7 +142,9 @@ def v8(c, f, rest):
             if m: p = os.path.join(rd, f'{tag}_bc{m.group(1)}.txt'); open(p, 'w').write(blk); show('bc ' + m.group(1), blk, p, c)
             elif blk.strip(): print(blk.strip())
     elif rest[:1] == ['grep']:
-        r = subprocess.run([sys.executable, '-I', tool, 'grep', od] + rest[1:2], capture_output=True, text=True); L = r.stdout.splitlines()
+        r = subprocess.run([sys.executable, '-I', tool, 'grep', od] + rest[1:2], capture_output=True, text=True)
+        if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 grep lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
+        L = r.stdout.splitlines()
         print('\n'.join(L[:120])); print(f'... còn {len(L) - 120} dòng: thu hẹp REGEX') if len(L) > 120 else None
     else:
         if subprocess.run([sys.executable, '-I', tool, 'unpack', f, '--out', od]).returncode: raise SystemExit(1)

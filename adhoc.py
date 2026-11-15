@@ -15,6 +15,7 @@ ALLOW = {'struct', 'zlib', 'bz2', 'lzma', 'gzip', 'base64', 'binascii', 'hashlib
          'statistics', 'random', 'secrets', 'difflib', 'fnmatch', 'glob', 'contextlib', 'abc', 'numbers', 'types', 'warnings', 'traceback', 'urllib.parse',
          'brotli', 'Crypto', 'Cryptodome', 'cryptography', 'capstone', 'pefile', 'elftools', 'lz4', 'zstandard', 'snappy', 'msgpack', 'cbor2', 'construct', 'tlsh'}
 OS_OK = {'path', 'environ', 'sep', 'linesep', 'getcwd', 'listdir', 'scandir', 'walk', 'stat', 'fspath', 'devnull', 'SEEK_SET', 'SEEK_CUR', 'SEEK_END'}   # os: chỉ phần đọc
+SYS_OK = {'argv', 'exit', 'stdout', 'stderr', 'stdin', 'version_info', 'maxsize', 'byteorder', 'getsizeof', 'setrecursionlimit', 'getrecursionlimit', 'intern'}   # sys: không path/modules
 BAN_NAME = {'eval', 'exec', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', 'breakpoint', '__builtins__', 'input'}
 DUNDER_OK = {'__name__', '__file__', '__doc__', '__init__', '__slots__', '__len__', '__repr__', '__str__', '__eq__', '__hash__', '__iter__', '__next__', '__getitem__', '__contains__', '__enter__', '__exit__'}
 DANGER = {'os', 'sys', 'subprocess', 'socket', 'ctypes', 'shutil', 'importlib', 'builtins', 'cffi', 'posix', 'nt', 'pty', 'signal', 'multiprocessing',
@@ -26,14 +27,24 @@ _script, _out = sys.argv[1], os.path.realpath(sys.argv[2]) + os.sep
 _PROC = {'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn', 'os.fork', 'os.forkpty', 'os.spawn', 'os.startfile', 'pty.spawn', 'os.kill', 'os.killpg', 'os.putenv', 'os.unsetenv'}
 _FS = {'os.remove', 'os.rename', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.link', 'os.symlink', 'os.utime', 'os.chdir', 'os.chflags',
        'shutil.rmtree', 'shutil.move', 'shutil.copyfile', 'shutil.copymode', 'shutil.copystat', 'shutil.copytree', 'shutil.make_archive', 'shutil.unpack_archive', 'tempfile.mkstemp', 'tempfile.mkdtemp'}
-_LIBS = tuple(os.sep + p + os.sep for p in ('Crypto', 'Cryptodome', 'capstone', 'cryptography'))
+import importlib.util as _iu
+_LIBS = []
+for _p in ('Crypto', 'Cryptodome', 'capstone', 'cryptography'):      # thư mục cài thật của thư viện phân tích: chỉ ở đó ctypes mới được nạp thư viện
+    try: _sp = _iu.find_spec(_p)
+    except Exception: _sp = None
+    if _sp and _sp.origin: _LIBS.append(os.path.realpath(os.path.dirname(_sp.origin)) + os.sep)
+_LIBS = tuple(_LIBS)
+sys.path[:] = [os.path.dirname(os.path.abspath(_script))] + [p for p in sys.path if p]   # chốt đường tìm module: thư mục công cụ + stdlib/site-packages
+_PATH, _META, _HOOKS = tuple(sys.path), tuple(sys.meta_path), tuple(sys.path_hooks)
 _W = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 def _inside(p):
     try: return (os.path.realpath(os.fsdecode(p)) + os.sep).startswith(_out)
     except Exception: return False
-def _hook(ev, a, _PE=PermissionError, _str=str, _int=int, _any=any):
+def _hook(ev, a, _PE=PermissionError, _str=str, _int=int, _any=any, _tuple=tuple):
     if ev in _PROC or ev.startswith(('socket.', 'urllib.', 'http.', 'ftplib.', 'smtplib.', 'webbrowser.', 'winreg.', 'ssl.')): raise _PE('T1b: cấm ' + ev)
-    if ev == 'ctypes.dlopen' and not (a and isinstance(a[0], _str) and _any(x in os.path.realpath(a[0]) for x in _LIBS)): raise _PE('T1b: cấm ctypes.dlopen ngoài thư viện phân tích được phép')
+    if ev == 'import' and _any(v is not None and _tuple(v) != w for v, w in ((a[2], _PATH), (a[3], _META), (a[4], _HOOKS))):   # None = import nội bộ không tra sys.path
+        raise _PE('T1b: sys.path/meta_path/path_hooks đã bị sửa: không import từ đường dẫn ngoài (mã lấy từ mẫu)')
+    if ev == 'ctypes.dlopen' and not (a and isinstance(a[0], _str) and _any(os.path.realpath(a[0]).startswith(x) for x in _LIBS)): raise _PE('T1b: cấm ctypes.dlopen ngoài thư viện phân tích được phép')
     if ev == 'open':
         path, mode, flags = (list(a) + [None, None, None])[:3]
         wr = (isinstance(mode, _str) and _any(c in mode for c in 'wax+')) or (isinstance(flags, _int) and flags & _W)
@@ -55,7 +66,7 @@ def scan(path):
     getattr, builtins, dunder), không phải sandbox: quy tắc không chạy mẫu vẫn do agent chịu trách nhiệm."""
     try: tree = ast.parse(open(path, encoding='utf-8').read())
     except (SyntaxError, ValueError) as e: return [f'{os.path.basename(path)}: không phân tích được ({e})'], [], '', ''
-    bad, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path); osn = set()   # osn: mọi tên đang trỏ tới module os
+    bad, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path); osn = set(); sysn = set()   # osn/sysn: mọi tên đang trỏ tới module os/sys
     def no(n, why): bad.append(f'{base}:{n.lineno}: {why}')
     def allowed(m): return m in ALLOW or m.split('.')[0] in ALLOW and not m.startswith('urllib')
     imp = set()                                  # mọi tên do import đưa vào (module hoặc tên from-import): truy cập thuộc tính '_x' trên chúng bị cấm
@@ -63,6 +74,8 @@ def scan(path):
         if isinstance(n, ast.Import):
             for a in n.names:
                 imp.add(a.asname or a.name.split('.')[0])
+                if any(x.startswith('_') for x in a.name.split('.')): no(n, f'import {a.name}: module riêng (bắt đầu bằng _) bị cấm')
+                if a.name == 'sys': sysn.add(a.asname or 'sys'); continue
                 if a.name in ('os', 'os.path'):
                     if a.name == 'os': osn.add(a.asname or 'os')
                     elif a.asname: no(n, 'import os.path as ...: dùng `import os.path` hoặc `from os.path import <hàm>`')
@@ -72,6 +85,11 @@ def scan(path):
         elif isinstance(n, ast.ImportFrom):
             m = n.module or ''; imp.update(a.asname or a.name for a in n.names)
             if n.level: no(n, 'import tương đối: đặt module cạnh script và import bằng tên'); continue
+            if any(x.startswith('_') for x in m.split('.')): no(n, f'from {m} import ...: module riêng (bắt đầu bằng _) bị cấm')
+            if m == 'sys':
+                for a in n.names:
+                    if a.name not in SYS_OK: no(n, f'from sys import {a.name}: chỉ được dùng {", ".join(sorted(SYS_OK))}')
+                continue
             for a in n.names:                    # tên được import không được là module nguy hiểm, dù module nguồn hợp lệ (vd `from glob import os`)
                 if a.name == '*' or a.name.startswith('_') or (a.name in DANGER and not (m == 'os' and a.name in OS_OK)): no(n, f'from {m} import {a.name}: tên bị cấm')
             if m == 'os':
@@ -82,6 +100,7 @@ def scan(path):
             elif not allowed(m) and not all(allowed(m + '.' + a.name) for a in n.names): no(n, f'from {m} import ...: ngoài danh sách cho phép')
     for n in ast.walk(tree):                     # gán lại module os cho tên khác (x = os) cũng là alias
         if isinstance(n, ast.Assign) and isinstance(n.value, ast.Name) and n.value.id in osn: osn.update(t.id for t in n.targets if isinstance(t, ast.Name))
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Name) and n.value.id in sysn: sysn.update(t.id for t in n.targets if isinstance(t, ast.Name))
     def rootname(x):
         while isinstance(x, ast.Attribute): x = x.value
         return x.id if isinstance(x, ast.Name) else None
@@ -89,9 +108,10 @@ def scan(path):
         if isinstance(n, ast.Name) and n.id in BAN_NAME: no(n, f'{n.id}: nạp mã động/truy cập phản xạ bị cấm')
         elif isinstance(n, ast.Attribute):
             if isinstance(n.value, ast.Name) and n.value.id in osn and n.attr not in OS_OK: no(n, f'{n.value.id}.{n.attr}: chỉ được dùng phần đọc của os')
-            elif n.attr in DANGER: no(n, f'.{n.attr}: đi tới module/cơ chế bị cấm qua thuộc tính')
+            elif isinstance(n.value, ast.Name) and n.value.id in sysn and n.attr not in SYS_OK: no(n, f'{n.value.id}.{n.attr}: sys chỉ được dùng {", ".join(sorted(SYS_OK))} (không sửa đường tìm module)')
+            elif n.attr in DANGER or n.attr in ('path_importer_cache',): no(n, f'.{n.attr}: đi tới module/cơ chế bị cấm qua thuộc tính')
             elif n.attr.startswith('__') and n.attr not in DUNDER_OK: no(n, f'.{n.attr}: truy cập dunder bị cấm')
-            elif n.attr.startswith('_') and not n.attr.startswith('__') and rootname(n) in imp | osn | {'sys'}: no(n, f'.{n.attr}: thuộc tính riêng của module được import bị cấm')
+            elif n.attr.startswith('_') and not n.attr.startswith('__') and rootname(n) in imp | osn | sysn: no(n, f'.{n.attr}: thuộc tính riêng của module được import bị cấm')
     for n in tree.body:   # FORMAT/SCOPE: chỉ nhận hằng chuỗi gán ở mức module, đọc tĩnh chứ không import script
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ('FORMAT', 'SCOPE') \
                 and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str): meta[n.targets[0].id] = ' '.join(n.value.value.split())[:200]

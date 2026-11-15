@@ -5,8 +5,7 @@
 # Lúc chạy có thêm lớp chặn: tạo tiến trình, socket và ghi file ngoài thư mục os.environ['REA_TOOL_OUT'] đều ném PermissionError.
 # Cần xuất file (blob đã giải, bảng lớn): ghi vào REA_TOOL_OUT rồi in sha256 của nó ra output.
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này (cũng bị quét và băm)
+import os, sys   # module phụ: đặt cạnh file này rồi `import tên` (cũng bị quét và băm); không được sửa sys.path
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
 SCOPE = ''    # BẮT BUỘC: phạm vi hỗ trợ (phiên bản, biến thể). Ngoài phạm vi thì dừng với lỗi, không đoán.

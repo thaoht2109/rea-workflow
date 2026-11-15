@@ -50,7 +50,10 @@ try:
                    # qua module mà thư viện được phép đã import sẵn
                    'from glob import os\nos.system("id")\n', 'import glob\nglob.os.system("id")\n', 'from os.path import os\n', 'import tarfile\ntarfile.os.execv("/bin/sh", [])\n',
                    'import traceback\ntraceback.sys.modules["subprocess"]\n', 'import zipfile\nzipfile._something()\n', 'from zipfile import *\n', 'from json import _x\n',
-                   'import os.path as p\n'):
+                   'import os.path as p\n',
+                   # sửa đường tìm module để import mã lấy từ mẫu; module riêng của thư viện
+                   'import sys\nsys.path.insert(0, "x")\n', 'from sys import path\n', 'import sys as s\ns.path.append("x")\n', 'import sys\ny = sys\ny.path.append("x")\n',
+                   'import sys\nsys.path_importer_cache.clear()\n', 'from Crypto.Util._raw_api import load_lib\n', 'import json._x\n'):
         open(p, 'w', encoding='utf-8').write(head + badsrc)
         open(os.path.join(c, 'work', 'tools', 'helper.py'), 'w').write('import os\nos.popen("id")\n')
         r = flow('run', 'blob', smp); assert r.returncode == 2 and 'TỪ CHỐI' in r.stdout and not os.path.exists(mark), (badsrc, r.stdout)
@@ -66,6 +69,15 @@ try:
                 f'open({mark!r}, "w").close()\n', f'import os\nos.open({mark!r}, os.O_CREAT | os.O_WRONLY)\n', f'import os\nos.mkdir({mark!r})\n',
                 f'import shutil\nshutil.copyfile({smp!r}, {mark!r})\n', f'import os\nos.rename({smp!r}, {mark!r})\n'):
         r = boot(src); assert r.returncode != 0 and 'PermissionError' in r.stderr and not os.path.exists(mark) and os.path.exists(smp), (src, r.stderr[-300:])
+    # import mã lấy từ mẫu: module trùng tên thư viện được phép nằm trong thư mục ra hoặc trong file zip "mẫu" -> hook chặn ở sự kiện import
+    import zipfile; payload = f'open({mark!r}, "w").close()\n'; zp = os.path.join(ws, 'sample.zip')
+    with zipfile.ZipFile(zp, 'w') as z: z.writestr('lzma_extra_mod.py', payload)
+    r = boot(f'import os, sys\nopen(os.path.join({od!r}, "lzma_extra_mod.py"), "w").write({payload!r})\nsys.path.insert(0, {od!r})\nimport lzma_extra_mod\n')
+    assert r.returncode != 0 and 'PermissionError' in r.stderr and not os.path.exists(mark), r.stderr[-300:]
+    os.remove(os.path.join(od, 'lzma_extra_mod.py'))
+    for src in (f'import sys\nsys.path.insert(0, {zp!r})\nimport lzma_extra_mod\n', f'import sys\nsys.path.append({zp!r})\nimport lzma_extra_mod\n', 'import sys\nsys.meta_path.insert(0, object())\nimport csv\n'):
+        r = boot(src); assert r.returncode != 0 and 'PermissionError' in r.stderr and not os.path.exists(mark), (src, r.stderr[-300:])
+    r = boot('import json, zlib, struct, csv\nprint("ok")\n'); assert r.returncode == 0 and 'ok' in r.stdout, r.stderr      # import bình thường không bị ảnh hưởng
     r = boot(f'import os\nopen(os.path.join({od!r}, "ok.bin"), "wb").write(b"x")\nprint(open({smp!r}, "rb").read(4).hex())\n'); assert r.returncode == 0 and os.path.exists(os.path.join(od, 'ok.bin')), r.stderr
     open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nimport os\nprint(sorted(os.environ))\n")
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', c, 'run', 'blob', smp], capture_output=True, text=True, env=dict(os.environ, FAKE_API_KEY='bi-mat'))

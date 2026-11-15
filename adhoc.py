@@ -108,7 +108,9 @@ def seal(c, name, out=None):
     except (OSError, ValueError, KeyError, TypeError): st, checks, ran = {}, [], 0.0
     newest = max(os.path.getmtime(os.path.join(d, m + '.py')) for m in mods)
     if (st and ran < newest) or os.path.getmtime(out) < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
-    if st and abs(os.path.getmtime(out) - ran) > 300: print('TỪ CHỐI: output và file trạng thái tự kiểm không cùng một lần chạy (lệch thời gian). Chạy lại công cụ, chuyển stdout vào đúng file output, rồi seal.'); return 2
+    mo = os.path.getmtime(out)
+    if st and ran < mo - 2: st, checks = {}, []      # trạng thái cũ hơn output: là của một lần chạy trước (lần này dừng trước khi tự kiểm) -> coi như không có
+    if st and ran - mo > 300: print('TỪ CHỐI: output và file trạng thái tự kiểm không cùng một lần chạy (lệch thời gian). Chạy lại công cụ, chuyển stdout vào đúng file output, rồi seal.'); return 2
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else ''

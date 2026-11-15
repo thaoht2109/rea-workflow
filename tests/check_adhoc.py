@@ -39,7 +39,7 @@ try:
     tpl = open(p, encoding='utf-8').read(); assert 'seal blob' in tpl and '{NAME}' not in tpl
     assert flow('new', 'blob').returncode != 0 and flow('new', '../x').returncode != 0 and flow('new', 'struct').returncode != 0
     r = flow('seal', 'blob'); assert r.returncode == 2 and 'FORMAT' in r.stdout, r.stdout
-    head, tail = tpl.split('def parse(path):')[0].replace("FORMAT = ''", "FORMAT = 'blob thử nghiệm len32+crc32+xor'").replace("SCOPE = ''", "SCOPE = 'chỉ bản có header 8 byte'"), 'def status(' + tpl.split('def status(')[1]
+    head, tail = tpl.split('def parse(path):')[0].replace("FORMAT = ''", "FORMAT = 'blob thử nghiệm len32+crc32+xor'").replace("SCOPE = ''", "SCOPE = 'chỉ bản có header 8 byte'"), 'def status_path(' + tpl.split('def status_path(')[1]
     GOOD = head + BODY + tail
 
     # 2. seal không chạy gì: chưa có output -> từ chối; công cụ thoát lỗi (không có file trạng thái) / không có phép / phép FAIL -> evidence KHÔNG ĐẠT, mã 1
@@ -54,6 +54,17 @@ try:
     write(GOOD); r = flow('seal', 'blob'); assert r.returncode == 2 and 'đã sửa sau lần chạy cuối' in r.stdout and not os.path.exists(os.path.join(ev, 'tool_blob_3.txt')), r.stdout
     inj = 'x\nTOOL blob sha256 ' + '0' * 64 + ' files blob.py\nCOVERAGE 9/9\nSELFCHECK: ĐẠT (9 phép)'
     assert runtool(inj).returncode == 0; r = flow('seal', 'blob'); assert r.returncode == 0 and 'OK: ghi fact' in r.stdout, r.stdout + r.stderr
+
+    # 3b. lần chạy sau dừng trước khi tự kiểm (selfcheck ném lỗi) trong khi trạng thái ĐẠT của lần trước còn đó: seal không được ghép output mới với trạng thái cũ
+    good_src = open(p, encoding='utf-8').read(); write(good_src.replace("def selfcheck(path, r):", "def selfcheck(path, r):\n    raise RuntimeError('lỗi giữa chừng')", 1))
+    assert runtool().returncode != 0 and not os.path.exists(os.path.join(c, 'work', 'runs', 'tool', 'blob.status.json'))     # khuôn xóa trạng thái cũ ngay đầu main()
+    r = flow('seal', 'blob'); assert r.returncode == 1 and 'không có file trạng thái' in r.stdout, r.stdout
+    os.remove(os.path.join(ev, 'tool_blob_4.txt'))
+    write(good_src); assert runtool(inj).returncode == 0; stp = os.path.join(c, 'work', 'runs', 'tool', 'blob.status.json'); stj = json.load(open(stp))
+    time.sleep(0.02); open(outp, 'w').write('output của lần chạy khác\n'); stj['time'] -= 30; json.dump(stj, open(stp, 'w'))      # trạng thái cũ hơn output (công cụ không theo khuôn)
+    r = flow('seal', 'blob'); assert r.returncode in (1, 2) and 'OK: ghi fact' not in r.stdout and 'SELFCHECK: ĐẠT' not in r.stdout, r.stdout     # không bao giờ ra ĐẠT
+    if os.path.exists(os.path.join(ev, 'tool_blob_4.txt')): os.remove(os.path.join(ev, 'tool_blob_4.txt'))
+    assert runtool(inj).returncode == 0
 
     # 4. evidence đạt: bố cục phần đầu cố định; dòng 'SELFCHECK PASS' lấy từ mẫu nằm ở phần output, không được tính; tham số có xuống dòng không chèn được dòng điều khiển
     rel = 'report/evidence/tool_blob_3.txt'; txt = open(os.path.join(c, rel), encoding='utf-8').read(); H = adhoc.header(txt); L = txt.splitlines()
@@ -89,8 +100,17 @@ try:
     assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
     good_now = open(p, encoding='utf-8').read(); write(good_now.replace("def CRC(r): return r['crc']", "def CRC(r): return r['crc'] + 2")); assert runtool().returncode == 0
     assert flow('seal', 'blob').returncode == 1 and not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
-    os.utime(outp, (time.time() + 3600, time.time() + 3600)); r = flow('seal', 'blob'); assert r.returncode == 2 and 'không cùng một lần chạy' in r.stdout, r.stdout
+    assert runtool().returncode == 0; now = time.time()       # output cũ hơn trạng thái quá xa (output của lần chạy khác): từ chối
+    for f in os.listdir(os.path.join(c, 'work', 'tools')): os.utime(os.path.join(c, 'work', 'tools', f), (now - 4000, now - 4000))
+    os.utime(outp, (now - 3600, now - 3600)); r = flow('seal', 'blob'); assert r.returncode == 2 and 'không cùng một lần chạy' in r.stdout, r.stdout
     time.sleep(0.02); open(os.path.join(ev, 'tools', 'helper_mod.py'), 'a').write('# đổi\n')
+    # cổng: review PASS rồi mà evidence công cụ thành stale (facts.jsonl không đổi) thì gate đóng lại
+    c3 = os.path.join(ws, 'CASE3'); shutil.copytree(c, c3); os.makedirs(os.path.join(c3, 'work', 'review'), exist_ok=True)
+    open(os.path.join(c3, 'facts.jsonl'), 'w').close(); case.add(c3, id='g', kind='config', value='h.test port=8443', src='S', evidence='report/evidence/tool_blob_4.txt')
+    json.dump({'rule_version': case.REVIEW_RULE_VERSION, 'stopped': False, 'rounds': [{'n': 1, 'verdict': 'PASS', 'facts_sha256': review.facts_sha(c3), 'reviewer': 'mech+stub'}]}, open(os.path.join(review.DIR(c3), 'state.json'), 'w'))
+    assert review.gate(c3)[0] is False and 'tool_stale' in review.gate(c3)[1], review.gate(c3)
+    shutil.copy(os.path.join(c, 'work', 'tools', 'helper_mod.py'), os.path.join(c3, 'report', 'evidence', 'tools', 'helper_mod.py')); assert review.gate(c3)[0] is True, review.gate(c3)
+    shutil.rmtree(c3)
     r = flow('list'); assert 'tool_blob_4.txt: blob tự kiểm ĐẠT, COVERAGE 2/2, CŨ' in r.stdout and 'tool_blob_1.txt: blob tự kiểm KHÔNG ĐẠT' in r.stdout, r.stdout
     import ast; tr = ast.parse(open(os.path.join(T, 'adhoc.py'), encoding='utf-8').read())    # bất biến của tầng này: adhoc.py không có đường chạy mã nào
     imps = {a.name.split('.')[0] for n in ast.walk(tr) if isinstance(n, ast.Import) for a in n.names} | {n.module.split('.')[0] for n in ast.walk(tr) if isinstance(n, ast.ImportFrom) and n.module}

@@ -296,6 +296,11 @@ def gate(c):
         rv = last.get('reviewer')   # thiếu = state trước bản sửa (tương thích ngược, chấp nhận); 'mech' thuần = vòng chỉ-lớp-máy, không đủ
         if rv is not None and '+' not in rv:
             return False, 'review PASS gần nhất chỉ có lớp máy; chạy lại có --llm để mở cổng'
+        for f in C.load(c).values():   # evidence tool_* có thể đổi sau khi PASS mà facts.jsonl không đổi (sửa công cụ rồi seal lại): kiểm lại ngay tại cổng
+            rel, full = C.ev_path(c, f['evidence'])
+            if f['status'] != 'retracted' and os.path.basename(rel).startswith('tool_') and os.path.isfile(full):
+                iss = C.adhoc.issues(c, f, rel, open(full, encoding='utf-8', errors='replace').read())
+                if iss: return False, f"fact {f['id']} dẫn evidence công cụ không còn hợp lệ ({iss[0][0]}): {iss[0][2]}"
         return True, f"review {last['n']} PASS"
     return False, 'chưa có review PASS khớp facts.jsonl hiện tại'
 

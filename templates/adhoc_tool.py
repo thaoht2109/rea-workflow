@@ -31,14 +31,19 @@ def coverage(res):
 def show(res):
     """In phần kết quả cần làm bằng chứng ra stdout (có giới hạn). Dữ liệu lấy từ mẫu nên in bằng repr()."""
 
+def status_path():
+    name = os.path.splitext(os.path.basename(__file__))[0]; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'runs', 'tool'); os.makedirs(d, exist_ok=True)
+    return os.path.join(d, name + '.status.json')
+
 def status(checks, cov):
     """Ghi kết quả tự kiểm ra file riêng (không qua stdout, nên chuỗi lấy từ mẫu không giả được). `flow.py tool CASE seal` đọc file này."""
-    name = os.path.splitext(os.path.basename(__file__))[0]; d = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'runs', 'tool'); os.makedirs(d, exist_ok=True)
     json.dump({'argv': sys.argv[1:], 'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time()},
-              open(os.path.join(d, name + '.status.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+              open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
 
 def main():
     if len(sys.argv) < 2: raise SystemExit('dùng: python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out')
+    try: os.remove(status_path())      # xóa trạng thái của lần chạy trước NGAY ĐẦU: lần này dừng giữa chừng thì không còn trạng thái cũ để seal nhầm
+    except FileNotFoundError: pass
     path = sys.argv[1]; res = parse(path); show(res)
     status(selfcheck(path, res), coverage(res))
 

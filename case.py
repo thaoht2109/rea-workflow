@@ -8,6 +8,7 @@
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
 #   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
 import sys, os, json, re, glob, shlex, hashlib, datetime
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import adhoc   # noqa: E402  luật cho evidence tool_* (tầng T1b)
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
@@ -72,6 +73,7 @@ def lint_fact(case, f):
     base = os.path.basename(rel)
     sv = src_evidence_issue(f['src'], base)
     if sv: bad('fail', 'src_vs_evidence', *sv)
+    for ck, pb, rd in adhoc.issues(case, f, rel, '\n'.join(lines)): bad('fail', ck, pb, rd)   # evidence của công cụ tự viết: phải tự kiểm đạt, công cụ chưa đổi
     scope, anchor = whole, None
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m:

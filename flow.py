@@ -6,6 +6,8 @@
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py v8 CASE FILE [dis BC...|grep REGEX]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
 #                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng; grep = tìm trong chuỗi đã giải + hằng
+#   flow.py tool CASE new TÊN | run TÊN [THAM SỐ...] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết công cụ ở work/tools/
+#                                      theo khuôn; run quét tĩnh (cấm mạng/tiến trình con), đòi phép tự kiểm đạt, ghi evidence tool_* kèm dấu băm công cụ
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
@@ -17,7 +19,7 @@
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
-#   flow.py kb build | match CASE | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
+#   flow.py kb build | match CASE | tools | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
 #                                      gợi ý mẫu tương tự (KHÔNG phải fact, phải tự chứng minh lại) | thống kê đính chính để theo dõi luật lint sau này
 #   flow.py kb export FILE [--name TÊN] | import FILE [--name TÊN]   chia sẻ/backup kho giữa các server (không có mẫu, có IOC)
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
@@ -399,6 +401,7 @@ if __name__ == '__main__':
     elif cmd == 'v8':
         if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX]')
         v8(c, a[2], a[3:])
+    elif cmd == 'tool': import adhoc; sys.exit(adhoc.main(c, a[2:]))
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))

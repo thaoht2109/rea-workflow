@@ -391,13 +391,32 @@ def stats(since='', everything=False):
     if not cand: print('  chưa có')
     return 0
 
+def tools():
+    """Công cụ tự viết (tầng T1b) gom theo FORMAT trên các case của workspace. Định dạng gặp ở >= 2 case: ứng viên đưa vào static/ kèm test.
+    Chỉ báo cáo: không chép mã giữa các case, không coi kết quả của case khác là bằng chứng."""
+    import adhoc
+    by = collections.defaultdict(set)
+    for c in cases(CFG.REA):
+        d = os.path.join(c, 'report', 'evidence', 'tools')
+        for x in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if x.endswith('.py'):
+                fmt = adhoc.scan(os.path.join(d, x))[2]
+                if fmt: by[fmt.lower()].add((os.path.basename(c), x))
+    rep = sorted(((f, v) for f, v in by.items() if len({c for c, _ in v}) >= 2), key=lambda t: -len(t[1]))
+    print(f'Công cụ tự viết: {sum(len(v) for v in by.values())} script, {len(by)} định dạng; lặp lại ở >= 2 case: {len(rep)} (ứng viên đưa vào static/ kèm test tổng hợp)')
+    for f, v in rep: print(f'  {safe(f, 120)}: ' + ', '.join(f'{safe(c, 40)}/{safe(x, 40)}' for c, x in sorted(v)))
+    for f, v in sorted(by.items()):
+        if (f, v) not in rep: print(f'  (1 case) {safe(f, 120)}: ' + ', '.join(f'{safe(c, 40)}/{safe(x, 40)}' for c, x in sorted(v)))
+    return 0
+
 def main(a):
     if a[:1] == ['build']: return build()
+    if a[:1] == ['tools']: return tools()
     if a[:1] == ['match'] and len(a) > 1: match(a[1]); return 0
     if a[:1] == ['corrections']: return stats(a[a.index('--since') + 1] if '--since' in a else '', '--all' in a)
     nm = a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None
     if a[:1] == ['export'] and len(a) > 1: return export(a[1], nm)
     if a[:1] == ['import'] and len(a) > 1: return import_(a[1], nm)
-    print('flow.py kb build | match CASE | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
+    print('flow.py kb build | match CASE | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
 
 if __name__ == '__main__': sys.exit(main(sys.argv[1:]))

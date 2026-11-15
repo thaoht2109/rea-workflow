@@ -32,6 +32,9 @@ c1 = cache(sfi(bcarr(code, [string('xin chao')])))
 assert v8cache.is_cache(c1) and not v8cache.is_cache(b'MZ' + b'\0' * 64) and v8cache.unwrap(b'A' * 64) == (None, '')
 try:
     import brotli; assert v8cache.unwrap(brotli.compress(c1)) == (c1, 'brotli')
+    assert v8cache.peek_wrap(brotli.compress(c1)) == 'brotli' and v8cache.peek_wrap(brotli.compress(b'x' * 4096)) is None and v8cache.peek_wrap(b'rac' * 50) is None
+    bomb = brotli.compress(b'\0' * (8 << 20)); old = v8cache.MAX_OUT; v8cache.MAX_OUT = 1 << 20    # giải nén vượt trần: từ chối, không giữ hết trong RAM
+    assert len(bomb) < 4096 and v8cache.unwrap(bomb) == (None, '') and v8cache._inflate(bomb, v8cache.MAX_OUT) is None; v8cache.MAX_OUT = old
 except ImportError: print('  (bỏ qua bọc brotli: thiếu module brotli)')
 
 # 2. đọc luồng + disassemble: đối tượng theo thứ tự cấp phát, hằng chuỗi hiện trong listing
@@ -50,6 +53,25 @@ assert h2.dis(1)[0] == (0, "LdaSmi", [("Imm", 300)]), h2.dis(1)
 for bad in (c1[:40], c1[:24] + b'\x3f' + c1[25:]):
     try: v8cache.parse(bad); raise SystemExit('phải lỗi')
     except v8cache.ParseError: pass
+
+# 4b. kích thước và số lần lặp lấy từ luồng bị chặn: đối tượng khai 2^28 slot, lặp vượt đối tượng -> ParseError (không cấp phát)
+hdr = lambda p: struct.pack('<IIIIII', 0xC0DE0562, 1, 2, 3, len(p), 0) + p
+for bad in (hdr(b'\x01' + vint(1 << 28) + root('fixed_array_map') + b'\x0c' + b'\0' * 5),
+            hdr(b'\x01' + vint(3) + root('fixed_array_map') + raw(smi(1)) + b'\x0d' + vint(1 << 20) + root('empty_string') + b'\x0c' + b'\0' * 3)):
+    try: v8cache.parse(bad); raise SystemExit('phải lỗi')
+    except v8cache.ParseError: pass
+
+# 4c. v8tool unpack/grep/dis qua tiến trình con: hằng chuỗi có '\r\n' không làm vỡ cpool.txt, grep trả mã 0 và khớp trên chuỗi thật
+import subprocess, tempfile, shutil
+td = tempfile.mkdtemp(prefix='rea-v8-')
+try:
+    cr = cache(sfi(bcarr(code, [string('GET /a HTTP/1.1\r\nHost: h.test\r\n')]))); open(os.path.join(td, 'x.jsc'), 'wb').write(cr)
+    tool = os.path.join(T, 'static', 'v8', 'v8tool.py'); run = lambda *a: subprocess.run([sys.executable, '-I', tool] + list(a), capture_output=True, text=True)
+    r = run('unpack', os.path.join(td, 'x.jsc'), '--out', os.path.join(td, 'o')); assert r.returncode == 0 and 'BytecodeArray: 1' in r.stdout, (r.stdout, r.stderr)
+    r = run('grep', os.path.join(td, 'o'), r'Host: h\.test\r$'); assert r.returncode == 0 and r.stdout.count('\n') == 1 and 'h.test' in r.stdout, (r.stdout, r.stderr)
+    r = run('dis', os.path.join(td, 'o'), '1'); assert r.returncode == 0 and 'LdaConstant' in r.stdout, (r.stdout, r.stderr)
+    open(os.path.join(td, 'y.jsc'), 'wb').write(b'khong phai cache' * 8); r = run('unpack', os.path.join(td, 'y.jsc'), '--out', os.path.join(td, 'p')); assert r.returncode != 0
+finally: shutil.rmtree(td, ignore_errors=True)
 
 # 5. base64 đảo hoa/thường + RC4, parseInt
 def enc(s, key): return base64.b64encode(obf.rc4(s, key).encode('utf-8')).translate(bytes.maketrans(obf.STD, obf.CUS)).decode().rstrip('=')

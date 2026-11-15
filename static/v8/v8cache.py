@@ -4,7 +4,7 @@
 # Hỗ trợ: V8 10.2 (Node.js 18.x), không pointer compression. Bản khác: luồng không đọc hết -> báo lỗi rõ, không đoán.
 import json, os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.setrecursionlimit(100000)
+sys.setrecursionlimit(max(sys.getrecursionlimit(), 10000))   # serializer của V8 lồng tối đa vài chục đối tượng; 10000 khung là dư
 
 def tables(ver='10.2'): return json.load(open(os.path.join(HERE, 'v8_%s.json' % ver.replace('.', '_')), encoding='utf-8'))
 
@@ -12,13 +12,36 @@ def is_cache(d):
     """Header SerializedCodeData: magic 0xC0DE.... (2 byte cao), payload_length ở offset 16."""
     return len(d) >= 24 and d[2:4] == b'\xde\xc0' and struct.unpack_from('<I', d, 16)[0] + 24 in (len(d), (len(d) + 7) & ~7)
 
+MAX_OUT = 1 << 30   # trần kích thước sau khi gỡ brotli: chống brotli bomb (mẫu do kẻ tấn công kiểm soát)
+
+def _inflate(d, want):
+    """Giải brotli theo luồng, dừng khi đủ `want` byte; chạm trần MAX_OUT thì trả None.
+    Bản brotli có output_buffer_limit: đầu ra mỗi bước bị chặn cứng. Bản cũ: đưa đầu vào từng mẩu rất nhỏ để một bước không thể nở quá lớn."""
+    import brotli
+    dec = brotli.Decompressor(); out = bytearray()
+    try: dec.process(b'', output_buffer_limit=1); lim = True
+    except TypeError: lim = False
+    step = 1 << 16 if lim else 64 if want <= 4096 else 256
+    for i in range(0, len(d), step):
+        if lim:
+            out += dec.process(d[i:i + step], output_buffer_limit=max(1, min(want - len(out), 1 << 24)))
+            while len(out) < want and not dec.can_accept_more_data(): out += dec.process(b'', output_buffer_limit=max(1, min(want - len(out), 1 << 24)))
+        else: out += dec.process(d[i:i + step])
+        if len(out) >= want: return None if want >= MAX_OUT else bytes(out)
+    return bytes(out)
+
+def peek_wrap(d):
+    """Cho triage: chỉ giải vài chục byte đầu để xem magic của code cache. Trả 'brotli' hoặc None; không giải cả file."""
+    try: h = _inflate(d, 64)
+    except Exception: return None
+    return 'brotli' if h and len(h) >= 24 and h[2:4] == b'\xde\xc0' else None
+
 def unwrap(d):
-    """Trả (cache, lớp bọc). Lớp bọc: '' hoặc 'brotli'. Không phải code cache -> (None, '')."""
+    """Trả (cache, lớp bọc). Lớp bọc: '' hoặc 'brotli'. Không phải code cache, hoặc giải nén vượt MAX_OUT -> (None, '')."""
     if is_cache(d): return d, ''
     try:
-        import brotli
-        r = brotli.decompress(d)
-        if is_cache(r): return r, 'brotli'
+        r = _inflate(d, MAX_OUT)
+        if r is not None and is_cache(r): return r, 'brotli'
     except Exception: pass
     return None, ''
 
@@ -37,7 +60,9 @@ class Deserializer:
         a = int.from_bytes(s.d[s.p:s.p + 4], 'little'); n = (a & 3) + 1; s.p += n; return (a & ((1 << (8 * n)) - 1)) >> 2
     def addhot(s, r): s.hot[s.hi] = r; s.hi = (s.hi + 1) & 7
     def read_object(s, space, off):
-        size = s.getint(); mp = s.read_one()
+        size = s.getint()
+        if not 1 <= size <= len(s.d): raise ParseError(f'đối tượng @{off:#x}: kích thước {size} slot vô lý so với luồng {len(s.d)} byte')
+        mp = s.read_one()
         o = Obj(len(s.objs), space, size, off); s.objs.append(o); o.refs[0] = mp
         w = 1
         while w < size: w += s.read_into(o, w)
@@ -51,10 +76,13 @@ class Deserializer:
     def read_into(s, o, w):
         off = s.p; b = s.get()
         def wr(r, k=1):
+            if w + k > o.size: raise ParseError(f'@{off:#x}: lặp {k} slot vượt kích thước đối tượng')   # số lần lặp lấy từ luồng: chặn cấp phát vô hạn
             if s.weak: r = ('weak', r); s.weak = False
             for j in range(k): o.refs[w + j] = r
             return k
-        def raw(n): o.raw[w * 8:(w + n) * 8] = s.d[s.p:s.p + n * 8]; s.p += n * 8; return n
+        def raw(n):
+            if w + n > o.size or s.p + n * 8 > len(s.d): raise ParseError(f'@{off:#x}: dữ liệu thô {n} slot vượt đối tượng hoặc luồng')
+            o.raw[w * 8:(w + n) * 8] = s.d[s.p:s.p + n * 8]; s.p += n * 8; return n
         if b < 4:
             wk = s.weak; s.weak = False; r = s.read_object(b, off); o.refs[w] = ('weak', r) if wk else r; return 1
         if b == 0x04: r = ('obj', s.getint()); s.addhot(r); return wr(r)
@@ -89,7 +117,7 @@ def parse(d):
     """d: code cache đã gỡ lớp bọc. Trả (root, [(i, space, size, off, raw, refs)]); lỗi -> ParseError kèm lý do."""
     de = Deserializer(d)
     try: root = de.run()
-    except (IndexError, KeyError, RecursionError, struct.error) as e: raise ParseError(f'luồng hỏng hoặc khác phiên bản V8 ({type(e).__name__} @{de.p:#x}, {len(de.objs)} đối tượng)')
+    except (IndexError, KeyError, RecursionError, MemoryError, struct.error) as e: raise ParseError(f'luồng hỏng hoặc khác phiên bản V8 ({type(e).__name__} @{de.p:#x}, {len(de.objs)} đối tượng)')
     if de.pending: raise ParseError(f'còn {len(de.pending)} tham chiếu treo')
     if len(d) - de.p > 8: raise ParseError(f'dừng ở {de.p:#x}/{len(d):#x}: không đọc hết luồng')
     return root, [(o.i, o.space, o.size, o.off, bytes(o.raw), o.refs) for o in de.objs]

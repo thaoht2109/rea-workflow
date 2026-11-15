@@ -263,7 +263,7 @@ def v8_wrap(d, path):
     except Exception: return None
     if v8cache.is_cache(d): return ''
     if not (path.lower().endswith(('.jsc', '.bin', '.br')) or entropy(d[:65536]) > 7.9) or len(d) > 256 << 20: return None
-    return 'brotli' if v8cache.unwrap(d)[1] else None
+    return v8cache.peek_wrap(d)   # chỉ giải vài chục byte đầu để xem magic: không giải cả file ở bước triage (brotli bomb)
 
 def route(R, out):
     f, t, sc = R['flags'], R['type'], R.get('nsis', {}).get('shellcode')

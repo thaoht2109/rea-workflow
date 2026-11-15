@@ -82,9 +82,85 @@ def main():
         r = run(c, 'id=f11', 'kind=string', 'value=ZoomUnifyChannel', 'src=E', 'evidence=report/evidence/emu_long.txt#L30')
         assert 'lint' not in r.stdout and r.returncode == 0, (r.returncode, r.stdout)
         ok += 1
+
+        # 9. IP trong value: scope bị chuẩn hóa số (bỏ dấu ngăn nghìn) không được làm trượt token
+        E = os.path.join(c, 'report', 'evidence')
+        open(os.path.join(E, 'net.txt'), 'w').write('kết nối tới 10.20.300.4 cổng 443\n')
+        r = run(c, 'id=f12', 'kind=c2', 'value=10.20.300.4', 'src=S', 'evidence=report/evidence/net.txt#L1')
+        assert 'value_in_evidence' not in r.stdout, r.stdout
+        r = run(c, 'id=f13', 'kind=c2', 'value=10.20.300.5', 'src=S', 'evidence=report/evidence/net.txt#L1')
+        assert 'value_in_evidence' in r.stdout, r.stdout
+        ok += 1
+
+        # 10. src=V: nhận vm_* và host_* (quan sát máy thật do người thu mẫu cung cấp); src=S không được dẫn host_*
+        open(os.path.join(E, 'host_proc.txt'), 'w').write('svchost.exe -> powershell.exe -> runtime.exe\n')
+        r = run(c, 'id=f14', 'kind=process', 'value=powershell.exe -> runtime.exe', 'src=V', 'evidence=report/evidence/host_proc.txt#L1')
+        assert 'lint' not in r.stdout, r.stdout
+        r = run(c, 'id=f15', 'kind=process', 'value=powershell.exe', 'src=S', 'evidence=report/evidence/host_proc.txt#L1')
+        assert 'src_vs_evidence' in r.stdout, r.stdout
+        r = run(c, 'id=f16', 'kind=process', 'value=powershell.exe', 'src=V', 'evidence=report/evidence/net.txt#L1')
+        assert 'src_vs_evidence' in r.stdout, r.stdout
+        sys.path.insert(0, SKILL); import review          # lớp 1 của cổng phản biện phải áp cùng luật với lint khi ghi
+        sv = {x['id'] for x in review.mech(c) if x['check'] == 'src_vs_evidence'}
+        assert 'f14' not in sv and {'f15', 'f16'} <= sv, sv
+        ok += 1
+
+        # 11. #L neo theo nội dung: chèn dòng vào evidence sau khi ghi fact -> lint tìm lại dòng, chỉ warn evidence_moved
+        sys.path.insert(0, SKILL); import case
+        open(os.path.join(E, 'cfg.txt'), 'w').write('\n'.join(f'dòng đệm {i}' for i in range(1, 21)) + '\nkhóa cấu hình ALPHA_BRAVO_KEY ở đây\n')
+        r = run(c, 'id=f17', 'kind=config', 'value=ALPHA_BRAVO_KEY', 'src=S', 'evidence=report/evidence/cfg.txt#L21')
+        f17 = [f for f in facts(c) if f['id'] == 'f17'][0]
+        assert 'lint' not in r.stdout and len(f17.get('ev_line', '')) == 12, (r.stdout, f17)
+        body = open(os.path.join(E, 'cfg.txt')).read()
+        open(os.path.join(E, 'cfg.txt'), 'w').write('\n'.join(f'chèn thêm {i}' for i in range(12)) + '\n' + body)   # dòng đích dời 21 -> 33
+        iss = case.lint_fact(c, f17)
+        assert [i['check'] for i in iss] == ['evidence_moved'] and iss[0]['level'] == 'warn' and '#L33' in iss[0]['problem'], iss
+        old = dict(f17); old.pop('ev_line')                          # fact cũ không có dấu vân tay: hành vi như trước (fail vì lệch dòng)
+        assert any(i['check'] == 'value_in_evidence' and i['level'] == 'fail' for i in case.lint_fact(c, old))
+        open(os.path.join(E, 'cfg.txt'), 'w').write('nội dung khác hẳn\n' * 30)   # dòng cũ mất: warn + fail vì giá trị không còn
+        ch = [i['check'] for i in case.lint_fact(c, f17)]
+        assert 'evidence_moved' in ch and 'value_in_evidence' in ch, ch
+        # xóa dòng phía trên làm #L vượt độ dài file: vẫn tìm lại theo dấu vân tay, chỉ warn; cổng review cũng không fail evidence_line
+        open(os.path.join(E, 'cfg.txt'), 'w').write('đầu file\nkhóa cấu hình ALPHA_BRAVO_KEY ở đây\n')
+        iss = case.lint_fact(c, f17)
+        assert [(i['check'], i['level']) for i in iss] == [('evidence_moved', 'warn')] and '#L2' in iss[0]['problem'], iss
+        assert not any(x['id'] == 'f17' and x['check'] == 'evidence_line' for x in review.mech(c))
+        assert any(i['check'] == 'evidence_line' for i in case.lint_fact(c, old))            # không có dấu: vẫn fail như trước
+        # #L0 và file rỗng: trả lỗi lint, không ném ngoại lệ; add không lưu dấu vân tay cho dòng không hợp lệ
+        r = run(c, 'id=f18', 'kind=config', 'value=ALPHA_BRAVO_KEY', 'src=S', 'evidence=report/evidence/cfg.txt#L0')
+        f18 = [f for f in facts(c) if f['id'] == 'f18'][0]
+        assert 'evidence_line' in r.stdout and 'ev_line' not in f18, (r.stdout, f18)
+        open(os.path.join(E, 'cfg.txt'), 'w').close()
+        assert any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f18)) and any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f17))
+        ok += 1
+
+        # 12. dòng dời phải tới được người dùng: lớp 1 của cổng báo weak, checkpoint chặn, hồ sơ phản biện trích đúng dòng mới;
+        #     dấu vân tay trùng nhiều dòng thì không đoán
+        import reviewer
+        c2 = mkcase(); E2 = os.path.join(c2, 'report', 'evidence')
+        try:
+            open(os.path.join(E2, 'k.txt'), 'w').write('\n'.join(f'đệm {i}' for i in range(1, 11)) + '\ngiá trị DELTA_ECHO_TOKEN ở đây\n')
+            r = run(c2, 'id=g1', 'kind=config', 'value=DELTA_ECHO_TOKEN', 'src=S', 'evidence=report/evidence/k.txt#L11')
+            g1 = facts(c2)[0]; assert 'lint' not in r.stdout and case.evidence_now(c2, g1).endswith('#L11')
+            run(c2, 'id=g0', 'kind=config', 'value=DELTA_ECHO_TOKEN', 'src=S', 'evidence=report/evidence/k.txt#L11', 'ev_line=abc', 'status=retracted')
+            assert facts(c2)[1]['ev_line'] == g1['ev_line']      # ev_line do người gọi truyền bị bỏ, tính lại từ file
+            cp = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'checkpoint', c2], capture_output=True, text=True)
+            assert cp().returncode == 0
+            body = open(os.path.join(E2, 'k.txt')).read()
+            open(os.path.join(E2, 'k.txt'), 'w').write('\n'.join(f'chèn {i}' for i in range(20)) + '\n' + body)   # 11 -> 31, vượt cửa sổ ±5
+            mv = [x for x in review.mech(c2) if x['id'] == 'g1']
+            assert [(x['check'], x['verdict']) for x in mv] == [('evidence_moved', 'weak')] and '#L31' in mv[0]['problem'], mv
+            r = cp(); assert r.returncode == 1 and 'LỆCH fact g1' in r.stdout and '#L31' in r.stdout, r.stdout
+            assert case.evidence_now(c2, g1).endswith('k.txt#L31') and 'DELTA_ECHO_TOKEN' in reviewer.excerpt(c2, case.evidence_now(c2, g1), g1['value'])
+            assert 'DELTA_ECHO_TOKEN' not in reviewer.excerpt(c2, g1['evidence'], g1['value'])      # con trỏ cũ: đoạn trích lệch
+            open(os.path.join(E2, 'k.txt'), 'a').write('giá trị DELTA_ECHO_TOKEN ở đây\n')           # hai dòng trùng dấu: không tìm lại
+            assert case._relocate(open(os.path.join(E2, 'k.txt')).read().splitlines(), 11, g1['ev_line']) is None
+            assert case.evidence_now(c2, g1) == g1['evidence']
+        finally: shutil.rmtree(c2, ignore_errors=True)
+        ok += 1
     finally:
         shutil.rmtree(c, ignore_errors=True)
-    print(f'OK test_lint ({ok}/8 nhóm)')
+    print(f'OK test_lint ({ok}/12 nhóm)')
 
 if __name__ == '__main__':
     main()

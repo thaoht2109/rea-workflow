@@ -3,7 +3,7 @@
 #   review.py review CASE [--llm]     lớp 1 (máy) [+ lớp 2: reviewer.py, mọi LLM: claude/codex/gemini/copilot/cursor/api/cmd/manual]; tối đa 2 lần review; mã 4 = chờ manual
 #   review.py review-loop CASE        review -> sửa lại fact lỗi (phiên phân tích) -> review lần 2, tự động, dừng nếu vẫn FAIL
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
-#   review.py next CASE [--accept C4=lý do,...]   DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
+#   review.py next CASE [--accept C4=lý do]...     DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
 import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,12 +45,15 @@ def mech(c):
         if not os.path.isfile(full): bad('fail', 'evidence_exists', 'file evidence không tồn tại', 'chép bằng chứng vào report/evidence/'); continue
         txt = open(full, encoding='utf-8', errors='replace').read()
         m = re.search(r'#L(\d+)$', f['evidence'])
-        if m and int(m.group(1)) > txt.count('\n') + 1:
-            bad('fail', 'evidence_line', f'dòng {m.group(1)} vượt quá file ({txt.count(chr(10)) + 1} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+        if m:   # #L neo theo nội dung (ev_line): dòng đã dời thì báo weak kèm vị trí mới, mất hẳn và ngoài phạm vi mới fail
+            ln = int(m.group(1)); L = txt.splitlines(); mv = C._relocate(L, ln, f.get('ev_line'))
+            if mv is None and not 1 <= ln <= len(L): bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(L)} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+            elif mv is None: bad('weak', 'evidence_moved', f'nội dung dòng {ln} đã đổi so với lúc ghi fact, không tìm lại được dòng cũ', 'kiểm lại bằng chứng, ghi fact mới (supersedes) trỏ đúng dòng')
+            elif mv != ln: bad('weak', 'evidence_moved', f'dòng bằng chứng đã dời từ #L{ln} sang #L{mv} (evidence bị sửa sau khi ghi fact)', f'ghi fact mới (supersedes) trỏ #L{mv}')
         for p, r in C.recompute(c, f): bad('fail', 'recompute', p, r)   # con số đếm lại được: máy kiểm, không cần LLM
         base = os.path.basename(rel)
-        if f['src'] == 'S' and base.startswith(('emu_', 'vm_')): bad('fail', 'src_vs_evidence', 'src=S nhưng evidence sinh từ giả lập/VM', 'đổi src hoặc dẫn evidence tĩnh')
-        if f['src'] == 'V' and not base.startswith('vm_'): bad('fail', 'src_vs_evidence', 'src=V nhưng evidence không phải kết quả VM', 'đổi src hoặc dẫn evidence vm_*')
+        sv = C.src_evidence_issue(f['src'], base)   # cùng một luật với lint khi ghi (case.py)
+        if sv: bad('fail', 'src_vs_evidence', *sv)
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])
@@ -160,7 +163,7 @@ def detach(c, cmd, flags):
         return rc
     if os.path.exists(pf):
         print(f'Lần chạy nền trước đã chết mà không ghi kết quả. Log {lf}:\n' + tail(lf, 20)
-              + '\nThường gặp: tiến trình nền bị giết khi lệnh cha kết thúc (chạy qua một lệnh nền giữ tiến trình sống), hoặc mạng tới api.anthropic.com bị chặn. Khắc phục rồi gọi lại đúng lệnh này.')
+              + '\nThường gặp: (1) sandbox của agent giết tiến trình con khi lệnh kết thúc: bỏ --detach, chạy `flow.py review CASE --llm` bằng chế độ lệnh nền của chính agent rồi chờ nó báo xong; (2) mạng tới API của backend lớp 2 bị chặn. Khắc phục rồi gọi lại đúng lệnh này.')
         os.remove(pf); return 7
     pr = subprocess.Popen([sys.executable, '-u', os.path.abspath(__file__), '_bg', cmd, c] + flags, stdout=open(lf, 'w'), stderr=subprocess.STDOUT,
                           stdin=subprocess.DEVNULL, start_new_session=True, cwd=os.getcwd())
@@ -300,6 +303,11 @@ def accepted(c):
     p = os.path.join(c, 'work', 'accepted.json')
     return json.load(open(p)) if os.path.exists(p) else {}
 
+def accept_args(a):
+    """Gộp mọi cờ --accept của dòng lệnh; cờ đứng cuối mà thiếu giá trị thì dừng với lỗi rõ thay vì bỏ qua lặng lẽ."""
+    if a and a[-1] == '--accept': raise SystemExit('--accept cần giá trị: --accept Cx=lý do')
+    return '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')
+
 def next_step(c, accept=''):
     acc = accepted(c)
     for kv in filter(None, map(str.strip, re.split(r'[;,]\s*(?=C\d+=)', accept))):   # tách trước 'Cx=' nên lý do được chứa dấu phẩy
@@ -391,5 +399,5 @@ if __name__ == '__main__':
     if cmd == 'review': sys.exit(review(c, '--llm' in a))
     elif cmd == 'review-loop': sys.exit(loop(c, '--no-llm' not in a))
     elif cmd == 'gate': ok, why = gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
-    elif cmd == 'next': sys.exit(next_step(c, a[a.index('--accept') + 1] if '--accept' in a else ''))
+    elif cmd == 'next': sys.exit(next_step(c, accept_args(a)))
     else: raise SystemExit(f'lệnh lạ: {cmd}')

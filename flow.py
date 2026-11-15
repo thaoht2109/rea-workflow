@@ -23,7 +23,7 @@
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
-#   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
+#   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]...   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
 import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -184,8 +184,9 @@ def checkpoint(c):
     """Chốt mốc trước khi mở phiên mới: phiên mới chỉ biết những gì nằm trên đĩa, nên mọi kết quả phải đã thành fact/evidence."""
     H, cur = case.history(c), case.load(c)
     last = max((h['ts'] for h in H), default='')
-    bad = [(i, x) for i, f in cur.items() if f['status'] != 'retracted' for x in case.lint_fact(c, f) if x['level'] == 'fail']
-    for i, x in bad[:10]: print(f"FAIL fact {i}: {x['check']}: {x['problem']} -> {x['redo']}")
+    lint = [(i, x) for i, f in cur.items() if f['status'] != 'retracted' for x in case.lint_fact(c, f)]
+    bad = [(i, x) for i, x in lint if x['level'] == 'fail' or x['check'] == 'evidence_moved']   # con trỏ #L lệch: phiên mới sẽ đọc sai dòng, phải sửa trước khi tách
+    for i, x in bad[:10]: print(f"{'FAIL' if x['level'] == 'fail' else 'LỆCH'} fact {i}: {x['check']}: {x['problem']} -> {x['redo']}")
     runs = os.path.join(c, 'work', 'runs'); newer = []
     if last and os.path.isdir(runs):   # kết quả chạy mới hơn fact cuối cùng: rất có thể chưa ghi kết luận
         t = datetime.datetime.fromisoformat(last).timestamp()
@@ -412,7 +413,7 @@ if __name__ == '__main__':
     elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))
-    elif cmd == 'next': import review; sys.exit(review.next_step(c, a[a.index('--accept') + 1] if '--accept' in a else ''))
+    elif cmd == 'next': import review; sys.exit(review.next_step(c, review.accept_args(a)))
     elif cmd == 'gate':
         import review; ok, why = review.gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
     elif cmd == 'audit':

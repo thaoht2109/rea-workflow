@@ -5,7 +5,7 @@
 > Phương pháp (mỗi kết luận ghi rõ một trong các nguồn sau):
 > - **S**: phân tích tĩnh trên file gốc (triage, rea/Ghidra, script tự viết).
 > - **E**: phân tích động bằng giả lập CPU (winemu/Unicorn, OS giả, không mạng). Nếu đọc tĩnh trên artefact do giả lập sinh ra (bản dump, keystream) thì vẫn ghi E.
-> - **V**: VM/sandbox bên ngoài.
+> - **V**: VM/sandbox bên ngoài, hoặc quan sát trên máy thật do người thu mẫu cung cấp (evidence `host_*`).
 >
 > Không chạy mẫu trên hệ điều hành thật. Không gửi request nào tới C2 hay hạ tầng phát tán.
 >

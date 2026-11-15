@@ -155,7 +155,8 @@ def add(case, strict=False, lint=False, **f):
     f.setdefault('supersedes', None); f.setdefault('stage', ''); f.setdefault('note', '')
     f['ts'] = datetime.datetime.now().isoformat(timespec='seconds')
     m = re.search(r'#L(\d+)$', f['evidence'])
-    if m and not f.get('ev_line'):   # dấu vân tay dòng được trỏ: lint tìm lại được dòng khi evidence bị chèn dòng về sau
+    f.pop('ev_line', None)   # dấu vân tay luôn tính từ file evidence, không nhận giá trị người gọi truyền vào
+    if m:   # dấu vân tay dòng được trỏ: lint tìm lại được dòng khi evidence bị chèn dòng về sau
         try:
             ls = open(full, encoding='utf-8', errors='replace').read().splitlines(); n = int(m.group(1))
             if 1 <= n <= len(ls): f['ev_line'] = _line_id(ls[n - 1])

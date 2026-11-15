@@ -142,6 +142,8 @@ def main():
             open(os.path.join(E2, 'k.txt'), 'w').write('\n'.join(f'đệm {i}' for i in range(1, 11)) + '\ngiá trị DELTA_ECHO_TOKEN ở đây\n')
             r = run(c2, 'id=g1', 'kind=config', 'value=DELTA_ECHO_TOKEN', 'src=S', 'evidence=report/evidence/k.txt#L11')
             g1 = facts(c2)[0]; assert 'lint' not in r.stdout and case.evidence_now(c2, g1).endswith('#L11')
+            run(c2, 'id=g0', 'kind=config', 'value=DELTA_ECHO_TOKEN', 'src=S', 'evidence=report/evidence/k.txt#L11', 'ev_line=abc', 'status=retracted')
+            assert facts(c2)[1]['ev_line'] == g1['ev_line']      # ev_line do người gọi truyền bị bỏ, tính lại từ file
             cp = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'checkpoint', c2], capture_output=True, text=True)
             assert cp().returncode == 0
             body = open(os.path.join(E2, 'k.txt')).read()

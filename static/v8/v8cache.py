@@ -2,7 +2,7 @@
 # Đọc tĩnh code cache của V8 (file .jsc kiểu bytenode, có thể bọc brotli): phân tích cú pháp luồng snapshot thành đồ thị
 # đối tượng rồi disassemble BytecodeArray. Không nạp cache vào V8, không thực thi gì của mẫu.
 # Hỗ trợ: V8 10.2 (Node.js 18.x), không pointer compression. Bản khác: luồng không đọc hết -> báo lỗi rõ, không đoán.
-import json, os, pickle, struct, sys
+import json, os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.setrecursionlimit(100000)
 
@@ -85,16 +85,14 @@ class Deserializer:
             s.read_object(c, off)
         return root
 
-def parse(d, out=None):
+def parse(d):
     """d: code cache đã gỡ lớp bọc. Trả (root, [(i, space, size, off, raw, refs)]); lỗi -> ParseError kèm lý do."""
     de = Deserializer(d)
     try: root = de.run()
     except (IndexError, KeyError, RecursionError, struct.error) as e: raise ParseError(f'luồng hỏng hoặc khác phiên bản V8 ({type(e).__name__} @{de.p:#x}, {len(de.objs)} đối tượng)')
     if de.pending: raise ParseError(f'còn {len(de.pending)} tham chiếu treo')
     if len(d) - de.p > 8: raise ParseError(f'dừng ở {de.p:#x}/{len(d):#x}: không đọc hết luồng')
-    L = [(o.i, o.space, o.size, o.off, bytes(o.raw), o.refs) for o in de.objs]
-    if out: pickle.dump((root, L), open(out, 'wb'), protocol=4)
-    return root, L
+    return root, [(o.i, o.space, o.size, o.off, bytes(o.raw), o.refs) for o in de.objs]
 
 FIXED = {'Flag8': 1, 'IntrinsicId': 1, 'RuntimeId': 2, 'Flag16': 2}
 SIGNED = {'Imm', 'Reg', 'RegList', 'RegPair', 'RegOut', 'RegOutList', 'RegOutPair', 'RegOutTriple'}
@@ -110,7 +108,7 @@ def reg(v):
 
 class Heap:
     def __init__(s, src, ver='10.2'):
-        s.root, s.o = pickle.load(open(src, 'rb')) if isinstance(src, str) else src
+        s.root, s.o = parse(open(src, 'rb').read()) if isinstance(src, str) else src   # src: đường dẫn cache đã gỡ vỏ, hoặc kết quả parse()
         T = tables(ver); s.ops = T['ops']; s.ro = T['ro_roots']; s.rstr = T['str_roots']; s.start = T['bytecode_start']; s._dis = {}
     def rootname(s, i):
         if i < len(s.ro): return s.ro[i]

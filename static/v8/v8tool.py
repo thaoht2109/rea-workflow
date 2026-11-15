@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v8cache, obf
 
 def load(d):
-    h = v8cache.Heap(os.path.join(d, 'objs.pkl')); st = json.load(open(os.path.join(d, 'state.json')))
+    h = v8cache.Heap(os.path.join(d, 'cache.bin'))   # đọc lại từ cache đã gỡ vỏ, không lưu đồ thị đối tượng ra đĩa
+    st = json.load(open(os.path.join(d, 'state.json')))
     r = None
     if st.get('obf'):
         r = obf.Resolver(h, st['obf'], {int(k): v for k, v in st.get('rostr', {}).items()}); r.rot = st['rot'] or 0; r.all()
@@ -36,7 +37,8 @@ def unpack(A):
     if d is None: sys.exit('không phải code cache V8 (hoặc thiếu module brotli để gỡ lớp bọc)')
     P(f'file: {os.path.basename(A.file)} sha256 {hashlib.sha256(raw).hexdigest()} {len(raw)} B; lớp bọc: {wrap or "không"}')
     P(f'code cache: {len(d)} B sha256 {hashlib.sha256(d).hexdigest()}; magic {struct.unpack_from("<I", d, 0)[0]:#x}, version_hash {struct.unpack_from("<I", d, 4)[0]:#x}, flag_hash {struct.unpack_from("<I", d, 12)[0]:#x}')
-    try: root, objs = v8cache.parse(d, os.path.join(A.out, 'objs.pkl'))
+    open(os.path.join(A.out, 'cache.bin'), 'wb').write(d)
+    try: root, objs = v8cache.parse(d)
     except v8cache.ParseError as e:
         P(f'LỖI phân tích cú pháp: {e}'); P('chỉ hỗ trợ V8 10.2 (Node 18.x) không pointer compression; bản khác cần bảng opcode/root riêng (static/v8/v8_*.json)')
         open(os.path.join(A.out, 'summary.txt'), 'w').write('\n'.join(L) + '\n'); print('\n'.join(L)); sys.exit(1)

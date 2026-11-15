@@ -2,6 +2,8 @@
 # Công cụ tự viết cho MỘT case (tầng T1b), chạy bằng: flow.py tool CASE run {NAME} FILE [tham số...]
 # Dùng khi triage trả loại chưa có đường đi. Chỉ ĐỌC file mẫu: không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch nào.
 # `tool run` quét script theo danh sách cho phép: chỉ import thư viện phân tích dữ liệu và phần đọc của os; không getattr/eval/exec/pickle.
+# Lúc chạy có thêm lớp chặn: tạo tiến trình, socket và ghi file ngoài thư mục os.environ['REA_TOOL_OUT'] đều ném PermissionError.
+# Cần xuất file (blob đã giải, bảng lớn): ghi vào REA_TOOL_OUT rồi in sha256 của nó ra output.
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này (cũng bị quét và băm)
@@ -33,7 +35,7 @@ def main():
     if len(sys.argv) < 2: raise SystemExit('dùng: flow.py tool CASE run {NAME} FILE [tham số...]')
     path = sys.argv[1]; res = parse(path); show(res)
     n = os.environ.get('REA_TOOL_NONCE', '')      # dấu do flow.py cấp mỗi lần chạy: dòng thiếu dấu không được tính (mẫu không giả được)
-    for name, ok, detail in selfcheck(path, res): print(f"SELFCHECK[{n}] {name}: {'PASS' if ok else 'FAIL'} {detail}")
+    for name, ok, detail in selfcheck(path, res): print(f"SELFCHECK[{n}] {'PASS' if ok else 'FAIL'} {name}: {detail}")
     cov = coverage(res)
     if cov: print(f'COVERAGE[{n}] {cov[0]}/{cov[1]}')
 

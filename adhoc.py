@@ -17,6 +17,33 @@ ALLOW = {'struct', 'zlib', 'bz2', 'lzma', 'gzip', 'base64', 'binascii', 'hashlib
 OS_OK = {'path', 'environ', 'sep', 'linesep', 'getcwd', 'listdir', 'scandir', 'walk', 'stat', 'fspath', 'devnull', 'SEEK_SET', 'SEEK_CUR', 'SEEK_END'}   # os: chỉ phần đọc
 BAN_NAME = {'eval', 'exec', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', 'breakpoint', '__builtins__', 'input'}
 DUNDER_OK = {'__name__', '__file__', '__doc__', '__init__', '__slots__', '__len__', '__repr__', '__str__', '__eq__', '__hash__', '__iter__', '__next__', '__getitem__', '__contains__', '__enter__', '__exit__'}
+DANGER = {'os', 'sys', 'subprocess', 'socket', 'ctypes', 'shutil', 'importlib', 'builtins', 'cffi', 'posix', 'nt', 'pty', 'signal', 'multiprocessing',
+          'threading', 'runpy', 'pickle', 'marshal', 'code', 'codeop', 'pdb', 'modules', 'meta_path', 'path_hooks', 'settrace', 'setprofile', 'pythonapi', 'ffi'}
+# Lớp chặn lúc chạy (audit hook, không gỡ được sau khi cài): AST không thể lường hết lối vòng qua module mà thư viện được phép đã import sẵn.
+BOOT = r"""
+import os, sys
+_script, _out = sys.argv[1], os.path.realpath(sys.argv[2]) + os.sep
+_PROC = {'subprocess.Popen', 'os.system', 'os.exec', 'os.posix_spawn', 'os.fork', 'os.forkpty', 'os.spawn', 'os.startfile', 'pty.spawn', 'os.kill', 'os.killpg', 'os.putenv', 'os.unsetenv'}
+_FS = {'os.remove', 'os.rename', 'os.rmdir', 'os.mkdir', 'os.chmod', 'os.chown', 'os.truncate', 'os.link', 'os.symlink', 'os.utime', 'os.chdir', 'os.chflags',
+       'shutil.rmtree', 'shutil.move', 'shutil.copyfile', 'shutil.copymode', 'shutil.copystat', 'shutil.copytree', 'shutil.make_archive', 'shutil.unpack_archive', 'tempfile.mkstemp', 'tempfile.mkdtemp'}
+_LIBS = tuple(os.sep + p + os.sep for p in ('Crypto', 'Cryptodome', 'capstone', 'cryptography'))
+_W = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+def _inside(p):
+    try: return (os.path.realpath(os.fsdecode(p)) + os.sep).startswith(_out)
+    except Exception: return False
+def _hook(ev, a, _PE=PermissionError, _str=str, _int=int, _any=any):
+    if ev in _PROC or ev.startswith(('socket.', 'urllib.', 'http.', 'ftplib.', 'smtplib.', 'webbrowser.', 'winreg.', 'ssl.')): raise _PE('T1b: cấm ' + ev)
+    if ev == 'ctypes.dlopen' and not (a and isinstance(a[0], _str) and _any(x in os.path.realpath(a[0]) for x in _LIBS)): raise _PE('T1b: cấm ctypes.dlopen ngoài thư viện phân tích được phép')
+    if ev == 'open':
+        path, mode, flags = (list(a) + [None, None, None])[:3]
+        wr = (isinstance(mode, _str) and _any(c in mode for c in 'wax+')) or (isinstance(flags, _int) and flags & _W)
+        if wr and (isinstance(path, _int) or not _inside(path)): raise _PE('T1b: chỉ được ghi trong thư mục REA_TOOL_OUT')
+    elif ev in _FS and not (a and not isinstance(a[0], _int) and a[0] is not None and _inside(a[0]) and (ev != 'os.rename' or _inside(a[1]))): raise _PE('T1b: cấm ' + ev + ' ngoài REA_TOOL_OUT')
+sys.addaudithook(_hook)
+sys.argv = [_script] + sys.argv[3:]
+import runpy
+runpy.run_path(_script, run_name='__main__')
+"""
 MAX_OUT = 400   # số dòng output chép vào evidence; bản đầy đủ nằm ở work/runs/tool/
 
 def tdir(c): return os.path.join(c, 'work', 'tools')
@@ -31,16 +58,23 @@ def scan(path):
     bad, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path); osn = set()   # osn: mọi tên đang trỏ tới module os
     def no(n, why): bad.append(f'{base}:{n.lineno}: {why}')
     def allowed(m): return m in ALLOW or m.split('.')[0] in ALLOW and not m.startswith('urllib')
+    imp = set()                                  # mọi tên do import đưa vào (module hoặc tên from-import): truy cập thuộc tính '_x' trên chúng bị cấm
     for n in ast.walk(tree):                     # lượt 1: import và alias của os
         if isinstance(n, ast.Import):
             for a in n.names:
-                if a.name in ('os', 'os.path'): osn.add((a.asname or 'os') if a.name == 'os' or not a.asname else '') ; osn.discard('')
+                imp.add(a.asname or a.name.split('.')[0])
+                if a.name in ('os', 'os.path'):
+                    if a.name == 'os': osn.add(a.asname or 'os')
+                    elif a.asname: no(n, 'import os.path as ...: dùng `import os.path` hoặc `from os.path import <hàm>`')
+                    else: osn.add('os')
                 elif os.path.isfile(os.path.join(here, a.name.split('.')[0] + '.py')): local.append(a.name.split('.')[0])
                 elif not allowed(a.name): no(n, f'import {a.name}: ngoài danh sách cho phép (mạng, tiến trình con, nạp mã động, tuần tự hóa đều bị cấm)')
         elif isinstance(n, ast.ImportFrom):
-            m = n.module or ''
-            if n.level: no(n, 'import tương đối: đặt module cạnh script và import bằng tên')
-            elif m == 'os':
+            m = n.module or ''; imp.update(a.asname or a.name for a in n.names)
+            if n.level: no(n, 'import tương đối: đặt module cạnh script và import bằng tên'); continue
+            for a in n.names:                    # tên được import không được là module nguy hiểm, dù module nguồn hợp lệ (vd `from glob import os`)
+                if a.name == '*' or a.name.startswith('_') or (a.name in DANGER and not (m == 'os' and a.name in OS_OK)): no(n, f'from {m} import {a.name}: tên bị cấm')
+            if m == 'os':
                 for a in n.names:
                     if a.name not in OS_OK: no(n, f'from os import {a.name}: chỉ được dùng phần đọc của os ({", ".join(sorted(OS_OK))})')
             elif m == 'os.path': pass
@@ -48,12 +82,16 @@ def scan(path):
             elif not allowed(m) and not all(allowed(m + '.' + a.name) for a in n.names): no(n, f'from {m} import ...: ngoài danh sách cho phép')
     for n in ast.walk(tree):                     # gán lại module os cho tên khác (x = os) cũng là alias
         if isinstance(n, ast.Assign) and isinstance(n.value, ast.Name) and n.value.id in osn: osn.update(t.id for t in n.targets if isinstance(t, ast.Name))
+    def rootname(x):
+        while isinstance(x, ast.Attribute): x = x.value
+        return x.id if isinstance(x, ast.Name) else None
     for n in ast.walk(tree):                     # lượt 2: cách dùng
         if isinstance(n, ast.Name) and n.id in BAN_NAME: no(n, f'{n.id}: nạp mã động/truy cập phản xạ bị cấm')
         elif isinstance(n, ast.Attribute):
             if isinstance(n.value, ast.Name) and n.value.id in osn and n.attr not in OS_OK: no(n, f'{n.value.id}.{n.attr}: chỉ được dùng phần đọc của os')
+            elif n.attr in DANGER: no(n, f'.{n.attr}: đi tới module/cơ chế bị cấm qua thuộc tính')
             elif n.attr.startswith('__') and n.attr not in DUNDER_OK: no(n, f'.{n.attr}: truy cập dunder bị cấm')
-            elif isinstance(n.value, ast.Name) and n.value.id == 'sys' and n.attr in ('modules', 'meta_path', 'path_hooks', 'settrace', 'setprofile'): no(n, f'sys.{n.attr}: can thiệp cơ chế import bị cấm')
+            elif n.attr.startswith('_') and not n.attr.startswith('__') and rootname(n) in imp | osn | {'sys'}: no(n, f'.{n.attr}: thuộc tính riêng của module được import bị cấm')
     for n in tree.body:   # FORMAT/SCOPE: chỉ nhận hằng chuỗi gán ở mức module, đọc tĩnh chứ không import script
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ('FORMAT', 'SCOPE') \
                 and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str): meta[n.targets[0].id] = ' '.join(n.value.value.split())[:200]
@@ -121,16 +159,18 @@ def run(c, name, args, timeout=3600):
     mods, bad, fmt, scope = closure(d, name)
     if bad: print('TỪ CHỐI chạy: công cụ T1b chỉ đọc file, Python thuần\n  ' + '\n  '.join(bad)); return 2
     if not fmt or not scope: print('TỪ CHỐI chạy: khai FORMAT và SCOPE (hằng chuỗi ở đầu script) trước'); return 2
-    nonce = secrets.token_hex(8); env = dict(os.environ, REA_TOOL_NONCE=nonce, PYTHONIOENCODING='utf-8')
-    try: r = subprocess.run([sys.executable, '-I', p] + list(args), capture_output=True, text=True, errors='replace', env=env, timeout=timeout); rc, so, se = r.returncode, r.stdout, r.stderr
+    nonce = secrets.token_hex(8); od = os.path.join(c, 'work', 'runs', 'tool', name + '_out'); os.makedirs(od, exist_ok=True)
+    env = {k: os.environ[k] for k in ('PATH', 'LANG', 'LC_ALL', 'SYSTEMROOT') if k in os.environ}   # môi trường tối thiểu: không đưa khóa API/biến của phiên cho mã tự viết
+    env.update(REA_TOOL_NONCE=nonce, REA_TOOL_OUT=os.path.abspath(od), PYTHONIOENCODING='utf-8')
+    try: r = subprocess.run([sys.executable, '-I', '-c', BOOT, p, od] + list(args), capture_output=True, text=True, errors='replace', env=env, timeout=timeout); rc, so, se = r.returncode, r.stdout, r.stderr
     except subprocess.TimeoutExpired as e: rc, so, se = 124, (e.stdout or b'').decode('utf-8', 'replace') if isinstance(e.stdout, bytes) else (e.stdout or ''), f'quá {timeout}s'
     tagS, tagC = f'SELFCHECK[{nonce}] ', f'COVERAGE[{nonce}] '; checks, cov, body = [], None, []
     for l in so.splitlines():
         if l.startswith(tagS): checks.append(l[len(tagS):])
         elif l.startswith(tagC) and re.fullmatch(r'\d+/\d+', l[len(tagC):].strip()): cov = l[len(tagC):].strip()
         else: body.append(l)
-    why = f'công cụ thoát mã {rc}' if rc else 'không in phép SELFCHECK nào' if not checks else \
-          f"{sum(': FAIL' in x for x in checks)} phép FAIL" if any(not re.search(r': PASS( |$)', x) for x in checks) else ''
+    nbad = sum(1 for x in checks if not x.startswith('PASS '))                    # kết quả đứng ĐẦU dòng ('PASS tên: chi tiết'): tên/chi tiết không giả được kết quả
+    why = f'công cụ thoát mã {rc}' if rc else 'không in phép SELFCHECK nào' if not checks else f'{nbad} phép FAIL hoặc sai dạng' if nbad else ''
     ev = edir(c); os.makedirs(os.path.join(ev, 'tools'), exist_ok=True); rd = os.path.join(c, 'work', 'runs', 'tool'); os.makedirs(rd, exist_ok=True)
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
     for m in mods: shutil.copy(os.path.join(d, m + '.py'), os.path.join(ev, 'tools', m + '.py'))   # đúng bản đã sinh ra evidence

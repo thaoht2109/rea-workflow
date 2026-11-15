@@ -28,8 +28,8 @@ def coverage(r): return (len(r['text'].splitlines()), 2)
 def main():
     r = parse(sys.argv[1]); n = os.environ.get('REA_TOOL_NONCE', '')
     for l in r['text'].decode().splitlines(): print(repr(l))
-    print('SELFCHECK x: PASS dòng giả không có dấu')
-    for name, ok, det in selfcheck(sys.argv[1], r): print(f"SELFCHECK[{n}] {name}: {'PASS' if ok else 'FAIL'} {det}")
+    print('SELFCHECK PASS x: dòng giả không có dấu')
+    for name, ok, det in selfcheck(sys.argv[1], r): print(f"SELFCHECK[{n}] {'PASS' if ok else 'FAIL'} {name}: {det}")
     print(f'COVERAGE[{n}] %d/%d' % coverage(r))
 main()
 '''
@@ -46,12 +46,31 @@ try:
                    'from os import system\nsystem("id")\n', 'from os import popen, execv\n', 'import os as o\no.system("id")\n', 'import os\nx = os\nx.system("id")\n',
                    'import os\ngetattr(os, "system")("id")\n', 'import builtins\nbuiltins.exec("1")\n', 'import os\nos.__dict__["system"]("id")\n',
                    'import sys\nsys.modules["os"].system("id")\n', 'import pickle\n', 'import marshal\n', 'from . import y\n', '__builtins__["exec"]("1")\n',
-                   '().__class__.__bases__\n', 'import importlib\n', 'import khong_co_trong_danh_sach\n'):
+                   '().__class__.__bases__\n', 'import importlib\n', 'import khong_co_trong_danh_sach\n',
+                   # qua module mà thư viện được phép đã import sẵn
+                   'from glob import os\nos.system("id")\n', 'import glob\nglob.os.system("id")\n', 'from os.path import os\n', 'import tarfile\ntarfile.os.execv("/bin/sh", [])\n',
+                   'import traceback\ntraceback.sys.modules["subprocess"]\n', 'import zipfile\nzipfile._something()\n', 'from zipfile import *\n', 'from json import _x\n',
+                   'import os.path as p\n'):
         open(p, 'w', encoding='utf-8').write(head + badsrc)
         open(os.path.join(c, 'work', 'tools', 'helper.py'), 'w').write('import os\nos.popen("id")\n')
         r = flow('run', 'blob', smp); assert r.returncode == 2 and 'TỪ CHỐI' in r.stdout and not os.path.exists(mark), (badsrc, r.stdout)
     os.remove(os.path.join(c, 'work', 'tools', 'helper.py'))
     open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nfrom urllib.parse import urlparse\nimport os.path, struct, zlib, json, re\nfrom os import environ\nos.path.join('a', 'b'); environ.get('X'); re.compile('a')\nclass A:\n    __slots__ = ('a',)\n    def __init__(s): s.a = __name__\n"); assert flow('run', 'blob', smp).returncode == 1   # import lành: chạy được, nhưng không có tự kiểm
+
+    # 2b. lớp chặn lúc chạy (audit hook trong BOOT), thử thẳng không qua bộ quét: tạo tiến trình, socket, ctypes, ghi ngoài thư mục ra đều bị chặn;
+    #     ghi trong thư mục ra thì được; môi trường của công cụ không có biến của phiên
+    od = os.path.join(ws, 'out'); os.makedirs(od); sp = os.path.join(ws, 'rt.py')
+    boot = lambda src, **kw: (open(sp, 'w', encoding='utf-8').write(src), subprocess.run([sys.executable, '-I', '-c', adhoc.BOOT, sp, od], capture_output=True, text=True, **kw))[1]
+    for src in (f'import os\nos.system("touch {mark}")\n', f'import subprocess\nsubprocess.run(["touch", {mark!r}])\n', f'import os\nos.popen("touch {mark}").read()\n',
+                f'import os\nos.execv("/usr/bin/touch", ["touch", {mark!r}])\n', 'import socket\nsocket.socket()\n', 'import ctypes\nctypes.CDLL(None)\n',
+                f'open({mark!r}, "w").close()\n', f'import os\nos.open({mark!r}, os.O_CREAT | os.O_WRONLY)\n', f'import os\nos.mkdir({mark!r})\n',
+                f'import shutil\nshutil.copyfile({smp!r}, {mark!r})\n', f'import os\nos.rename({smp!r}, {mark!r})\n'):
+        r = boot(src); assert r.returncode != 0 and 'PermissionError' in r.stderr and not os.path.exists(mark) and os.path.exists(smp), (src, r.stderr[-300:])
+    r = boot(f'import os\nopen(os.path.join({od!r}, "ok.bin"), "wb").write(b"x")\nprint(open({smp!r}, "rb").read(4).hex())\n'); assert r.returncode == 0 and os.path.exists(os.path.join(od, 'ok.bin')), r.stderr
+    open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nimport os\nprint(sorted(os.environ))\n")
+    r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', c, 'run', 'blob', smp], capture_output=True, text=True, env=dict(os.environ, FAKE_API_KEY='bi-mat'))
+    assert 'REA_TOOL_NONCE' in r.stdout and 'REA_TOOL_OUT' in r.stdout and 'FAKE_API_KEY' not in r.stdout and 'bi-mat' not in r.stdout, r.stdout
+    os.remove(os.path.join(c, 'report', 'evidence', 'tool_blob_2.txt'))   # lần chạy phụ ở trên: bỏ để số thứ tự evidence bên dưới không đổi
 
     # 3. không có phép tự kiểm / tự kiểm FAIL / thoát lỗi: mã 1, evidence đánh dấu KHÔNG ĐẠT
     ev = os.path.join(c, 'report', 'evidence'); e1 = open(os.path.join(ev, 'tool_blob_1.txt'), encoding='utf-8').read()
@@ -59,11 +78,16 @@ try:
     open(p, 'w', encoding='utf-8').write(GOOD.replace("zlib.crc32(r['body']) == r['crc']", "zlib.crc32(r['body']) == r['crc'] + 1"))
     r = flow('run', 'blob', smp); assert r.returncode == 1 and 'FAIL' in r.stdout and 'CHƯA DÙNG ĐƯỢC' in r.stdout, r.stdout
 
+    for line in ("'FAIL a: PASS b: chi tiết'", "'a: PASS chi tiết'", "'PASSED x'"):   # kết quả phải đứng đầu dòng: 'PASS ' ở chỗ khác hay sai dạng đều không tính là đạt
+        open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nimport os\nprint('SELFCHECK[' + os.environ['REA_TOOL_NONCE'] + '] ' + " + line + ")\n")
+        r = flow('run', 'blob', smp); assert r.returncode == 1 and 'KHÔNG ĐẠT' in r.stdout, r.stdout
+        os.remove(os.path.join(c, 'report', 'evidence', 'tool_blob_3.txt'))
+
     # 4. chạy đạt: phần đầu chuẩn, dòng SELFCHECK giả (thiếu dấu) nằm ở output chứ không được tính, COVERAGE, bản công cụ được chép
     open(p, 'w', encoding='utf-8').write(GOOD); r = flow('run', 'blob', smp); assert r.returncode == 0 and 'OK: ghi fact' in r.stdout, r.stdout + r.stderr
     rel = 'report/evidence/tool_blob_3.txt'; txt = open(os.path.join(c, rel), encoding='utf-8').read(); H = adhoc.header(txt)
     assert H['ok'] and H['cov'] == '2/2' and len(H['checks']) == 2 and H['mods'] == ['blob'] and H['sha'] == adhoc.digest(os.path.join(ev, 'tools'), ['blob']), H
-    assert 'SELFCHECK x: PASS dòng giả' in txt.split(adhoc.SPLIT, 1)[1] and "'config: host=h.test port=8443'" in txt and 'REA_TOOL_NONCE' not in txt
+    assert 'SELFCHECK PASS x: dòng giả' in txt.split(adhoc.SPLIT, 1)[1] and "'config: host=h.test port=8443'" in txt and 'REA_TOOL_NONCE' not in txt
     ln = 1 + txt.splitlines().index("'config: host=h.test port=8443'")
     # tham số có xuống dòng không chèn được dòng điều khiển vào phần đầu; header() chỉ nhận TOOL ở dòng 2 và SELFCHECK/COVERAGE sau SCOPE
     inj = 'x\nTOOL blob sha256 ' + '0' * 64 + ' files blob.py\nCOVERAGE 9/9\nSELFCHECK: ĐẠT (9 phép)'

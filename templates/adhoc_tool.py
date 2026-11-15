@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Công cụ tự viết cho MỘT case (tầng T1b), chạy bằng: flow.py tool CASE run {NAME} FILE [tham số...]
 # Dùng khi triage trả loại chưa có đường đi. Chỉ ĐỌC file mẫu: không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch nào.
+# `tool run` quét script theo danh sách cho phép: chỉ import thư viện phân tích dữ liệu và phần đọc của os; không getattr/eval/exec/pickle.
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này (cũng bị quét và băm)

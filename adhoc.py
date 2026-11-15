@@ -2,39 +2,58 @@
 # Tầng T1b: công cụ do agent tự viết cho định dạng chưa có đường đi (flow.py tool). Khuôn buộc công cụ tự chứng minh là đúng:
 # phải khai FORMAT/SCOPE, phải có phép tự kiểm đạt, evidence ghi kèm dấu băm của đúng bản công cụ đã sinh ra nó.
 #   flow.py tool CASE new TÊN            tạo work/tools/TÊN.py từ templates/adhoc_tool.py
-#   flow.py tool CASE run TÊN [THAM SỐ]  quét tĩnh script (cấm mạng/tiến trình con), chạy python3 -I, ghi report/evidence/tool_TÊN_<n>.txt
+#   flow.py tool CASE run TÊN [THAM SỐ]  quét tĩnh script (chỉ import trong danh sách cho phép), chạy python3 -I, ghi report/evidence/tool_TÊN_<n>.txt
 #   flow.py tool CASE list               công cụ của case, trạng thái tự kiểm của từng evidence
 import ast, hashlib, os, re, secrets, shutil, subprocess, sys
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 HEAD = '# rea-flow tool evidence'; SPLIT = '--- output'
 NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,39}')
-BAN_MOD = {'socket', 'ssl', 'requests', 'httpx', 'aiohttp', 'http', 'ftplib', 'smtplib', 'telnetlib', 'paramiko', 'subprocess', 'multiprocessing',
-           'ctypes', 'cffi', 'pty', 'importlib', 'runpy', 'webbrowser', 'asyncio'}
-BAN_FULL = {'urllib.request', 'xmlrpc.client'}
-BAN_ATTR = {('os', x) for x in ('system', 'popen', 'startfile', 'fork', 'forkpty', 'posix_spawn', 'posix_spawnp')}
-BAN_CALL = {'eval', 'exec', '__import__', 'compile'}
+# Bộ quét dùng DANH SÁCH CHO PHÉP (không phải danh sách cấm): mọi import ngoài danh sách bị từ chối, kể cả pickle/marshal/builtins/ctypes.
+ALLOW = {'struct', 'zlib', 'bz2', 'lzma', 'gzip', 'base64', 'binascii', 'hashlib', 'hmac', 'json', 're', 'sys', 'io', 'math', 'collections', 'itertools',
+         'functools', 'dataclasses', 'enum', 'typing', 'string', 'codecs', 'unicodedata', 'datetime', 'time', 'array', 'bisect', 'heapq', 'operator',
+         'copy', 'textwrap', 'pprint', 'argparse', 'ast', 'zipfile', 'tarfile', 'plistlib', 'csv', 'uuid', 'ipaddress', 'fractions', 'decimal',
+         'statistics', 'random', 'secrets', 'difflib', 'fnmatch', 'glob', 'contextlib', 'abc', 'numbers', 'types', 'warnings', 'traceback', 'urllib.parse',
+         'brotli', 'Crypto', 'Cryptodome', 'cryptography', 'capstone', 'pefile', 'elftools', 'lz4', 'zstandard', 'snappy', 'msgpack', 'cbor2', 'construct', 'tlsh'}
+OS_OK = {'path', 'environ', 'sep', 'linesep', 'getcwd', 'listdir', 'scandir', 'walk', 'stat', 'fspath', 'devnull', 'SEEK_SET', 'SEEK_CUR', 'SEEK_END'}   # os: chỉ phần đọc
+BAN_NAME = {'eval', 'exec', 'compile', '__import__', 'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', 'breakpoint', '__builtins__', 'input'}
+DUNDER_OK = {'__name__', '__file__', '__doc__', '__init__', '__slots__', '__len__', '__repr__', '__str__', '__eq__', '__hash__', '__iter__', '__next__', '__getitem__', '__contains__', '__enter__', '__exit__'}
 MAX_OUT = 400   # số dòng output chép vào evidence; bản đầy đủ nằm ở work/runs/tool/
 
 def tdir(c): return os.path.join(c, 'work', 'tools')
 def edir(c): return os.path.join(c, 'report', 'evidence')
 
 def scan(path):
-    """Quét AST một file. Trả (lỗi, module cục bộ được import, FORMAT, SCOPE). Heuristic: chặn đường hiển nhiên, không phải sandbox."""
+    """Quét AST một file. Trả (lỗi, module cục bộ được import, FORMAT, SCOPE).
+    Mục đích: giữ công cụ T1b là Python thuần đọc file. Đây là rào chặn đường hiển nhiên và các lối vòng quen thuộc (alias, from-import,
+    getattr, builtins, dunder), không phải sandbox: quy tắc không chạy mẫu vẫn do agent chịu trách nhiệm."""
     try: tree = ast.parse(open(path, encoding='utf-8').read())
     except (SyntaxError, ValueError) as e: return [f'{os.path.basename(path)}: không phân tích được ({e})'], [], '', ''
-    bad, local, meta = [], [], {}; base = os.path.basename(path)
-    def mod(m, ln):
-        if m.split('.')[0] in BAN_MOD or m in BAN_FULL or any(m.startswith(x + '.') for x in BAN_FULL): bad.append(f'{base}:{ln}: import {m} (mạng/tiến trình con/nạp mã động bị cấm)')
-        elif os.path.isfile(os.path.join(os.path.dirname(path), m.split('.')[0] + '.py')): local.append(m.split('.')[0])
-    for n in ast.walk(tree):
+    bad, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path); osn = set()   # osn: mọi tên đang trỏ tới module os
+    def no(n, why): bad.append(f'{base}:{n.lineno}: {why}')
+    def allowed(m): return m in ALLOW or m.split('.')[0] in ALLOW and not m.startswith('urllib')
+    for n in ast.walk(tree):                     # lượt 1: import và alias của os
         if isinstance(n, ast.Import):
-            for a in n.names: mod(a.name, n.lineno)
-        elif isinstance(n, ast.ImportFrom) and n.module:
-            mod(n.module, n.lineno)
-            for a in n.names: mod(n.module + '.' + a.name, n.lineno) if n.module + '.' + a.name in BAN_FULL else None
-        elif isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and ((n.value.id, n.attr) in BAN_ATTR or (n.value.id == 'os' and n.attr.startswith(('exec', 'spawn')))):
-            bad.append(f'{base}:{n.lineno}: {n.value.id}.{n.attr} (chạy tiến trình bị cấm)')
-        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in BAN_CALL: bad.append(f'{base}:{n.lineno}: {n.func.id}() (nạp mã động bị cấm)')
+            for a in n.names:
+                if a.name in ('os', 'os.path'): osn.add((a.asname or 'os') if a.name == 'os' or not a.asname else '') ; osn.discard('')
+                elif os.path.isfile(os.path.join(here, a.name.split('.')[0] + '.py')): local.append(a.name.split('.')[0])
+                elif not allowed(a.name): no(n, f'import {a.name}: ngoài danh sách cho phép (mạng, tiến trình con, nạp mã động, tuần tự hóa đều bị cấm)')
+        elif isinstance(n, ast.ImportFrom):
+            m = n.module or ''
+            if n.level: no(n, 'import tương đối: đặt module cạnh script và import bằng tên')
+            elif m == 'os':
+                for a in n.names:
+                    if a.name not in OS_OK: no(n, f'from os import {a.name}: chỉ được dùng phần đọc của os ({", ".join(sorted(OS_OK))})')
+            elif m == 'os.path': pass
+            elif os.path.isfile(os.path.join(here, m.split('.')[0] + '.py')): local.append(m.split('.')[0])
+            elif not allowed(m) and not all(allowed(m + '.' + a.name) for a in n.names): no(n, f'from {m} import ...: ngoài danh sách cho phép')
+    for n in ast.walk(tree):                     # gán lại module os cho tên khác (x = os) cũng là alias
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Name) and n.value.id in osn: osn.update(t.id for t in n.targets if isinstance(t, ast.Name))
+    for n in ast.walk(tree):                     # lượt 2: cách dùng
+        if isinstance(n, ast.Name) and n.id in BAN_NAME: no(n, f'{n.id}: nạp mã động/truy cập phản xạ bị cấm')
+        elif isinstance(n, ast.Attribute):
+            if isinstance(n.value, ast.Name) and n.value.id in osn and n.attr not in OS_OK: no(n, f'{n.value.id}.{n.attr}: chỉ được dùng phần đọc của os')
+            elif n.attr.startswith('__') and n.attr not in DUNDER_OK: no(n, f'.{n.attr}: truy cập dunder bị cấm')
+            elif isinstance(n.value, ast.Name) and n.value.id == 'sys' and n.attr in ('modules', 'meta_path', 'path_hooks', 'settrace', 'setprofile'): no(n, f'sys.{n.attr}: can thiệp cơ chế import bị cấm')
     for n in tree.body:   # FORMAT/SCOPE: chỉ nhận hằng chuỗi gán ở mức module, đọc tĩnh chứ không import script
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) and n.targets[0].id in ('FORMAT', 'SCOPE') \
                 and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str): meta[n.targets[0].id] = ' '.join(n.value.value.split())[:200]
@@ -60,14 +79,16 @@ def digest(d, mods):
     return h.hexdigest()
 
 def header(text):
-    """Phần đầu của evidence tool_* -> dict {tool, sha, mods, ok, cov, checks}; không phải evidence do `tool run` sinh -> None."""
+    """Phần đầu của evidence tool_* -> dict {tool, sha, mods, ok, cov, checks}; không phải evidence do `tool run` sinh -> None.
+    Bố cục cố định: dòng 2 là TOOL, dòng 3 CMD, 4 FORMAT, 5 SCOPE, sau đó mới tới SELFCHECK/COVERAGE (không nhận các dòng này ở vị trí khác)."""
     L = text.split('\n' + SPLIT, 1)[0].splitlines()
-    if not L or L[0].strip() != HEAD: return None
+    if len(L) < 5 or L[0].strip() != HEAD: return None
     H = {'checks': [], 'ok': False, 'cov': None, 'tool': '', 'sha': '', 'mods': []}
-    for l in L[1:]:
-        m = re.match(r'TOOL (\S+) sha256 ([0-9a-f]{64}) files (\S+)$', l)
-        if m: H['tool'], H['sha'], H['mods'] = m.group(1), m.group(2), [x[:-3] for x in m.group(3).split(',')]
-        elif l.startswith('SELFCHECK: '): H['ok'] = l.startswith('SELFCHECK: ĐẠT')
+    m = re.fullmatch(r'TOOL (\S+) sha256 ([0-9a-f]{64}) files (\S+)', L[1])
+    if not m or not L[2].startswith('CMD ') or not L[3].startswith('FORMAT ') or not L[4].startswith('SCOPE '): return None
+    H['tool'], H['sha'], H['mods'] = m.group(1), m.group(2), [x[:-3] for x in m.group(3).split(',')]
+    for l in L[5:]:
+        if l.startswith('SELFCHECK: '): H['ok'] = l.startswith('SELFCHECK: ĐẠT')
         elif l.startswith('SELFCHECK '): H['checks'].append(l)
         elif re.fullmatch(r'COVERAGE \d+/\d+', l): H['cov'] = l.split()[1]
     return H
@@ -114,7 +135,7 @@ def run(c, name, args, timeout=3600):
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
     for m in mods: shutil.copy(os.path.join(d, m + '.py'), os.path.join(ev, 'tools', m + '.py'))   # đúng bản đã sinh ra evidence
     full = os.path.join(rd, f'{name}_{n}.txt'); open(full, 'w', encoding='utf-8').write(so + ('\n--- stderr ---\n' + se if se else ''))
-    H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}", 'CMD ' + ' '.join(os.path.basename(a) if os.path.exists(a) else a for a in args)[:300],
+    H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}", 'CMD ' + ' '.join(' '.join((os.path.basename(a) if os.path.exists(a) else a).split()) for a in args)[:300],   # mỗi tham số ép về một dòng: không chèn được dòng điều khiển vào phần đầu
          'FORMAT ' + fmt, 'SCOPE ' + scope] + ['SELFCHECK ' + x[:300] for x in checks] + ([f'COVERAGE {cov}'] if cov else []) + \
         [f"SELFCHECK: {'KHÔNG ĐẠT (' + why + ')' if why else f'ĐẠT ({len(checks)} phép)'}", f'EXIT {rc}',
          f'{SPLIT} ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn; bản đầy đủ: {os.path.relpath(full, c)}) ---']

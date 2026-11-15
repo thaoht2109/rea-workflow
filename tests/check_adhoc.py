@@ -41,12 +41,17 @@ try:
 
     # 2. quét tĩnh: mạng, tiến trình con, nạp mã động, kể cả trong module cạnh -> từ chối trước khi chạy (file dấu không được tạo)
     mark = os.path.join(ws, 'ran'); head = f"FORMAT = 'f'\nSCOPE = 's'\nopen({mark!r}, 'w').close()\n"
-    for badsrc in ('import socket\n', 'import subprocess\n', 'from urllib.request import urlopen\n', 'import os\nos.system("id")\n', 'eval("1")\n', 'import ctypes\n', 'import helper\n'):
+    for badsrc in ('import socket\n', 'import subprocess\n', 'from urllib.request import urlopen\n', 'import os\nos.system("id")\n', 'eval("1")\n', 'import ctypes\n', 'import helper\n',
+                   # lối vòng: from-import, alias, gán lại, getattr, builtins, dunder, sys.modules, tuần tự hóa, import tương đối, module ngoài danh sách cho phép
+                   'from os import system\nsystem("id")\n', 'from os import popen, execv\n', 'import os as o\no.system("id")\n', 'import os\nx = os\nx.system("id")\n',
+                   'import os\ngetattr(os, "system")("id")\n', 'import builtins\nbuiltins.exec("1")\n', 'import os\nos.__dict__["system"]("id")\n',
+                   'import sys\nsys.modules["os"].system("id")\n', 'import pickle\n', 'import marshal\n', 'from . import y\n', '__builtins__["exec"]("1")\n',
+                   '().__class__.__bases__\n', 'import importlib\n', 'import khong_co_trong_danh_sach\n'):
         open(p, 'w', encoding='utf-8').write(head + badsrc)
         open(os.path.join(c, 'work', 'tools', 'helper.py'), 'w').write('import os\nos.popen("id")\n')
         r = flow('run', 'blob', smp); assert r.returncode == 2 and 'TỪ CHỐI' in r.stdout and not os.path.exists(mark), (badsrc, r.stdout)
     os.remove(os.path.join(c, 'work', 'tools', 'helper.py'))
-    open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nfrom urllib.parse import urlparse\nimport os.path\n"); assert flow('run', 'blob', smp).returncode == 1   # import lành: chạy được, nhưng không có tự kiểm
+    open(p, 'w', encoding='utf-8').write("FORMAT = 'f'\nSCOPE = 's'\nfrom urllib.parse import urlparse\nimport os.path, struct, zlib, json, re\nfrom os import environ\nos.path.join('a', 'b'); environ.get('X'); re.compile('a')\nclass A:\n    __slots__ = ('a',)\n    def __init__(s): s.a = __name__\n"); assert flow('run', 'blob', smp).returncode == 1   # import lành: chạy được, nhưng không có tự kiểm
 
     # 3. không có phép tự kiểm / tự kiểm FAIL / thoát lỗi: mã 1, evidence đánh dấu KHÔNG ĐẠT
     ev = os.path.join(c, 'report', 'evidence'); e1 = open(os.path.join(ev, 'tool_blob_1.txt'), encoding='utf-8').read()
@@ -60,6 +65,11 @@ try:
     assert H['ok'] and H['cov'] == '2/2' and len(H['checks']) == 2 and H['mods'] == ['blob'] and H['sha'] == adhoc.digest(os.path.join(ev, 'tools'), ['blob']), H
     assert 'SELFCHECK x: PASS dòng giả' in txt.split(adhoc.SPLIT, 1)[1] and "'config: host=h.test port=8443'" in txt and 'REA_TOOL_NONCE' not in txt
     ln = 1 + txt.splitlines().index("'config: host=h.test port=8443'")
+    # tham số có xuống dòng không chèn được dòng điều khiển vào phần đầu; header() chỉ nhận TOOL ở dòng 2 và SELFCHECK/COVERAGE sau SCOPE
+    inj = 'x\nTOOL blob sha256 ' + '0' * 64 + ' files blob.py\nCOVERAGE 9/9\nSELFCHECK: ĐẠT (9 phép)'
+    r = flow('run', 'blob', smp, inj); t4 = open(os.path.join(ev, 'tool_blob_4.txt'), encoding='utf-8').read(); H4 = adhoc.header(t4)
+    assert r.returncode == 0 and t4.splitlines()[2].startswith('CMD blob.dat x TOOL blob sha256') and H4['sha'] == H['sha'] and H4['cov'] == '2/2', t4[:600]
+    assert adhoc.header(t4.replace('\nFORMAT ', '\nCOVERAGE 9/9\nFORMAT ', 1)) is None and adhoc.header(adhoc.HEAD + '\nSELFCHECK: ĐẠT\n') is None
 
     # 5. luật cổng: fact dẫn evidence đạt thì sạch ở cả lint lẫn review.mech; dẫn evidence không đạt -> tool_selfcheck; coverage lệch -> tool_coverage
     A = lambda **f: case.add(c, **f)
@@ -76,9 +86,9 @@ try:
     open(p, 'a', encoding='utf-8').write('# sửa lỗi\n'); assert flow('run', 'blob', smp).returncode == 0
     assert [x['check'] for x in case.lint_fact(c, F['ok']) if x['check'].startswith('tool_')] == ['tool_stale']
     assert any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
-    A(id='ok2', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/tool_blob_4.txt#L{ln}', supersedes='ok')
+    A(id='ok2', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/tool_blob_5.txt#L{ln}', supersedes='ok')
     assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
-    r = flow('list'); assert 'tool_blob_4.txt: blob tự kiểm ĐẠT, COVERAGE 2/2' in r.stdout and 'tool_blob_3.txt' in r.stdout and 'CŨ' in r.stdout, r.stdout
+    r = flow('list'); assert 'tool_blob_5.txt: blob tự kiểm ĐẠT, COVERAGE 2/2' in r.stdout and 'tool_blob_3.txt' in r.stdout and 'CŨ' in r.stdout, r.stdout
 
     # 7. triage: file lạ -> unknown có probe, định tuyến sang flow.py tool; lớp zlib được nhận; bom nén không bị giải hết
     import triage

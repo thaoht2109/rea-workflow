@@ -28,13 +28,22 @@ WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh
 def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
 def _line_id(t): return hashlib.sha256(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
 def _relocate(lines, ln, lid):
-    """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), dòng gần ln nhất nếu đã dời,
-    None nếu mất hoặc ln ngoài phạm vi mà không có dấu để tìm."""
+    """Dòng mang dấu vân tay lid hiện ở đâu: ln nếu còn nguyên (hoặc fact cũ không có dấu), vị trí mới nếu đã dời và chỉ có
+    đúng một dòng trùng dấu, None nếu mất, trùng nhiều dòng, hoặc ln ngoài phạm vi mà không có dấu để tìm."""
     inside = 1 <= ln <= len(lines)
     if not lid: return ln if inside else None
     if inside and _line_id(lines[ln - 1]) == lid: return ln
     hit = [i + 1 for i, t in enumerate(lines) if _line_id(t) == lid]
-    return min(hit, key=lambda i: abs(i - ln)) if hit else None
+    return hit[0] if len(hit) == 1 else None      # dòng trùng nội dung (dòng trống, '}'): không đoán, coi như không tìm lại được
+def evidence_now(case, f):
+    """Con trỏ evidence của fact theo vị trí hiện tại của dòng: '#Ln' được đổi sang dòng mới nếu dòng đã dời và tìm lại được.
+    Dùng ở mọi nơi trích đoạn evidence theo #L (hồ sơ phản biện), để đoạn trích không lệch khi file bị sửa sau lúc ghi fact."""
+    m = re.search(r'#L(\d+)$', f['evidence'])
+    if not m or not f.get('ev_line'): return f['evidence']
+    try: lines = open(ev_path(case, f['evidence'])[1], encoding='utf-8', errors='replace').read().splitlines()
+    except OSError: return f['evidence']
+    mv = _relocate(lines, int(m.group(1)), f['ev_line'])
+    return f['evidence'][:m.start()] + f'#L{mv}' if mv else f['evidence']
 def src_evidence_issue(src, base):
     """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
     host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""

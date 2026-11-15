@@ -133,9 +133,32 @@ def main():
         open(os.path.join(E, 'cfg.txt'), 'w').close()
         assert any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f18)) and any(i['check'] == 'evidence_line' for i in case.lint_fact(c, f17))
         ok += 1
+
+        # 12. dòng dời phải tới được người dùng: lớp 1 của cổng báo weak, checkpoint chặn, hồ sơ phản biện trích đúng dòng mới;
+        #     dấu vân tay trùng nhiều dòng thì không đoán
+        import reviewer
+        c2 = mkcase(); E2 = os.path.join(c2, 'report', 'evidence')
+        try:
+            open(os.path.join(E2, 'k.txt'), 'w').write('\n'.join(f'đệm {i}' for i in range(1, 11)) + '\ngiá trị DELTA_ECHO_TOKEN ở đây\n')
+            r = run(c2, 'id=g1', 'kind=config', 'value=DELTA_ECHO_TOKEN', 'src=S', 'evidence=report/evidence/k.txt#L11')
+            g1 = facts(c2)[0]; assert 'lint' not in r.stdout and case.evidence_now(c2, g1).endswith('#L11')
+            cp = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'checkpoint', c2], capture_output=True, text=True)
+            assert cp().returncode == 0
+            body = open(os.path.join(E2, 'k.txt')).read()
+            open(os.path.join(E2, 'k.txt'), 'w').write('\n'.join(f'chèn {i}' for i in range(20)) + '\n' + body)   # 11 -> 31, vượt cửa sổ ±5
+            mv = [x for x in review.mech(c2) if x['id'] == 'g1']
+            assert [(x['check'], x['verdict']) for x in mv] == [('evidence_moved', 'weak')] and '#L31' in mv[0]['problem'], mv
+            r = cp(); assert r.returncode == 1 and 'LỆCH fact g1' in r.stdout and '#L31' in r.stdout, r.stdout
+            assert case.evidence_now(c2, g1).endswith('k.txt#L31') and 'DELTA_ECHO_TOKEN' in reviewer.excerpt(c2, case.evidence_now(c2, g1), g1['value'])
+            assert 'DELTA_ECHO_TOKEN' not in reviewer.excerpt(c2, g1['evidence'], g1['value'])      # con trỏ cũ: đoạn trích lệch
+            open(os.path.join(E2, 'k.txt'), 'a').write('giá trị DELTA_ECHO_TOKEN ở đây\n')           # hai dòng trùng dấu: không tìm lại
+            assert case._relocate(open(os.path.join(E2, 'k.txt')).read().splitlines(), 11, g1['ev_line']) is None
+            assert case.evidence_now(c2, g1) == g1['evidence']
+        finally: shutil.rmtree(c2, ignore_errors=True)
+        ok += 1
     finally:
         shutil.rmtree(c, ignore_errors=True)
-    print(f'OK test_lint ({ok}/11 nhóm)')
+    print(f'OK test_lint ({ok}/12 nhóm)')
 
 if __name__ == '__main__':
     main()

@@ -45,8 +45,11 @@ def mech(c):
         if not os.path.isfile(full): bad('fail', 'evidence_exists', 'file evidence không tồn tại', 'chép bằng chứng vào report/evidence/'); continue
         txt = open(full, encoding='utf-8', errors='replace').read()
         m = re.search(r'#L(\d+)$', f['evidence'])
-        if m and not 1 <= int(m.group(1)) <= txt.count('\n') + 1 and C._relocate(txt.splitlines(), int(m.group(1)), f.get('ev_line')) is None:   # dòng đã dời mà tìm lại được theo dấu vân tay thì không fail
-            bad('fail', 'evidence_line', f'dòng {m.group(1)} vượt quá file ({txt.count(chr(10)) + 1} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+        if m:   # #L neo theo nội dung (ev_line): dòng đã dời thì báo weak kèm vị trí mới, mất hẳn và ngoài phạm vi mới fail
+            ln = int(m.group(1)); L = txt.splitlines(); mv = C._relocate(L, ln, f.get('ev_line'))
+            if mv is None and not 1 <= ln <= len(L): bad('fail', 'evidence_line', f'dòng {ln} vượt quá file ({len(L)} dòng)', 'trỏ đúng dòng chứa bằng chứng')
+            elif mv is None: bad('weak', 'evidence_moved', f'nội dung dòng {ln} đã đổi so với lúc ghi fact, không tìm lại được dòng cũ', 'kiểm lại bằng chứng, ghi fact mới (supersedes) trỏ đúng dòng')
+            elif mv != ln: bad('weak', 'evidence_moved', f'dòng bằng chứng đã dời từ #L{ln} sang #L{mv} (evidence bị sửa sau khi ghi fact)', f'ghi fact mới (supersedes) trỏ #L{mv}')
         for p, r in C.recompute(c, f): bad('fail', 'recompute', p, r)   # con số đếm lại được: máy kiểm, không cần LLM
         base = os.path.basename(rel)
         sv = C.src_evidence_issue(f['src'], base)   # cùng một luật với lint khi ghi (case.py)

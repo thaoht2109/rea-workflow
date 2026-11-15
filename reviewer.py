@@ -220,7 +220,7 @@ NEG = re.compile(r'không|chưa|chỉ|ngoài|mọi|toàn|\bn/a\b|\b(no|not|none|
 def digest(c, f):
     """Dấu vân tay của một fact: nội dung fact + evidence. Fact literal có #L (không phủ định) chỉ băm cửa sổ dòng mà excerpt gửi cho LLM,
     còn lại băm cả file: đổi một trong hai thì phải phản biện lại. Lớp 1 vẫn chạy trên cả file mỗi lần."""
-    rel = f['evidence'].split('#')[0]; m = re.search(r'#L(\d+)(?:-L?(\d+))?$', f['evidence'])
+    ev = C.evidence_now(c, f); rel = ev.split('#')[0]; m = re.search(r'#L(\d+)(?:-L?(\d+))?$', ev)   # dòng đã dời: băm đúng cửa sổ mà excerpt gửi đi
     try:
         b = raw(safe(c, rel))
         if m and f['kind'] in LITERAL and not NEG.search(f['value'] + ' ' + f.get('note', '')) and is_text(safe(c, rel)):
@@ -249,7 +249,7 @@ def dossier(c, ids, mech_items):
         if f.get('recompute'): s.append(f'recompute (lớp 1 đã đếm lại, khớp nếu không có lỗi lớp 1): {f["recompute"]}')
         if old: s.append(f'thay cho {old["id"]}: {old["value"][:200]}')
         s += [f'lớp 1: {m["verdict"]} {m["check"]}: {m["problem"]}' for m in mi]
-        s += ['trích evidence:', '```', excerpt(c, f['evidence'], f['value']), '```']
+        s += ['trích evidence:', '```', excerpt(c, C.evidence_now(c, f), f['value']), '```']
         s += probes(c, f, fs)
         body[i] = '\n'.join(s)
     return '\n'.join(head), body

@@ -114,8 +114,9 @@ def shadow(name):
 def new(c, name):
     if not NAME.fullmatch(name): raise SystemExit('TÊN: chữ cái đầu, rồi chữ/số/gạch dưới, tối đa 40 ký tự')
     if shadow(name): raise SystemExit(f'TÊN {name} trùng module chuẩn/thư viện: chọn tên khác')
-    old = [x for x in (sorted(os.listdir(edir(c))) if os.path.isdir(edir(c)) else []) if re.fullmatch(rf'tool_{name}_\d+\.txt', x)
-           and not open(os.path.join(edir(c), x), encoding='utf-8', errors='replace').read(len(HEAD)) == HEAD]
+    def head(x):
+        with open(os.path.join(edir(c), x), encoding='utf-8', errors='replace') as fh: return fh.read(len(HEAD))
+    old = [x for x in (sorted(os.listdir(edir(c))) if os.path.isdir(edir(c)) else []) if re.fullmatch(rf'tool_{name}_\d+\.txt', x) and head(x) != HEAD]
     if old: raise SystemExit(f'TÊN {name}: report/evidence đã có {old[0]} không do `tool seal` sinh; tạo công cụ tên này sẽ khiến fact dẫn file đó bị luật T1b chặn. Chọn tên khác.')
     d = tdir(c); os.makedirs(d, exist_ok=True); p = os.path.join(d, name + '.py')
     if os.path.exists(p): raise SystemExit(f'đã có {os.path.relpath(p, c)}')
@@ -143,7 +144,8 @@ def seal(c, name, out=None):
     for x in st.get('inputs') if isinstance(st.get('inputs'), list) else []:
         if not (isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) for y in x) and re.fullmatch(r'[0-9a-f]{64}', x[1])): continue
         rp = os.path.realpath(x[0])
-        if rp.startswith(root) and os.path.isfile(rp):
+        if rp.startswith(root) and not os.path.isfile(rp): print(f'TỪ CHỐI: file đầu vào {os.path.relpath(rp, root)} đã mất sau lần chạy. Đặt lại file, chạy lại công cụ rồi seal.'); return 2
+        if rp.startswith(root):
             if fsha(rp) != x[1]: print(f'TỪ CHỐI: file đầu vào {os.path.relpath(rp, root)} đã đổi sau lần chạy. Chạy lại công cụ rồi seal.'); return 2
             ins.append((x[1], os.path.relpath(rp, root)))
     first = st.get('first') if isinstance(st.get('first'), str) else ''; oldtpl = bool(st) and 'inputs' not in st

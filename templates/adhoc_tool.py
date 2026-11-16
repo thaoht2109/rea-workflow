@@ -49,19 +49,20 @@ def _net():
     try: return sorted(x.split(':')[0].strip() for x in open('/proc/net/dev').read().splitlines()[2:] if x.split(':')[0].strip() != 'lo')
     except OSError: return None
 
-def _trials(path):
-    """Hai phép thử do KHUÔN tự chạy (stdout bị chặn nên không vào dấu băm output; mỗi lần tối đa 30 giây):
+def _trials(path, dt=0.0):
+    """Hai phép thử do KHUÔN tự chạy (stdout bị chặn nên không vào dấu băm output; mỗi lần tối đa max(30, 4 x thời gian parse thật) giây):
     1. đột biến: lật 1 byte ở 8 vị trí rải đều trong bản sao của file mẫu, chạy lại parse()+selfcheck(); selfcheck phải báo hỏng (FAIL hoặc ném lỗi)
        ít nhất một lần, nếu không phép kiểm không phân biệt được dữ liệu đúng với dữ liệu hỏng;
     2. đáp án biết trước: known_answers() chạy qua parse() và so với đáp án."""
     import contextlib, io, tempfile
     def alarm(*a): raise TimeoutError('quá thời gian trên dữ liệu thử')
     def run(f):
-        if hasattr(signal, 'SIGALRM'): signal.signal(signal.SIGALRM, alarm); signal.alarm(30)
+        if hasattr(signal, 'SIGALRM'): signal.signal(signal.SIGALRM, alarm); signal.alarm(limit)
         try: return f()
         finally:
             if hasattr(signal, 'SIGALRM'): signal.alarm(0)
-    data = open(path, 'rb').read(); n = 8 if len(data) <= 4 << 20 else 3; mut, kat, note = [0, 0], [], ''
+    limit = max(30, int(4 * dt) + 1); data = open(path, 'rb').read(); mut, kat, note = [0, 0], [], ''
+    n = 8 if len(data) <= 4 << 20 and dt * 8 <= 120 else 3 if dt * 3 <= 400 else 1      # parse chậm thì thử ít vị trí hơn
     with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
         tp = os.path.join(td, 'trial.bin')
         if data:      # đối chứng: bản KHÔNG đột biến trong thư mục tạm phải parse được, nếu không (quá giờ, cần file cạnh đầu vào...) thì phép thử vô hiệu, không tính là 'phát hiện'
@@ -109,7 +110,7 @@ def main():
     # chỉ output in ra từ đây trở đi được băm: module phụ không được print lúc import
     try: os.remove(status_path())      # xóa trạng thái của lần chạy trước NGAY ĐẦU: lần này dừng giữa chừng thì không còn trạng thái cũ để seal nhầm
     except FileNotFoundError: pass
-    path = sys.argv[1]; res = parse(path); show(res)
-    checks = selfcheck(path, res); status(checks, coverage(res), _trials(path))
+    path = sys.argv[1]; t0 = time.time(); res = parse(path); dt = time.time() - t0; show(res)
+    checks = selfcheck(path, res); status(checks, coverage(res), _trials(path, dt))
 
 if __name__ == '__main__': main()

@@ -44,7 +44,8 @@ def status(checks, cov):
             for b in iter(lambda: f.read(1 << 20), b''): h.update(b)
         return h.hexdigest()
     inputs = [[os.path.realpath(a), sha(a)] for a in sys.argv[1:] if os.path.isfile(a)]      # seal gắn evidence với đúng file đầu vào (đường dẫn thật + dấu băm)
-    json.dump({'argv': sys.argv[1:], 'inputs': inputs, 'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time(),
+    json.dump({'argv': sys.argv[1:], 'inputs': inputs, 'first': os.path.realpath(sys.argv[1]),      # đường dẫn thật tính lúc CHẠY: seal gọi từ thư mục khác vẫn đúng
+               'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time(),
                'out_sha256': _OUT.h.hexdigest()}, open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
 
 class _Tee:

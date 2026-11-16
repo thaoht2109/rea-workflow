@@ -146,11 +146,12 @@ def seal(c, name, out=None):
         if rp.startswith(root) and os.path.isfile(rp):
             if fsha(rp) != x[1]: print(f'TỪ CHỐI: file đầu vào {os.path.relpath(rp, root)} đã đổi sau lần chạy. Chạy lại công cụ rồi seal.'); return 2
             ins.append((x[1], os.path.relpath(rp, root)))
-    first = os.path.realpath(str((st.get('argv') or [''])[0])) if st else ''
+    first = st.get('first') if isinstance(st.get('first'), str) else ''; oldtpl = bool(st) and 'inputs' not in st
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else \
-          'file đầu vào (tham số đầu) không nằm trong thư mục case, hoặc công cụ viết theo khuôn cũ không ghi dấu băm đầu vào' if os.path.relpath(first, root) not in [r for _, r in ins] else ''
+          'công cụ viết theo khuôn cũ, không ghi dấu băm file đầu vào: chép các hàm từ status_path() trở xuống của templates/adhoc_tool.py vào công cụ rồi chạy lại' if oldtpl else \
+          'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else ''
     ev = edir(c); os.makedirs(os.path.join(ev, 'tools'), exist_ok=True)
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
     if not why:   # chỉ lần seal ĐẠT mới thay bản lưu công cụ: lần không đạt không được làm evidence đạt trước đó thành tool_stale

@@ -138,6 +138,10 @@ try:
     write(good_now); assert runon(smp).returncode == 0 and flow('seal', 'blob').returncode == 0
     relN = 'report/evidence/' + nev()
     assert f"INPUT sha256 {hashlib.sha256(open(smp, 'rb').read()).hexdigest()} {os.path.join('work', 'sample', 'blob.dat')}" in open(os.path.join(ev, nev()), encoding='utf-8').read().split(adhoc.SPLIT)[0]
+    time.sleep(0.02); r = subprocess.run([sys.executable, '-I', os.path.join('work', 'tools', 'blob.py'), os.path.join('work', 'sample', 'blob.dat')], capture_output=True, cwd=c); open(outp, 'wb').write(r.stdout)
+    r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', c, 'seal', 'blob'], capture_output=True, text=True, cwd=ws); assert r.returncode == 0, r.stdout      # chạy bằng đường dẫn tương đối trong case, seal từ thư mục khác
+    sj = os.path.join(c, 'work', 'runs', 'tool', 'blob.status.json'); st0 = json.load(open(sj)); json.dump({k: v for k, v in st0.items() if k not in ('inputs', 'first')}, open(sj, 'w'))
+    r = flow('seal', 'blob'); assert r.returncode == 1 and 'khuôn cũ' in r.stdout and 'status_path()' in r.stdout, r.stdout      # trạng thái của khuôn cũ: nói rõ cách chuyển
     ngoai = os.path.join(ws, 'blob.dat'); shutil.copy(smp, ngoai); assert runon(ngoai).returncode == 0      # file cùng tên ở ngoài case
     r = flow('seal', 'blob'); assert r.returncode == 1 and 'không nằm trong thư mục case' in r.stdout and 'INPUT sha256' not in open(os.path.join(ev, nev()), encoding='utf-8').read(), r.stdout
     os.makedirs(os.path.join(c, 'work', 'extract')); trong = os.path.join(c, 'work', 'extract', 'b.dat'); shutil.copy(smp, trong); assert runon(trong).returncode == 0

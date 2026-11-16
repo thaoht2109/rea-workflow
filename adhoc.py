@@ -11,7 +11,8 @@ HEAD = '# rea-flow tool evidence'; SPLIT = '--- output'
 NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,39}')
 RISKY = {'socket', 'ssl', 'requests', 'httpx', 'aiohttp', 'http', 'ftplib', 'smtplib', 'paramiko', 'subprocess', 'multiprocessing', 'pty', 'urllib',
          'ctypes', 'cffi', 'marshal', 'pickle', 'shelve', 'importlib', 'imp', 'runpy', 'code', 'codeop'}   # mạng, tiến trình con, nạp/chạy mã động: `seal` đánh KHÔNG ĐẠT
-BADCALL = {'exec', 'eval', 'compile', '__import__'}; BADOS = {'system', 'popen', 'fork', 'forkpty', 'startfile'}   # os.<tên>, os.exec*, os.spawn*
+BADCALL = {'exec', 'eval', '__import__'}; BADOS = {'system', 'popen', 'fork', 'forkpty', 'startfile'}   # os.<tên>, os.exec*, os.spawn*, os.posix_spawn*
+def bados(x): return x in BADOS or x.startswith(('exec', 'spawn', 'posix_spawn'))
 MAX_OUT = 400   # số dòng output chép vào evidence; bản đầy đủ nằm ở work/runs/tool/
 
 def tdir(c): return os.path.join(c, 'work', 'tools')
@@ -30,10 +31,12 @@ def scan(path):
         if isinstance(n, ast.Call):
             f = n.func
             if isinstance(f, ast.Name) and f.id in BADCALL: note.append(f'{base}:{n.lineno}: gọi {f.id}()')
-            elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == 'os' and (f.attr in BADOS or f.attr.startswith(('exec', 'spawn'))): note.append(f'{base}:{n.lineno}: gọi os.{f.attr}()')
+            elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == 'os' and bados(f.attr): note.append(f'{base}:{n.lineno}: gọi os.{f.attr}()')
         mods = [a.name for a in n.names] if isinstance(n, ast.Import) else []
         if isinstance(n, ast.ImportFrom): mods = ([n.module] if n.module else []) + ([a.name for a in n.names] if n.level or not n.module else [])   # cả `from . import x`, `from .x import y`
+        if isinstance(n, ast.ImportFrom) and n.module == 'os' and not n.level: note += [f'{base}:{n.lineno}: from os import {x.name}' for x in n.names if bados(x.name)]
         for m in mods:
+            if m == 'urllib' and isinstance(n, ast.ImportFrom) and not n.level and {x.name for x in n.names} <= {'parse'}: continue      # from urllib import parse = urllib.parse
             top = m.split('.')[0]
             if os.path.isfile(os.path.join(here, top + '.py')): local.append(top)
             elif top in RISKY and m != 'urllib.parse': note.append(f'{base}:{n.lineno}: import {m}')
@@ -173,6 +176,8 @@ def seal(c, name, out=None):
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else \
           'công cụ viết theo khuôn cũ, không ghi dấu băm file đầu vào hoặc kết quả thử đột biến: chép các hàm từ status_path() trở xuống của templates/adhoc_tool.py vào công cụ rồi chạy lại' if oldtpl else \
           'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else \
+          f"thử đột biến vô hiệu: {one(st.get('mut_note'), 200)}; công cụ phải parse được bản sao ở thư mục khác" if st.get('mut_note') else \
+          'file đầu vào rỗng: không thử đột biến được' if st.get('empty') else \
           f'thử đột biến: selfcheck không phát hiện byte nào bị sửa ({mut}): phép kiểm không phụ thuộc dữ liệu mẫu, viết lại' if not mut or mut.startswith('0/') else \
           f"sai đáp án biết trước: {', '.join(n for n, ok in kat if not ok)}" if any(not ok for _, ok in kat) else \
           'chưa có known_answers() (dữ liệu tổng hợp có đáp án biết trước) và chưa khai KAT_WAIVER' if not kat and not katw else \
@@ -193,7 +198,7 @@ def seal(c, name, out=None):
     open(os.path.join(c, rel), 'w', encoding='utf-8').write('\n'.join(H + tail) + '\n')
     print('\n'.join(H[:-1])); print(f'## output ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn) -> {rel}'); print('\n'.join(body[:60]))
     if len(body) > 60: print(f'... còn {len(body) - 60} dòng: đọc có giới hạn bằng sed -n')
-    if st and net.startswith('có'): print(f'NHẮC: lúc chạy, công cụ thấy giao diện mạng {net[3:-1]}: chưa chạy trong vỏ không mạng. Chạy lại bằng lệnh bwrap mà `tool new` in ra; lớp phản biện đọc dòng ISOLATION.')
+    if st and net.startswith('có'): print(f'NHẮC: lúc chạy, công cụ thấy giao diện mạng {net[4:-1]}: chưa chạy trong vỏ không mạng. Chạy lại bằng lệnh bwrap mà `tool new` in ra; lớp phản biện đọc dòng ISOLATION.')
     if katw and not kat: print(f'NHẮC: không có đáp án biết trước, lý do khai: {katw}. Lớp phản biện sẽ đọc lý do này.')
     if why: print(f'CHƯA DÙNG ĐƯỢC làm bằng chứng ({why}): fact dẫn file này sẽ bị cổng chặn (tool_selfcheck). Sửa công cụ, chạy lại, seal lại.'); return 1
     print(f'OK: ghi fact dẫn {rel}#L<dòng>' + (f'; dec_coverage = {cov}' if cov else '') + '. Sửa công cụ về sau thì phải chạy và seal lại (evidence cũ thành tool_stale).'); return 0

@@ -61,19 +61,24 @@ def _trials(path):
         try: return f()
         finally:
             if hasattr(signal, 'SIGALRM'): signal.alarm(0)
-    data = open(path, 'rb').read(); n = 8 if len(data) <= 4 << 20 else 3; mut, kat = [0, 0], []
+    data = open(path, 'rb').read(); n = 8 if len(data) <= 4 << 20 else 3; mut, kat, note = [0, 0], [], ''
     with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
         tp = os.path.join(td, 'trial.bin')
-        for i in range(n if data else 0):
+        if data:      # đối chứng: bản KHÔNG đột biến trong thư mục tạm phải parse được, nếu không (quá giờ, cần file cạnh đầu vào...) thì phép thử vô hiệu, không tính là 'phát hiện'
+            open(tp, 'wb').write(data)
+            try: run(lambda: parse(tp))
+            except (Exception, SystemExit) as e: note = f'bản không đột biến cũng lỗi trong thư mục tạm ({type(e).__name__}: {str(e)[:80]})'
+        for i in range(n if data and not note else 0):
             b = bytearray(data); b[len(data) * (2 * i + 1) // (2 * n)] ^= 0xFF; open(tp, 'wb').write(b); mut[1] += 1
             try: mut[0] += any(not ok for _, ok, _ in run(lambda: selfcheck(tp, parse(tp))))
-            except (Exception, SystemExit): mut[0] += 1
+            except TimeoutError: pass      # quá giờ không phải bằng chứng selfcheck phát hiện được
+            except (Exception, SystemExit): mut[0] += 1      # parse/selfcheck từ chối dữ liệu hỏng
         for name, fix, expect in (globals().get('known_answers') or list)():      # thiếu hàm = không có ca nào
             open(tp, 'wb').write(fix)
             try: ok = bool(run(lambda: expect(parse(tp))))
             except (Exception, SystemExit): ok = False
             kat.append([str(name), ok])
-    return {'mutation': mut, 'kat': kat}
+    return {'mutation': mut, 'kat': kat, 'mut_note': note, 'empty': not data}
 
 def status(checks, cov, trials=None):
     """Ghi kết quả tự kiểm ra file riêng (không qua stdout, nên chuỗi lấy từ mẫu không giả được). `flow.py tool CASE seal` đọc file này."""
@@ -86,7 +91,7 @@ def status(checks, cov, trials=None):
     inputs = [[os.path.realpath(a), sha(a)] for a in sys.argv[1:] if os.path.isfile(a)]      # seal gắn evidence với đúng file đầu vào (đường dẫn thật + dấu băm)
     json.dump({'argv': sys.argv[1:], 'inputs': inputs, 'first': os.path.realpath(sys.argv[1]),      # đường dẫn thật tính lúc CHẠY: seal gọi từ thư mục khác vẫn đúng
                'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time(),
-               'mutation': (trials or {}).get('mutation'), 'kat': (trials or {}).get('kat'), 'kat_waiver': KAT_WAIVER, 'net': _net(),
+               'mutation': (trials or {}).get('mutation'), 'kat': (trials or {}).get('kat'), 'mut_note': (trials or {}).get('mut_note', ''), 'empty': (trials or {}).get('empty', False), 'kat_waiver': KAT_WAIVER, 'net': _net(),
                'out_sha256': _OUT.h.hexdigest()}, open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
 
 class _Tee:

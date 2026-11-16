@@ -177,8 +177,18 @@ try:
     assert mk('kat2', nokat)[0].returncode == 0; r, t = sealed('kat2'); assert r.returncode == 1 and 'chưa có known_answers' in t, t
     assert mk('kat3', nokat, waiver='định dạng chỉ có trong mẫu, không dựng lại được')[0].returncode == 0; r, t = sealed('kat3'); assert r.returncode == 0 and 'KAT n/a: định dạng chỉ có trong mẫu' in t and 'NHẮC' in r.stdout, r.stdout
     # (c) thành phần bị cấm: import mạng/nạp mã động, exec/eval/os.system -> KHÔNG ĐẠT; platform.system() và urllib.parse thì không
-    for nm, line in (('b1', 'import socket'), ('b2', 'from importlib import import_module'), ('b3', 'eval("1")'), ('b4', 'import os\nos.system("true")'), ('b5', 'import pickle')):
+    for nm, line in (('b1', 'import socket'), ('b2', 'from importlib import import_module'), ('b3', 'def _f():\n    eval("1")'), ('b4', 'import os\ndef _f():\n    os.system("true")'), ('b5', 'import pickle')):
         q = mk(nm, BODY + '\n' + line + '\n')[1]; r, t = sealed(nm); assert r.returncode == 1 and 'NOTE ' in t and 'bị cấm trong T1b' in t, (nm, r.stdout)
+    for nm, line in (('b7', 'from os import posix_spawn'), ('b8', 'import os\ndef _f():\n    os.posix_spawnp("a", ["a"], {})')):
+        mk(nm, BODY + '\n' + line + '\n'); r, t = sealed(nm); assert r.returncode == 1 and 'bị cấm trong T1b' in t, (nm, r.stdout)
+    ok = mk('b9', BODY + '\nfrom urllib import parse as up\nfrom re import compile as rc\n')[1]; r, t = sealed('b9'); assert r.returncode == 0 and 'NOTE ' not in t, r.stdout      # không chặn nhầm
+    # (e) phép thử đột biến vô hiệu: parse chỉ chạy được khi đứng cạnh file khác -> bản sao ở thư mục tạm lỗi, không được tính là 'phát hiện'
+    side = BODY.replace("d = open(path, 'rb').read();", "open(os.path.join(os.path.dirname(path), 'blob.dat')).close(); d = open(path, 'rb').read();")
+    mk('side', side); r, t = sealed('side'); assert r.returncode == 1 and 'thử đột biến vô hiệu' in t, t
+    # file rỗng: nói đúng lý do
+    e0 = os.path.join(c, 'work', 'sample', 'empty.dat'); open(e0, 'wb').close(); q = os.path.join(c, 'work', 'tools', 'b9.py'); time.sleep(0.02)
+    r0 = subprocess.run([sys.executable, '-I', q, e0], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'b9.out'), 'wb').write(r0.stdout)
+    r = flow('seal', 'b9'); assert 'không thử đột biến được' in r.stdout or r0.returncode != 0, r.stdout
     ok = mk('b6', BODY + '\nimport platform, urllib.parse\nplatform.system(); urllib.parse.quote("x")\n')[1]; r, t = sealed('b6'); assert r.returncode == 0 and 'NOTE ' not in t, r.stdout
     # (d) trạng thái của khuôn trước 1.9.0 (có inputs, không có mutation): nói rõ cách chuyển
     sj = os.path.join(c, 'work', 'runs', 'tool', 'b6.status.json'); st0 = json.load(open(sj)); json.dump({k: v for k, v in st0.items() if k not in ('mutation', 'kat')}, open(sj, 'w'))

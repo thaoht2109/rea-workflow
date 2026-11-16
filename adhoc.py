@@ -59,7 +59,7 @@ def header(text):
     Bố cục cố định: dòng 2 là TOOL, dòng 3 CMD, 4 FORMAT, 5 SCOPE, sau đó mới tới SELFCHECK/COVERAGE (không nhận các dòng này ở vị trí khác)."""
     L = text.split('\n' + SPLIT, 1)[0].splitlines()
     if len(L) < 5 or L[0].strip() != HEAD: return None
-    H = {'checks': [], 'ok': False, 'cov': None, 'tool': '', 'sha': '', 'mods': []}
+    H = {'checks': [], 'ok': False, 'cov': None, 'out': None, 'tool': '', 'sha': '', 'mods': []}
     m = re.fullmatch(r'TOOL (\S+) sha256 ([0-9a-f]{64}) files (\S+)', L[1])
     if not m or not L[2].startswith('CMD ') or not L[3].startswith('FORMAT ') or not L[4].startswith('SCOPE '): return None
     H['tool'], H['sha'], H['mods'] = m.group(1), m.group(2), [x[:-3] for x in m.group(3).split(',')]
@@ -67,18 +67,35 @@ def header(text):
         if l.startswith('SELFCHECK: '): H['ok'] = l.startswith('SELFCHECK: ĐẠT')
         elif l.startswith('SELFCHECK '): H['checks'].append(l)
         elif re.fullmatch(r'COVERAGE \d+/\d+', l): H['cov'] = l.split()[1]
+        elif re.fullmatch(r'OUT sha256 [0-9a-f]{64}', l): H['out'] = l.split()[2]
     return H
+
+def body_sha(text):
+    """Dấu băm phần output của evidence (mọi dòng sau dòng SPLIT), chuẩn hóa theo dòng để lint (đọc theo dòng) và cổng (đọc cả file) ra cùng giá trị."""
+    tail = text.split('\n' + SPLIT, 1)[1:]; lines = tail[0].split('\n')[1:] if tail else []
+    while lines and not lines[-1]: lines.pop()
+    return hashlib.sha256('\n'.join(lines).encode('utf-8', 'replace')).hexdigest()
+
+def sealed(case, rel, text):
+    """File này có phải evidence của `tool seal` không. Một tiêu chí cho cả lint, review.mech và review.gate:
+    mang phần đầu của seal, HOẶC tên tool_<TÊN>_<n>.txt mà case có công cụ TÊN (xóa dòng đầu không thoát được luật).
+    File tên tool_* có từ trước, không ứng với công cụ nào của case, không bị áp luật."""
+    if text.startswith(HEAD): return True
+    m = re.fullmatch(r'tool_(\w+)_\d+\.txt', os.path.basename(rel))
+    return bool(m) and any(os.path.isfile(os.path.join(d, m.group(1) + '.py')) for d in (os.path.join(edir(case), 'tools'), tdir(case)))
 
 def issues(case, f, rel, text):
     """Luật cổng cho fact dẫn evidence tool_*, dùng chung cho lint khi ghi (case.lint_fact) và lớp 1 phản biện (review.mech).
     Trả [(check, vấn đề, cách sửa)]."""
-    if not text.startswith(HEAD): return []   # chỉ evidence mang phần đầu của `tool seal`; file tên tool_* có từ trước (kể cả ở case đã đóng) không bị áp luật
+    if not sealed(case, rel, text): return []
     H = header(text); redo = 'chạy lại công cụ, `flow.py tool CASE seal TÊN`, rồi ghi fact mới (supersedes) dẫn evidence mới'
     if H is None: return [('tool_selfcheck', 'evidence tool_* không do `flow.py tool seal` sinh (thiếu phần đầu chuẩn)', redo)]
     out = []
     if not H['ok']: out.append(('tool_selfcheck', f"công cụ {H['tool']} không có phép tự kiểm đạt: kết quả chưa được chứng minh", 'sửa công cụ/selfcheck cho tới khi đạt; ' + redo))
     if digest(os.path.join(case, 'report', 'evidence', 'tools'), H['mods']) != H['sha']:
         out.append(('tool_stale', f"công cụ {H['tool']} đã đổi (hoặc mất) sau khi sinh evidence này: kết quả không còn ứng với mã đang lưu", redo))
+    elif H['out'] != body_sha(text):
+        out.append(('tool_stale', f"phần output của evidence đã bị sửa sau khi niêm phong (dấu băm OUT {'thiếu' if not H['out'] else 'khác'})", redo))
     if f.get('kind') == 'dec_coverage' and re.fullmatch(r'\d+/\d+', f.get('value', '')) and f['value'] != H['cov']:
         out.append(('tool_coverage', f"dec_coverage {f['value']} khác dòng COVERAGE của công cụ ({H['cov'] or 'không có'})", 'ghi đúng tỉ lệ công cụ đo được'))
     return out
@@ -120,13 +137,14 @@ def seal(c, name, out=None):
     if not why:   # chỉ lần seal ĐẠT mới thay bản lưu công cụ: lần không đạt không được làm evidence đạt trước đó thành tool_stale
         for m in mods: shutil.copy(os.path.join(d, m + '.py'), os.path.join(ev, 'tools', m + '.py'))
     body = open(out, encoding='utf-8', errors='replace').read().splitlines()
+    tail = body[:MAX_OUT] + ([f'... còn {len(body) - MAX_OUT} dòng'] if len(body) > MAX_OUT else [])
     H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}",
          'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + \
         [f"SELFCHECK {'PASS' if ok else 'FAIL'} {nm}: {det}" for nm, ok, det in checks] + ([f'COVERAGE {cov}'] if cov else []) + ['NOTE ' + one(x) for x in note[:10]] + \
-        [f"SELFCHECK: {'KHÔNG ĐẠT (' + why + ')' if why else f'ĐẠT ({len(checks)} phép)'}",
+        ['OUT sha256 ' + body_sha('\n' + SPLIT + '\n' + '\n'.join(tail))] + [f"SELFCHECK: {'KHÔNG ĐẠT (' + why + ')' if why else f'ĐẠT ({len(checks)} phép)'}",
          f'{SPLIT} ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn; bản đầy đủ: {os.path.relpath(out, c)}) ---']
     rel = os.path.join('report', 'evidence', f'tool_{name}_{n}.txt')
-    open(os.path.join(c, rel), 'w', encoding='utf-8').write('\n'.join(H + body[:MAX_OUT] + ([f'... còn {len(body) - MAX_OUT} dòng'] if len(body) > MAX_OUT else [])) + '\n')
+    open(os.path.join(c, rel), 'w', encoding='utf-8').write('\n'.join(H + tail) + '\n')
     print('\n'.join(H[:-1])); print(f'## output ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn) -> {rel}'); print('\n'.join(body[:60]))
     if len(body) > 60: print(f'... còn {len(body) - 60} dòng: đọc có giới hạn bằng sed -n')
     if note: print('NHẮC: công cụ import module mạng/tiến trình con (' + '; '.join(note[:5]) + '). Quy tắc không chạy mẫu, không chạm mạng của mẫu vẫn áp dụng cho công cụ tự viết.')

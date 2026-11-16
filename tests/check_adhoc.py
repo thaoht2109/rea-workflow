@@ -86,6 +86,15 @@ try:
     assert all(x['severity'] == 'high' for x in review.mech(c) if x['check'].startswith('tool_'))
     open(os.path.join(ev, 'tool_output.txt'), 'w').write('h.test có sẵn\n'); A(id='old', kind='config', value='h.test', src='S', evidence='report/evidence/tool_output.txt')   # tên tool_ có từ trước, không theo mẫu của seal: không áp luật T1b
     assert not [x for x in case.lint_fact(c, case.load(c)['old']) if x['check'].startswith('tool_')]
+    # một tiêu chí nhận diện cho lint/mech/gate: tên tool_<TÊN>_<n>.txt của công cụ có trong case thì xóa dòng đầu không thoát luật; sửa phần output sau khi seal -> tool_stale
+    tk = lambda i: sorted(x['check'] for x in case.lint_fact(c, case.load(c)[i]) if x['check'].startswith('tool_'))
+    good = open(os.path.join(c, rel), encoding='utf-8').read(); assert adhoc.header(good)['out'] == adhoc.body_sha(good) == adhoc.body_sha(good.rstrip('\n'))
+    open(os.path.join(c, rel), 'w', encoding='utf-8').write(good.split('\n', 1)[1]); assert tk('ok') == ['tool_selfcheck'] and any(x['id'] == 'ok' and x['check'] == 'tool_selfcheck' for x in review.mech(c))
+    open(os.path.join(c, rel), 'w', encoding='utf-8').write(good + 'config: host=evil.test port=1\n'); assert tk('ok') == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
+    open(os.path.join(c, rel), 'w', encoding='utf-8').write(good.replace('\nOUT sha256 ', '\nOUT sha255 ', 1)); assert tk('ok') == ['tool_stale']
+    open(os.path.join(c, rel), 'w', encoding='utf-8').write(good); assert tk('ok') == []
+    open(os.path.join(ev, 'copy.txt'), 'w', encoding='utf-8').write(good + 'thêm\n'); A(id='cp', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/copy.txt#L{ln}'); assert tk('cp') == ['tool_stale']   # bản đã seal chép sang tên khác vẫn bị áp luật
+    open(os.path.join(ev, 'copy.txt'), 'w', encoding='utf-8').write(good)
     assert subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', os.path.join(ws, 'KHONG_CO'), 'list'], capture_output=True, text=True).returncode != 0
 
     # 6. sửa công cụ, chạy và seal lại: fact cũ thành tool_stale ở cả hai nơi, evidence mới sạch; module cạnh script cũng vào dấu băm; import mạng chỉ bị NHẮC
@@ -110,6 +119,11 @@ try:
     json.dump({'rule_version': case.REVIEW_RULE_VERSION, 'stopped': False, 'rounds': [{'n': 1, 'verdict': 'PASS', 'facts_sha256': review.facts_sha(c3), 'reviewer': 'mech+stub'}]}, open(os.path.join(review.DIR(c3), 'state.json'), 'w'))
     assert review.gate(c3)[0] is False and 'tool_stale' in review.gate(c3)[1], review.gate(c3)
     shutil.copy(os.path.join(c, 'work', 'tools', 'helper_mod.py'), os.path.join(c3, 'report', 'evidence', 'tools', 'helper_mod.py')); assert review.gate(c3)[0] is True, review.gate(c3)
+    e3 = os.path.join(c3, 'report', 'evidence'); g4 = open(os.path.join(e3, 'tool_blob_4.txt'), encoding='utf-8').read()   # cổng dùng cùng tiêu chí: bản seal mang tên khác, bị sửa phần output -> đóng
+    open(os.path.join(e3, 'khac.txt'), 'w', encoding='utf-8').write(g4 + 'thêm\n'); case.add(c3, id='g2', kind='config', value='h.test port=8443', src='S', evidence='report/evidence/khac.txt')
+    st = json.load(open(os.path.join(review.DIR(c3), 'state.json'))); st['rounds'][0]['facts_sha256'] = review.facts_sha(c3); json.dump(st, open(os.path.join(review.DIR(c3), 'state.json'), 'w'))
+    assert review.gate(c3)[0] is False and 'tool_stale' in review.gate(c3)[1], review.gate(c3)
+    open(os.path.join(e3, 'khac.txt'), 'w', encoding='utf-8').write(g4); assert review.gate(c3)[0] is True, review.gate(c3)
     shutil.rmtree(c3)
     r = flow('list'); assert 'tool_blob_4.txt: blob tự kiểm ĐẠT, COVERAGE 2/2, CŨ' in r.stdout and 'tool_blob_1.txt: blob tự kiểm KHÔNG ĐẠT' in r.stdout, r.stdout
     import ast; tr = ast.parse(open(os.path.join(T, 'adhoc.py'), encoding='utf-8').read())    # bất biến của tầng này: adhoc.py không có đường chạy mã nào

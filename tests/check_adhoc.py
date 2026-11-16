@@ -29,6 +29,10 @@ def selfcheck(path, r):
     import zlib
     return [('độ dài khớp: không dư byte', r['left'] == 0 and len(r['body']) == r['n'], f"dư {r['left']}"), ('crc32 header khớp', zlib.crc32(r['body']) == CRC(r), hex(r['crc']))]
 def CRC(r): return r['crc']
+def known_answers():
+    import struct, zlib      # đáp án biết trước: dữ liệu dựng bằng thư viện chuẩn, không bằng mã của công cụ
+    mk = lambda pt: (lambda b: struct.pack('<II', len(b), zlib.crc32(b)) + b)(bytes(x ^ 0x5a for x in pt))
+    return [('thông điệp ngắn', mk(b'abc'), lambda r: r['text'] == b'abc'), ('rỗng', mk(b''), lambda r: r['text'] == b'')]
 def coverage(r): return (len(r['text'].splitlines()), 2)
 def show(r):
     for l in r['text'].decode().splitlines(): print(l)      # cố ý in thô dòng lấy từ mẫu (có dòng giả 'SELFCHECK PASS')
@@ -98,10 +102,10 @@ try:
     assert subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'tool', os.path.join(ws, 'KHONG_CO'), 'list'], capture_output=True, text=True).returncode != 0
 
     # 6. sửa công cụ, chạy và seal lại: fact cũ thành tool_stale ở cả hai nơi, evidence mới sạch; module cạnh script cũng vào dấu băm; import mạng chỉ bị NHẮC
-    open(os.path.join(c, 'work', 'tools', 'helper_mod.py'), 'w').write('import socket\nK = 0x5a\n')
+    open(os.path.join(c, 'work', 'tools', 'helper_mod.py'), 'w').write('import struct\nK = 0x5a\n')
     write(GOOD.replace('def parse(path):', 'import helper_mod\ndef parse(path):', 1)); assert runtool().returncode == 0
     r = flow('seal', 'blob'); t4 = open(os.path.join(ev, 'tool_blob_4.txt'), encoding='utf-8').read(); H4 = adhoc.header(t4)
-    assert r.returncode == 0 and H4['mods'] == ['blob', 'helper_mod'] and H4['ok'] and 'NOTE helper_mod.py:1: import socket' in t4 and 'NHẮC' in r.stdout, r.stdout
+    assert r.returncode == 0 and H4['mods'] == ['blob', 'helper_mod'] and H4['ok'] and 'MUTATION 8/8' in t4 and 'KAT 2/2' in t4 and 'ISOLATION net=' in t4 and adhoc.header(t4)['mut'] == (8, 8) and adhoc.header(t4)['kat'] == (2, 2), r.stdout
     assert [x['check'] for x in case.lint_fact(c, F['ok']) if x['check'].startswith('tool_')] == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
     A(id='ok2', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/tool_blob_4.txt#L{1 + t4.splitlines().index("config: host=h.test port=8443")}', supersedes='ok')
     assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
@@ -150,6 +154,51 @@ try:
     A(id='covtxt', kind='dec_coverage', value='9/9 chuỗi', src='S', evidence=relN); assert tk('covtxt') == ['tool_coverage']      # tỉ lệ kèm chữ vẫn được so
     A(id='covtxt2', kind='dec_coverage', value='2/2 dòng', src='S', evidence=relN); assert tk('covtxt2') == []
     r = flow('new', 'fake'); assert r.returncode != 0 and 'tool_fake_1.txt' in r.stderr and not os.path.exists(os.path.join(c, 'work', 'tools', 'fake.py')), r.stderr   # tên trùng file tool_* có sẵn không do seal sinh
+
+    # 6c. thử đột biến, đáp án biết trước, thành phần bị cấm: mỗi biến thể là một công cụ riêng (không làm lệch số thứ tự evidence của blob)
+    def mk(name, body=BODY, waiver='', hd=None):
+        assert flow('new', name).returncode == 0; q = os.path.join(c, 'work', 'tools', name + '.py'); t = open(q, encoding='utf-8').read(); h0, t0 = t.split('def parse(path):')[0], 'def status_path(' + t.split('def status_path(')[1]
+        h0 = h0.replace("FORMAT = ''", "FORMAT = 'blob thử nghiệm len32+crc32+xor'").replace("SCOPE = ''", "SCOPE = 'chỉ bản có header 8 byte'").replace("KAT_WAIVER = ''", f'KAT_WAIVER = {waiver!r}')
+        time.sleep(0.02); open(q, 'w', encoding='utf-8').write((hd or h0) + body + t0)
+        time.sleep(0.02); r = subprocess.run([sys.executable, '-I', q, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', name + '.out'), 'wb').write(r.stdout); return r, q
+    def sealed(name): r = flow('seal', name); return r, open(os.path.join(ev, f'tool_{name}_1.txt'), encoding='utf-8').read()
+    # (a) selfcheck luôn đúng: mọi byte sửa đều lọt -> MUTATION 0/8, KHÔNG ĐẠT, cổng báo tool_mutation
+    weak = BODY[:BODY.index('def selfcheck')] + "def selfcheck(path, r):\n    return [('luôn đúng', True, '')]\n" + BODY[BODY.index('def CRC'):]
+    assert mk('weak', weak)[0].returncode == 0; r, t = sealed('weak'); Hw = adhoc.header(t)
+    assert r.returncode == 1 and 'MUTATION 0/8' in t and 'thử đột biến' in t and Hw['mut'] == (0, 8) and not Hw['ok'], r.stdout
+    A(id='weakf', kind='config', value='h.test', src='S', evidence='report/evidence/tool_weak_1.txt'); assert 'tool_mutation' in tk('weakf') and 'tool_selfcheck' in tk('weakf'), tk('weakf')
+    # sửa tay dòng MUTATION trên evidence đã seal: cổng vẫn bắt ở chỗ khác (dấu băm công cụ vẫn khớp nên kiểm trực tiếp dòng này)
+    good4 = open(os.path.join(ev, 'tool_blob_4.txt'), encoding='utf-8').read(); assert [x[0] for x in adhoc.issues(c, {'kind': 'config', 'value': 'x'}, 'report/evidence/tool_blob_4.txt', good4.replace('MUTATION 8/8', 'MUTATION 0/8'))].count('tool_mutation') == 1
+    # (b) đáp án biết trước sai -> KHÔNG ĐẠT, nêu tên ca; không có ca và không khai waiver -> KHÔNG ĐẠT; có waiver -> ĐẠT, ghi lý do
+    badkat = BODY.replace("lambda r: r['text'] == b'abc'", "lambda r: r['text'] == b'abd'")
+    assert mk('kat1', badkat)[0].returncode == 0; r, t = sealed('kat1'); assert r.returncode == 1 and 'KAT 1/2' in t and 'sai đáp án biết trước: thông điệp ngắn' in t, t
+    assert 'tool_kat' in [x[0] for x in adhoc.issues(c, {'kind': 'config', 'value': 'x'}, 'report/evidence/tool_kat1_1.txt', t)]
+    nokat = BODY[:BODY.index('def known_answers')] + BODY[BODY.index('def coverage'):]; nokat = nokat.replace('def coverage', 'def known_answers():\n    return []\ndef coverage', 1)
+    assert mk('kat2', nokat)[0].returncode == 0; r, t = sealed('kat2'); assert r.returncode == 1 and 'chưa có known_answers' in t, t
+    assert mk('kat3', nokat, waiver='định dạng chỉ có trong mẫu, không dựng lại được')[0].returncode == 0; r, t = sealed('kat3'); assert r.returncode == 0 and 'KAT n/a: định dạng chỉ có trong mẫu' in t and 'NHẮC' in r.stdout, r.stdout
+    # (c) thành phần bị cấm: import mạng/nạp mã động, exec/eval/os.system -> KHÔNG ĐẠT; platform.system() và urllib.parse thì không
+    for nm, line in (('b1', 'import socket'), ('b2', 'from importlib import import_module'), ('b3', 'def _f():\n    eval("1")'), ('b4', 'import os\ndef _f():\n    os.system("true")'), ('b5', 'import pickle')):
+        q = mk(nm, BODY + '\n' + line + '\n')[1]; r, t = sealed(nm); assert r.returncode == 1 and 'NOTE ' in t and 'bị cấm trong T1b' in t, (nm, r.stdout)
+    for nm, line in (('b7', 'from os import posix_spawn'), ('b8', 'import os\ndef _f():\n    os.posix_spawnp("a", ["a"], {})')):
+        mk(nm, BODY + '\n' + line + '\n'); r, t = sealed(nm); assert r.returncode == 1 and 'bị cấm trong T1b' in t, (nm, r.stdout)
+    ok = mk('b9', BODY + '\nfrom urllib import parse as up\nfrom re import compile as rc\n')[1]; r, t = sealed('b9'); assert r.returncode == 0 and 'NOTE ' not in t, r.stdout      # không chặn nhầm
+    # (e) phép thử đột biến vô hiệu: parse chỉ chạy được khi đứng cạnh file khác -> bản sao ở thư mục tạm lỗi, không được tính là 'phát hiện'
+    side = BODY.replace("d = open(path, 'rb').read();", "open(os.path.join(os.path.dirname(path), 'blob.dat')).close(); d = open(path, 'rb').read();")
+    mk('side', side); r, t = sealed('side'); assert r.returncode == 1 and 'thử đột biến vô hiệu' in t, t
+    # selfcheck phụ thuộc file cạnh đầu vào (parse thì không): bản đối chứng bị selfcheck báo hỏng -> vô hiệu, không được ra MUTATION 8/8
+    mk('side2', BODY.replace("return [('độ dài khớp", "return [('có file cạnh', os.path.exists(os.path.join(os.path.dirname(path), 'blob.dat')), ''), ('độ dài khớp", 1)); r, t = sealed('side2')
+    assert r.returncode == 1 and 'thử đột biến vô hiệu' in t and 'có file cạnh' in t and 'MUTATION 8/8' not in t, t
+    # main() tùy biến không truyền trials: báo đúng lý do
+    q = mk('notr')[1]; src = open(q, encoding='utf-8').read(); assert '_trials(path, dt)' in src; time.sleep(0.02); open(q, 'w', encoding='utf-8').write(src.replace('_trials(path, dt)', 'None'))
+    time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', q, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'notr.out'), 'wb').write(r0.stdout); r, t = sealed('notr'); assert r.returncode == 1 and 'chưa chạy thử đột biến' in t, t
+    # file rỗng: nói đúng lý do
+    e0 = os.path.join(c, 'work', 'sample', 'empty.dat'); open(e0, 'wb').close(); q = os.path.join(c, 'work', 'tools', 'b9.py'); time.sleep(0.02)
+    r0 = subprocess.run([sys.executable, '-I', q, e0], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'b9.out'), 'wb').write(r0.stdout)
+    r = flow('seal', 'b9'); assert 'không thử đột biến được' in r.stdout or r0.returncode != 0, r.stdout
+    ok = mk('b6', BODY + '\nimport platform, urllib.parse\nplatform.system(); urllib.parse.quote("x")\n')[1]; r, t = sealed('b6'); assert r.returncode == 0 and 'NOTE ' not in t, r.stdout
+    # (d) trạng thái của khuôn trước 1.9.0 (có inputs, không có mutation): nói rõ cách chuyển
+    sj = os.path.join(c, 'work', 'runs', 'tool', 'b6.status.json'); st0 = json.load(open(sj)); json.dump({k: v for k, v in st0.items() if k not in ('mutation', 'kat')}, open(sj, 'w'))
+    r = flow('seal', 'b6'); assert r.returncode == 1 and 'khuôn cũ' in r.stdout, r.stdout
 
     # 7. triage: file lạ -> unknown có probe, định tuyến sang flow.py tool; lớp zlib được nhận; bom nén không bị giải hết
     import triage

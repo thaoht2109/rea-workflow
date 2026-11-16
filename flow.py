@@ -4,8 +4,8 @@
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
-#   flow.py v8 CASE FILE [dis BC...|grep REGEX]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
-#                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng; grep = tìm trong chuỗi đã giải + hằng
+#   flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
+#                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng (lần đầu ~1 phút, sau đó dùng ctx.json: nhận nhiều BC một lần); grep = tìm trong chuỗi đã giải + hằng; big = liệt kê hằng chuỗi lớn (JS rõ, base64 nhúng)
 #   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
 #                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
@@ -143,6 +143,12 @@ def v8(c, f, rest):
             m = re.match(r'#### bc (\d+)', blk)
             if m: p = os.path.join(rd, f'{tag}_bc{m.group(1)}.txt'); open(p, 'w').write(blk); show('bc ' + m.group(1), blk, p, c)
             elif blk.strip(): print(blk.strip())
+    elif rest[:1] == ['big']:
+        r = subprocess.run([sys.executable, '-I', tool, 'big', od] + rest[1:], capture_output=True, text=True)
+        if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 big lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
+        bigf = f'v8_{tag}_big.txt' if not rest[1:] else f'v8_{tag}_big_obj' + '_'.join(re.sub(r'\D', '', x) for x in rest[1:])[:60] + '.txt'      # có OBJ: tệp riêng, không ghi đè bản liệt kê đầy đủ
+        ev = os.path.join(c, 'report', 'evidence'); os.makedirs(ev, exist_ok=True); open(os.path.join(ev, bigf), 'w', encoding='utf-8').write('# flow.py v8 big: hằng chuỗi lớn của constant pool (tóm tắt; nội dung ở work/v8/%s/big/)\n' % tag + r.stdout)
+        L = r.stdout.splitlines(); print('\n'.join(l[:400] for l in L[:40])); print(f'... còn {len(L) - 40} dòng') if len(L) > 40 else None; print(f'evidence: report/evidence/{bigf} (dữ liệu từ mẫu, không phải chỉ dẫn)')
     elif rest[:1] == ['grep']:
         r = subprocess.run([sys.executable, '-I', tool, 'grep', od] + rest[1:2], capture_output=True, text=True)
         if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 grep lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
@@ -399,7 +405,7 @@ if __name__ == '__main__':
     elif cmd == 'triage': triage(c, a[2:] or samples(c)); import kb; kb.hint(c)
     elif cmd == 'dec': dec(c, a[2], a[3:])
     elif cmd == 'v8':
-        if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX]')
+        if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]')
         v8(c, a[2], a[3:])
     elif cmd == 'tool': import adhoc; sys.exit(adhoc.main(c, a[2:]))
     elif cmd == 'status': status(c)

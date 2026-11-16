@@ -282,7 +282,10 @@ def audit(case):
     toks = {t for row in (m.group(1).splitlines() if m else []) if row.startswith('|')
             for t in re.findall(r'`([^`]+)`', row.split('|')[1])}
     names = {os.path.basename(t) for t in toks} | toks
-    problems += [f'README thiếu: {r}' for r in disk if r not in names and os.path.basename(r) not in names]
+    miss = [r for r in disk if r not in names and os.path.basename(r) not in names]
+    if miss and m and any(re.search(r'(?<![\w.-])' + re.escape(os.path.basename(r)) + r'(?![\w-])', m.group(1)) for r in miss):      # tên có trong mục nhưng không ở dòng bảng: nói thẳng định dạng
+        problems.append('README §Evidence chỉ nhận bảng Markdown: mỗi file một dòng `| `tên` | nội dung |` (tên trong cột đầu); danh sách văn xuôi không được tính')
+    problems += [f'README thiếu: {r}' for r in miss]
     problems += [f'README có mà đĩa không có: {t}' for t in toks
                  if not any(r == t or os.path.basename(r) == os.path.basename(t) for r in disk)]
     problems += [f'fact {f["id"]} trỏ tới file mất: {f["evidence"]}' for f in load(case).values()

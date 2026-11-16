@@ -101,7 +101,7 @@ assert r.found[1] == [(28, 'example.t')], r.found
 tr = []; r.run(1, obf.Ctx(None), trace=tr); assert any("=> 'example.t'" in l for l in tr), tr
 assert obf.detect(h3) is None       # không có bảng chữ cái base64 đảo -> không nhận là obfuscator.io
 # 6b. lưu/nạp trạng thái r.all() (globals + ctxof) bằng JSON: nạp lại cho listing y hệt, không chạy lại all(); sai khóa hoặc file hỏng thì từ chối
-import tempfile as _tf, json as _json, v8tool
+import tempfile as _tf, v8tool
 sd = _tf.mkdtemp(prefix='rea-v8st-')
 try:
     stt = {'obf': D, 'rot': rot, 'rostr': {}}; v8tool.save_state(r, sd, stt); assert os.path.exists(os.path.join(sd, 'ctx.json'))

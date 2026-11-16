@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ 
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
 SCOPE = ''    # BẮT BUỘC: phạm vi hỗ trợ (phiên bản, biến thể). Ngoài phạm vi thì dừng với lỗi, không đoán.
+TRIAL_SECONDS = 30   # giới hạn tối thiểu (giây) cho mỗi lần thử đột biến/đáp án; giới hạn thật là max(giá trị này, 4 x thời gian parse)
 KAT_WAIVER = ''   # chỉ điền (một dòng lý do) khi KHÔNG dựng nổi dữ liệu tổng hợp cho known_answers(); lớp phản biện sẽ đọc lý do này.
 
 def parse(path):
@@ -62,7 +63,7 @@ def _trials(path, dt=0.0):
         try: return f()
         finally:
             if hasattr(signal, 'SIGALRM'): signal.alarm(0)
-    limit = max(30, int(4 * dt) + 1); data = open(path, 'rb').read(); mut, kat, note = [0, 0], [], ''
+    limit = max(TRIAL_SECONDS, int(4 * dt) + 1); late = 0; data = open(path, 'rb').read(); mut, kat, note = [0, 0], [], ''
     n = 8 if len(data) <= 4 << 20 and dt * 8 <= 120 else 3 if dt * 3 <= 400 else 1      # parse chậm thì thử ít vị trí hơn
     with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
         tp = os.path.join(td, 'trial.bin')
@@ -73,16 +74,20 @@ def _trials(path, dt=0.0):
                 if bad: note = f"bản không đột biến bị selfcheck báo hỏng trong thư mục tạm ({', '.join(bad)[:80]})"
             except (Exception, SystemExit) as e: note = f'bản không đột biến cũng lỗi trong thư mục tạm ({type(e).__name__}: {str(e)[:80]})'
         for i in range(n if data and not note else 0):
-            b = bytearray(data); b[len(data) * (2 * i + 1) // (2 * n)] ^= 0xFF; open(tp, 'wb').write(b); mut[1] += 1
+            b = bytearray(data); b[len(data) * (2 * i + 1) // (2 * n)] ^= 0xFF; open(tp, 'wb').write(b)
             timed[0] = False
             try: bad = any(not ok for _, ok, _ in run(lambda: selfcheck(tp, parse(tp))))
             except (Exception, SystemExit): bad = True      # parse/selfcheck từ chối dữ liệu hỏng
-            mut[0] += bad and not timed[0]      # quá giờ không phải bằng chứng selfcheck phát hiện được
-        for name, fix, expect in (globals().get('known_answers') or list)():      # thiếu hàm = không có ca nào
-            open(tp, 'wb').write(fix)
-            try: ok = bool(run(lambda: expect(parse(tp))))
-            except (Exception, SystemExit): ok = False
-            kat.append([str(name), ok])
+            if timed[0]: late += 1; continue      # quá giờ không phải bằng chứng selfcheck phát hiện được, cũng không tính vào mẫu số
+            mut[1] += 1; mut[0] += bad
+        if late and not mut[1]: note = f'cả {late} lần thử đột biến đều quá giờ (giới hạn {limit} giây): parse() trên dữ liệu hỏng không kết thúc'
+        try: cases = list((globals().get('known_answers') or list)())      # thiếu hàm = không có ca nào
+        except (Exception, SystemExit) as e: cases = []; kat.append([f'known_answers() lỗi ({type(e).__name__}: {str(e)[:60]})', False])
+        for cs in cases:
+            try:
+                name, fix, expect = cs; open(tp, 'wb').write(fix); ok = bool(run(lambda: expect(parse(tp))))
+            except (Exception, SystemExit): name, ok = (cs[0] if isinstance(cs, (tuple, list)) and cs else cs), False      # ca sai dạng hoặc parse/kiểm lỗi = sai đáp án
+            kat.append([str(name)[:80], ok])
     return {'mutation': mut, 'kat': kat, 'mut_note': note, 'empty': not data}
 
 def status(checks, cov, trials=None):

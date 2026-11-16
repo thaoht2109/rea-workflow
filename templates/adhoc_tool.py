@@ -63,7 +63,7 @@ def _trials(path, dt=0.0):
         try: return f()
         finally:
             if hasattr(signal, 'SIGALRM'): signal.alarm(0)
-    limit = max(TRIAL_SECONDS, int(4 * dt) + 1); late = 0; data = open(path, 'rb').read(); mut, kat, note = [0, 0], [], ''
+    limit = max(globals().get('TRIAL_SECONDS', 30),int(4 * dt) + 1); late = 0; data = open(path, 'rb').read(); mut, kat, note = [0, 0], [], ''
     n = 8 if len(data) <= 4 << 20 and dt * 8 <= 120 else 3 if dt * 3 <= 400 else 1      # parse chậm thì thử ít vị trí hơn
     with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
         tp = os.path.join(td, 'trial.bin')

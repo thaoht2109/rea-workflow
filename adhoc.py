@@ -70,6 +70,12 @@ def header(text):
         elif re.fullmatch(r'OUT sha256 [0-9a-f]{64}', l): H['out'] = l.split()[2]
     return H
 
+def fsha(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''): h.update(b)
+    return h.hexdigest()
+
 def body_sha(text):
     """Dấu băm phần output của evidence (mọi dòng sau dòng SPLIT), chuẩn hóa theo dòng để lint (đọc theo dòng) và cổng (đọc cả file) ra cùng giá trị."""
     tail = text.split('\n' + SPLIT, 1)[1:]; lines = tail[0].split('\n')[1:] if tail else []
@@ -96,8 +102,9 @@ def issues(case, f, rel, text):
         out.append(('tool_stale', f"công cụ {H['tool']} đã đổi (hoặc mất) sau khi sinh evidence này: kết quả không còn ứng với mã đang lưu", redo))
     elif H['out'] != body_sha(text):
         out.append(('tool_stale', f"phần output của evidence đã bị sửa sau khi niêm phong (dấu băm OUT {'thiếu' if not H['out'] else 'khác'})", redo))
-    if f.get('kind') == 'dec_coverage' and re.fullmatch(r'\d+/\d+', f.get('value', '')) and f['value'] != H['cov']:
-        out.append(('tool_coverage', f"dec_coverage {f['value']} khác dòng COVERAGE của công cụ ({H['cov'] or 'không có'})", 'ghi đúng tỉ lệ công cụ đo được'))
+    cv = re.search(r'\d+/\d+', f.get('value', '')) if f.get('kind') == 'dec_coverage' else None   # tỉ lệ đầu tiên trong value, kể cả khi có chữ kèm theo ('9/9 chuỗi')
+    if cv and cv.group(0) != H['cov']:
+        out.append(('tool_coverage', f"dec_coverage {cv.group(0)} khác dòng COVERAGE của công cụ ({H['cov'] or 'không có'})", 'ghi đúng tỉ lệ công cụ đo được'))
     return out
 
 def shadow(name):
@@ -107,6 +114,9 @@ def shadow(name):
 def new(c, name):
     if not NAME.fullmatch(name): raise SystemExit('TÊN: chữ cái đầu, rồi chữ/số/gạch dưới, tối đa 40 ký tự')
     if shadow(name): raise SystemExit(f'TÊN {name} trùng module chuẩn/thư viện: chọn tên khác')
+    old = [x for x in (sorted(os.listdir(edir(c))) if os.path.isdir(edir(c)) else []) if re.fullmatch(rf'tool_{name}_\d+\.txt', x)
+           and not open(os.path.join(edir(c), x), encoding='utf-8', errors='replace').read(len(HEAD)) == HEAD]
+    if old: raise SystemExit(f'TÊN {name}: report/evidence đã có {old[0]} không do `tool seal` sinh; tạo công cụ tên này sẽ khiến fact dẫn file đó bị luật T1b chặn. Chọn tên khác.')
     d = tdir(c); os.makedirs(d, exist_ok=True); p = os.path.join(d, name + '.py')
     if os.path.exists(p): raise SystemExit(f'đã có {os.path.relpath(p, c)}')
     open(p, 'w', encoding='utf-8').write(open(os.path.join(TOOLS, 'templates', 'adhoc_tool.py'), encoding='utf-8').read().replace('{NAME}', name))
@@ -129,9 +139,18 @@ def seal(c, name, out=None):
     if st and ran < newest: print('TỪ CHỐI: công cụ đã sửa sau lần chạy cuối, output không còn ứng với mã hiện tại. Chạy lại công cụ rồi seal.'); return 2
     if st and st.get('out_sha256') != hashlib.sha256(open(out, 'rb').read()).hexdigest():   # ràng buộc chính xác: output phải đúng là stdout của lần chạy đã ghi trạng thái
         print('TỪ CHỐI: file output không phải stdout của lần chạy đã ghi trạng thái tự kiểm (dấu băm khác). Chạy lại công cụ, chuyển thẳng stdout vào file output, rồi seal.'); return 2
+    root = os.path.realpath(c) + os.sep; ins = []      # file đầu vào: phải nằm trong case và chưa đổi từ lúc chạy, để evidence không lấy nhầm kết quả của file cùng tên ở nơi khác
+    for x in st.get('inputs') if isinstance(st.get('inputs'), list) else []:
+        if not (isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) for y in x) and re.fullmatch(r'[0-9a-f]{64}', x[1])): continue
+        rp = os.path.realpath(x[0])
+        if rp.startswith(root) and os.path.isfile(rp):
+            if fsha(rp) != x[1]: print(f'TỪ CHỐI: file đầu vào {os.path.relpath(rp, root)} đã đổi sau lần chạy. Chạy lại công cụ rồi seal.'); return 2
+            ins.append((x[1], os.path.relpath(rp, root)))
+    first = os.path.realpath(str((st.get('argv') or [''])[0])) if st else ''
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
-          f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else ''
+          f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else \
+          'file đầu vào (tham số đầu) không nằm trong thư mục case, hoặc công cụ viết theo khuôn cũ không ghi dấu băm đầu vào' if os.path.relpath(first, root) not in [r for _, r in ins] else ''
     ev = edir(c); os.makedirs(os.path.join(ev, 'tools'), exist_ok=True)
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
     if not why:   # chỉ lần seal ĐẠT mới thay bản lưu công cụ: lần không đạt không được làm evidence đạt trước đó thành tool_stale
@@ -139,7 +158,7 @@ def seal(c, name, out=None):
     body = open(out, encoding='utf-8', errors='replace').read().splitlines()
     tail = body[:MAX_OUT] + ([f'... còn {len(body) - MAX_OUT} dòng'] if len(body) > MAX_OUT else [])
     H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}",
-         'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + \
+         'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + [f'INPUT sha256 {h} {one(r)}' for h, r in ins[:10]] + \
         [f"SELFCHECK {'PASS' if ok else 'FAIL'} {nm}: {det}" for nm, ok, det in checks] + ([f'COVERAGE {cov}'] if cov else []) + ['NOTE ' + one(x) for x in note[:10]] + \
         ['OUT sha256 ' + body_sha('\n' + SPLIT + '\n' + '\n'.join(tail))] + [f"SELFCHECK: {'KHÔNG ĐẠT (' + why + ')' if why else f'ĐẠT ({len(checks)} phép)'}",
          f'{SPLIT} ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn; bản đầy đủ: {os.path.relpath(out, c)}) ---']

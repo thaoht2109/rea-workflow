@@ -156,6 +156,8 @@ def main():
             open(os.path.join(E2, 'k.txt'), 'a').write('giá trị DELTA_ECHO_TOKEN ở đây\n')           # hai dòng trùng dấu: không tìm lại
             assert case._relocate(open(os.path.join(E2, 'k.txt')).read().splitlines(), 11, g1['ev_line']) is None
             assert case.evidence_now(c2, g1) == g1['evidence']
+            open(os.path.join(c2, 'ngoai.txt'), 'w').write('chèn\n' * 3 + 'giá trị DELTA_ECHO_TOKEN ở đây\n')   # con trỏ ra ngoài report/evidence: không mở file, giữ nguyên
+            out = dict(g1, evidence='report/evidence/../../ngoai.txt#L1'); assert case.evidence_now(c2, out) == out['evidence']
         finally: shutil.rmtree(c2, ignore_errors=True)
         ok += 1
     finally:

@@ -19,6 +19,9 @@ try:
     for tool in ('flow.py', 'review.py'):   # --accept đứng cuối, thiếu giá trị: lỗi rõ, không ghi gì thêm
         r = subprocess.run([sys.executable, os.path.join(T, tool), 'next', c, '--accept'], capture_output=True, text=True)
         assert r.returncode != 0 and '--accept cần giá trị' in r.stderr, (tool, r.returncode, r.stderr)
+        before = open(os.path.join(c, 'work', 'accepted.json')).read()      # cờ khác đứng ngay sau --accept không bị nhận làm giá trị
+        r = subprocess.run([sys.executable, os.path.join(T, tool), 'next', c, '--accept', '--llm', '--accept', 'C7=z'], capture_output=True, text=True)
+        assert r.returncode != 0 and 'không phải một cờ khác' in r.stderr and open(os.path.join(c, 'work', 'accepted.json')).read() == before, (tool, r.stderr)
     assert len(json.load(open(os.path.join(c, 'work', 'accepted.json')))) == 6
 finally: shutil.rmtree(c, ignore_errors=True)
 print('OK check_accept')

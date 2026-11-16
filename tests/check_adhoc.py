@@ -131,6 +131,21 @@ try:
     calls = {n.attr for n in ast.walk(tr) if isinstance(n, ast.Attribute)} | {n.id for n in ast.walk(tr) if isinstance(n, ast.Name)}
     assert imps == {'ast', 'hashlib', 'json', 'os', 're', 'shutil', 'sys'} and not calls & {'system', 'popen', 'exec', 'eval', 'run_path', 'Popen', 'execv', 'spawnv', '__import__'}, (imps, calls & {'system', 'popen', 'exec', 'eval'})
 
+    # 6b. evidence gắn với file đầu vào: ghi dòng INPUT; đầu vào ngoài case -> KHÔNG ĐẠT; đầu vào đổi sau lần chạy -> từ chối
+    import hashlib
+    def runon(f): time.sleep(0.02); r = subprocess.run([sys.executable, '-I', p, f], capture_output=True); open(outp, 'wb').write(r.stdout); return r
+    nev = lambda: sorted((x for x in os.listdir(ev) if x.startswith('tool_blob_')), key=lambda x: int(x.split('_')[2][:-4]))[-1]
+    write(good_now); assert runon(smp).returncode == 0 and flow('seal', 'blob').returncode == 0
+    relN = 'report/evidence/' + nev()
+    assert f"INPUT sha256 {hashlib.sha256(open(smp, 'rb').read()).hexdigest()} {os.path.join('work', 'sample', 'blob.dat')}" in open(os.path.join(ev, nev()), encoding='utf-8').read().split(adhoc.SPLIT)[0]
+    ngoai = os.path.join(ws, 'blob.dat'); shutil.copy(smp, ngoai); assert runon(ngoai).returncode == 0      # file cùng tên ở ngoài case
+    r = flow('seal', 'blob'); assert r.returncode == 1 and 'không nằm trong thư mục case' in r.stdout and 'INPUT sha256' not in open(os.path.join(ev, nev()), encoding='utf-8').read(), r.stdout
+    os.makedirs(os.path.join(c, 'work', 'extract')); trong = os.path.join(c, 'work', 'extract', 'b.dat'); shutil.copy(smp, trong); assert runon(trong).returncode == 0
+    last = nev(); open(trong, 'ab').write(b'x'); r = flow('seal', 'blob'); assert r.returncode == 2 and 'đã đổi sau lần chạy' in r.stdout and nev() == last, r.stdout
+    A(id='covtxt', kind='dec_coverage', value='9/9 chuỗi', src='S', evidence=relN); assert tk('covtxt') == ['tool_coverage']      # tỉ lệ kèm chữ vẫn được so
+    A(id='covtxt2', kind='dec_coverage', value='2/2 dòng', src='S', evidence=relN); assert tk('covtxt2') == []
+    r = flow('new', 'fake'); assert r.returncode != 0 and 'tool_fake_1.txt' in r.stderr and not os.path.exists(os.path.join(c, 'work', 'tools', 'fake.py')), r.stderr   # tên trùng file tool_* có sẵn không do seal sinh
+
     # 7. triage: file lạ -> unknown có probe, định tuyến sang flow.py tool; lớp zlib được nhận; bom nén không bị giải hết
     import triage
     rnd = bytes((i * 197 + 13) % 251 for i in range(5000)); P = triage.probe(rnd); assert len(P['head']) == 32 and len(P['entropy8']) == 8 and P['wrap'] == [], P

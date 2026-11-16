@@ -265,6 +265,28 @@ def v8_wrap(d, path):
     if not (path.lower().endswith(('.jsc', '.bin', '.br')) or entropy(d[:65536]) > 7.9) or len(d) > 256 << 20: return None
     return v8cache.peek_wrap(d)   # chỉ giải vài chục byte đầu để xem magic: không giải cả file ở bước triage (brotli bomb)
 
+def _head(fn, d, n=4096):
+    """Giải thử phần đầu bằng một bộ giải nén theo luồng, đầu ra tối đa n byte (không giải cả file: chống bom nén)."""
+    try: return fn(d[:65536], n)
+    except Exception: return b''
+def probe(d):
+    """Dò rẻ cho file chưa nhận ra loại: 16 byte đầu, entropy theo 8 đoạn, lớp nén ở đầu file (kèm magic của lớp trong)."""
+    import zlib, bz2, lzma
+    seg = max(1, len(d) // 8); P = {'head': d[:16].hex(), 'entropy8': [entropy(d[i * seg:(i + 1) * seg][:1 << 20]) for i in range(8) if d[i * seg:(i + 1) * seg]], 'wrap': []}
+    cand = [('zlib', lambda b, n: zlib.decompressobj().decompress(b, n)), ('gzip', lambda b, n: zlib.decompressobj(31).decompress(b, n)),
+            ('deflate', lambda b, n: zlib.decompressobj(-15).decompress(b, n)), ('bzip2', lambda b, n: bz2.BZ2Decompressor().decompress(b, n)),
+            ('lzma', lambda b, n: lzma.LZMADecompressor().decompress(b, n))]
+    try:
+        sys.path.insert(0, os.path.join(HERE, 'v8')); import v8cache; cand.append(('brotli', lambda b, n: v8cache._inflate(b, n) or b''))
+    except Exception: pass
+    for name, fn in cand:
+        o = _head(fn, d)
+        it = next((t for m, t in MAGIC if o.startswith(m)), 'unknown')
+        # deflate trần và brotli không có magic nên dữ liệu ngẫu nhiên vẫn "giải" được: chỉ nhận khi đầu ra dài và có cấu trúc (magic đã biết hoặc entropy thấp)
+        if len(o) >= 64 and (name not in ('deflate', 'brotli') or (len(o) >= 2048 and (it != 'unknown' or entropy(o) < 6.5))):
+            P['wrap'].append({'codec': name, 'inner_head': o[:16].hex(), 'inner_type': it})
+    return P
+
 def route(R, out):
     f, t, sc = R['flags'], R['type'], R.get('nsis', {}).get('shellcode')
     if sc: return f"T3 winemu --blob {q(os.path.join(out, sc['file']))} --blob-off {sc['offset']}" + (f" --size {sc['alloc']:#x}" if sc['alloc'] else '') + \
@@ -289,7 +311,8 @@ def route(R, out):
         tgt = ' '.join(q(e) for e in idents([e for e in R.get('exports', []) if not e.startswith('_')], 8)[0]) or 'main/entry'
         return ('T2: flow.py dec CASE FILE ' + tgt) + (' | entropy cao: tìm stub giải mã' if hi or 'no-section-header' in f else '') + \
                ' | không có T3 cho ELF trên server (thiếu qemu-user): giải mã bằng tái hiện tĩnh'
-    return 'T2: xem strings/hexdump có giới hạn; xác định định dạng thủ công'
+    return ('T1b: định dạng chưa có đường đi. Xác định từ dòng probe + strings (magic, lớp nén, cấu trúc lặp); rồi `flow.py tool CASE new TÊN`, '
+            'viết selfcheck() trước, tự chạy công cụ rồi `flow.py tool CASE seal TÊN`. Không nạp file vào trình thông dịch/runtime nào để "xem thử"')
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('file'); ap.add_argument('--out', required=True); ap.add_argument('--facts')
@@ -308,6 +331,7 @@ def main():
     elif R['type'] == 'unknown':
         w = v8_wrap(d, A.file)
         if w is not None: R['type'] = 'v8-cache'; R['flags'] += [w] if w else []
+    if R['type'] == 'unknown' and d: R['probe'] = probe(d)
     if R['type'] in ('PE32', 'PE32+') or R['type'].startswith('ELF'):
         if b'UPX!' in d[:0x1000] or b'UPX!' in d[-0x1000:]: R['flags'].append('UPX') if 'UPX' not in R['flags'] else None
         go = run('go', 'version', '-m', A.file)
@@ -347,6 +371,8 @@ def main():
         if sc: print(f"  shellcode: {show(sc['file'])} offset {sc['offset']} callback {show(str(sc['callback']))}")
     if R['ioc_candidates']: print('  IOC ứng viên (từ strings, CHƯA là fact; ghi fact url/c2 khi đã có xref tới mã hoặc quan sát giả lập):', ' '.join(R['ioc_candidates'][:10]))
     if R.get('ioc_in_signature'): print(f"  bỏ {len(R['ioc_in_signature'])} URL chỉ nằm trong vùng chữ ký Authenticode")
+    if 'probe' in R:
+        pb = R['probe']; print(f"  probe: đầu {pb['head']} | entropy 8 đoạn {' '.join(str(x) for x in pb['entropy8'])} | lớp nén: " + (', '.join(f"{w['codec']} -> {w['inner_type']} ({w['inner_head'][:16]})" for w in pb['wrap']) or 'không thấy'))
     print('  strings:'); [print('   ', s[:110]) for s in R['strings'][:12]]
     print('next:', R['next'])
 

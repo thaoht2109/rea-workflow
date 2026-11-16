@@ -13,7 +13,7 @@ MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
-               'value_in_evidence', 'value_vs_evidence', 'source', 'recompute'}   # mâu thuẫn bằng chứng -> high, bất kể kind
+               'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')
@@ -54,6 +54,7 @@ def mech(c):
         base = os.path.basename(rel)
         sv = C.src_evidence_issue(f['src'], base)   # cùng một luật với lint khi ghi (case.py)
         if sv: bad('fail', 'src_vs_evidence', *sv)
+        for ck, pb, rd in C.adhoc.issues(c, f, rel, txt): bad('fail', ck, pb, rd)   # cùng luật với lint khi ghi
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])
@@ -295,6 +296,11 @@ def gate(c):
         rv = last.get('reviewer')   # thiếu = state trước bản sửa (tương thích ngược, chấp nhận); 'mech' thuần = vòng chỉ-lớp-máy, không đủ
         if rv is not None and '+' not in rv:
             return False, 'review PASS gần nhất chỉ có lớp máy; chạy lại có --llm để mở cổng'
+        for f in C.load(c).values():   # evidence của công cụ có thể đổi sau khi PASS mà facts.jsonl không đổi (sửa công cụ rồi seal lại): kiểm lại ngay tại cổng
+            rel, full = C.ev_path(c, f['evidence'])
+            if f['status'] != 'retracted' and os.path.isfile(full):   # adhoc.issues tự nhận diện evidence của seal (cùng tiêu chí với lint và mech)
+                iss = C.adhoc.issues(c, f, rel, open(full, encoding='utf-8', errors='replace').read())
+                if iss: return False, f"fact {f['id']} dẫn evidence công cụ không còn hợp lệ ({iss[0][0]}): {iss[0][2]}"
         return True, f"review {last['n']} PASS"
     return False, 'chưa có review PASS khớp facts.jsonl hiện tại'
 

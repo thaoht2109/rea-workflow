@@ -40,7 +40,7 @@ def evidence_now(case, f):
     """Con trỏ evidence của fact theo vị trí hiện tại của dòng: '#Ln' được đổi sang dòng mới nếu dòng đã dời và tìm lại được.
     Dùng ở mọi nơi trích đoạn evidence theo #L (hồ sơ phản biện), để đoạn trích không lệch khi file bị sửa sau lúc ghi fact."""
     m = re.search(r'#L(\d+)$', f['evidence'])
-    if not m or not f.get('ev_line'): return f['evidence']
+    if not m or not f.get('ev_line') or not ev_path(case, f['evidence'])[0].startswith(os.path.join('report', 'evidence') + os.sep): return f['evidence']   # ngoài report/evidence: không mở file
     try: lines = open(ev_path(case, f['evidence'])[1], encoding='utf-8', errors='replace').read().splitlines()
     except OSError: return f['evidence']
     mv = _relocate(lines, int(m.group(1)), f['ev_line'])

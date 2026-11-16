@@ -312,7 +312,9 @@ def accepted(c):
 def accept_args(a):
     """Gộp mọi cờ --accept của dòng lệnh; cờ đứng cuối mà thiếu giá trị thì dừng với lỗi rõ thay vì bỏ qua lặng lẽ."""
     if a and a[-1] == '--accept': raise SystemExit('--accept cần giá trị: --accept Cx=lý do')
-    return '; '.join(a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept')
+    v = [a[i + 1] for i, x in enumerate(a[:-1]) if x == '--accept']
+    if any(x.startswith('-') for x in v): raise SystemExit('--accept cần giá trị, không phải một cờ khác: --accept Cx=lý do')
+    return '; '.join(v)
 
 def next_step(c, accept=''):
     acc = accepted(c)

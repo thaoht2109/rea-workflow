@@ -146,6 +146,7 @@ try:
     r = flow('seal', 'blob'); assert r.returncode == 1 and 'không nằm trong thư mục case' in r.stdout and 'INPUT sha256' not in open(os.path.join(ev, nev()), encoding='utf-8').read(), r.stdout
     os.makedirs(os.path.join(c, 'work', 'extract')); trong = os.path.join(c, 'work', 'extract', 'b.dat'); shutil.copy(smp, trong); assert runon(trong).returncode == 0
     last = nev(); open(trong, 'ab').write(b'x'); r = flow('seal', 'blob'); assert r.returncode == 2 and 'đã đổi sau lần chạy' in r.stdout and nev() == last, r.stdout
+    os.remove(trong); r = flow('seal', 'blob'); assert r.returncode == 2 and 'đã mất sau lần chạy' in r.stdout and nev() == last, r.stdout      # đầu vào trong case bị xóa: báo đúng lý do
     A(id='covtxt', kind='dec_coverage', value='9/9 chuỗi', src='S', evidence=relN); assert tk('covtxt') == ['tool_coverage']      # tỉ lệ kèm chữ vẫn được so
     A(id='covtxt2', kind='dec_coverage', value='2/2 dòng', src='S', evidence=relN); assert tk('covtxt2') == []
     r = flow('new', 'fake'); assert r.returncode != 0 and 'tool_fake_1.txt' in r.stderr and not os.path.exists(os.path.join(c, 'work', 'tools', 'fake.py')), r.stderr   # tên trùng file tool_* có sẵn không do seal sinh

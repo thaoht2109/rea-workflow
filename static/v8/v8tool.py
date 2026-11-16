@@ -9,9 +9,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v8cache, obf
 
 def _state_key(st, d):
-    """Khóa của ctx.json: state.json + nội dung bộ giải (obf.py, v8tool.py) + cache.bin. Nâng cấp bộ giải hoặc dựng lại cache thì cache cũ tự mất hiệu lực."""
+    """Khóa của ctx.json: state.json + nội dung bộ giải (obf.py, v8cache.py, v8tool.py, bảng v8_*.json) + cache.bin. Nâng cấp bộ giải hoặc dựng lại cache thì cache cũ tự mất hiệu lực."""
     h = hashlib.sha256(json.dumps(st, sort_keys=True).encode())
-    for p in (obf.__file__, os.path.abspath(__file__), os.path.join(d, 'cache.bin')):
+    here = os.path.dirname(os.path.abspath(__file__))      # bộ đọc và bảng opcode cũng quyết định kết quả r.all()
+    for p in [obf.__file__, v8cache.__file__, os.path.abspath(__file__), os.path.join(d, 'cache.bin')] + sorted(os.path.join(here, x) for x in os.listdir(here) if re.fullmatch(r'v8_[\d_]+\.json', x)):
         try:
             with open(p, 'rb') as f:
                 for b in iter(lambda: f.read(1 << 20), b''): h.update(b)

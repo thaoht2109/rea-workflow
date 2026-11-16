@@ -120,6 +120,7 @@ try:
     open(os.path.join(sd, 'cache.bin'), 'wb').write(b'cache A'); real = obf.__file__; fake = os.path.join(sd, 'obf_fake.py'); open(fake, 'w').write('# v1\n'); obf.__file__ = fake
     try:
         v8tool.save_state(r, sd, stt); assert v8tool.load_state(obf.Resolver(h3, D), sd, stt); open(fake, 'a').write('# v2: bộ giải đổi\n'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)      # nâng cấp bộ giải: cache cũ mất hiệu lực
+        obf.__file__ = real; v8tool.save_state(r, sd, stt); rf = v8cache.__file__; v8cache.__file__ = fake; k2 = v8tool._state_key(stt, sd); v8cache.__file__ = rf; assert k2 != v8tool._state_key(stt, sd)      # bộ đọc v8cache.py cũng nằm trong khóa
     finally: obf.__file__ = real
     v8tool.save_state(r, sd, stt); open(os.path.join(sd, 'ctx.json'), 'w').write('{hỏng'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)
     os.remove(os.path.join(sd, 'ctx.json')); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)

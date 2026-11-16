@@ -3,16 +3,66 @@
 #   v8tool.py unpack FILE --out DIR     gỡ brotli, phân tích cú pháp, dò và giải chuỗi obfuscator.io; ghi summary.txt, strings.txt, modules.txt
 #   v8tool.py dis DIR BC...             listing có chú giải hằng của các BytecodeArray (chỉ số đối tượng)
 #   v8tool.py grep DIR REGEX            tìm trong chuỗi đã giải và hằng chuỗi constant pool; in "bc<TAB>nguồn<TAB>chuỗi"
+#   v8tool.py big DIR [OBJ...]          liệt kê hằng chuỗi lớn (mã JS dạng rõ, base64 nhúng): độ dài, hash, đầu/cuối, loại, đếm từ khóa; ghi nội dung đầy đủ ra DIR/big/obj<N>.txt
 import argparse, ast, collections, hashlib, json, os, re, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v8cache, obf
+
+def _state_key(st): return hashlib.sha256(json.dumps(st, sort_keys=True).encode()).hexdigest()
+
+def save_state(r, d, st):
+    """Ghi r.globals và r.ctxof (đồ thị Ctx theo chỉ số) ra DIR/ctx.json để `dis` khỏi chạy lại r.all() (~50 giây). Chỉ JSON (không pickle); kiểu lạ thì không ghi."""
+    ids, nodes = {}, []
+    def cid(c):
+        if c is None: return None
+        if id(c) not in ids: ids[id(c)] = len(nodes); nodes.append(c)
+        return ids[id(c)]
+    def enc(v):
+        t = type(v)
+        if v is None or t in (bool, int, float, str): return v
+        if t is obf.S: return {'S': [enc(v.v), v.t, v.used, enc(v.pos)]}
+        if t is obf.JObj: return {'J': [[enc(k), enc(x)] for k, x in v.items()]}
+        if t is obf.Clo: return {'C': [v.sfi, cid(v.ctx)]}
+        if t is obf.Glob: return {'G': v.name}
+        if t is obf.Ctx: return {'X': cid(v)}
+        if t in (list, tuple): return {'L' if t is list else 'T': [enc(x) for x in v]}
+        raise ValueError(t.__name__)
+    try:
+        g = {k: enc(v) for k, v in r.globals.items()}; c = {str(b): cid(x) for b, x in r.ctxof.items()}; i = 0; out = []
+        while i < len(nodes): n = nodes[i]; out.append({'p': cid(n.parent), 's': [[enc(k), enc(x)] for k, x in n.slots.items()]}); i += 1
+        json.dump({'key': _state_key(st), 'globals': g, 'ctxof': c, 'ctx': out}, open(os.path.join(d, 'ctx.json'), 'w'))
+    except (ValueError, TypeError, RecursionError):
+        try: os.remove(os.path.join(d, 'ctx.json'))
+        except OSError: pass
+
+def load_state(r, d, st):
+    """Nạp r.globals/r.ctxof từ DIR/ctx.json; False nếu thiếu, sai khóa (state.json đã đổi) hoặc hỏng: khi đó phải chạy r.all()."""
+    try:
+        j = json.load(open(os.path.join(d, 'ctx.json')))
+        if j['key'] != _state_key(st): return False
+        cs = [obf.Ctx(None) for _ in j['ctx']]
+        def dec(v):
+            if not isinstance(v, dict): return v
+            (k, x), = v.items()
+            if k == 'S': o = obf.S(dec(x[0]), x[1]); o.used = x[2]; o.pos = dec(x[3]); return o
+            if k == 'J': return obf.JObj((dec(a), dec(b)) for a, b in x)
+            if k == 'C': return obf.Clo(x[0], cs[x[1]] if x[1] is not None else None)
+            if k == 'G': return obf.Glob(x)
+            if k == 'X': return cs[x]
+            if k in 'LT': return [dec(e) for e in x] if k == 'L' else tuple(dec(e) for e in x)
+            raise ValueError(k)
+        for n, c in zip(j['ctx'], cs): c.parent = cs[n['p']] if n['p'] is not None else None; c.slots = {dec(a): dec(b) for a, b in n['s']}
+        r.globals = {k: dec(v) for k, v in j['globals'].items()}; r.ctxof = {int(b): cs[i] if i is not None else None for b, i in j['ctxof'].items()}
+        return True
+    except (OSError, ValueError, KeyError, TypeError, IndexError): return False
 
 def load(d):
     h = v8cache.Heap(os.path.join(d, 'cache.bin'))   # đọc lại từ cache đã gỡ vỏ, không lưu đồ thị đối tượng ra đĩa
     st = json.load(open(os.path.join(d, 'state.json')))
     r = None
     if st.get('obf'):
-        r = obf.Resolver(h, st['obf'], {int(k): v for k, v in st.get('rostr', {}).items()}); r.rot = st['rot'] or 0; r.all()
+        r = obf.Resolver(h, st['obf'], {int(k): v for k, v in st.get('rostr', {}).items()}); r.rot = st['rot'] or 0
+        if not load_state(r, d, st): r.all(); save_state(r, d, st)      # lần đầu (hoặc state.json đã sửa): ~50 giây, các lần sau chỉ đọc ctx.json
     return h, r, st
 
 def modules(h, found):
@@ -58,6 +108,7 @@ def unpack(A):
     else:
         P('không thấy cấu trúc obfuscator.io (không có bảng chữ cái base64 đảo hoa/thường): chỉ xuất hằng chuỗi constant pool')
     json.dump(st, open(os.path.join(A.out, 'state.json'), 'w'))
+    if D: save_state(r, A.out, st)
     with open(os.path.join(A.out, 'strings.txt'), 'w') as f:
         for b in sorted(found):
             if found[b]: f.write('## bc %d\n' % b + ''.join('%d\t%r\n' % x for x in found[b]))
@@ -82,6 +133,21 @@ def dis(A):
         else: t = [h.fmt(b, i) for i in h.dis(b)]
         print(f'#### bc {b} ({h.blen(b)} byte)'); print('\n'.join(t))
 
+BIGKEYS = ('child_process', 'require(', 'fetch(', 'eval(', 'WebAssembly', 'XMLHttpRequest', 'WebSocket')
+
+def big(A):
+    """Hằng chuỗi lớn của constant pool (cùng tiêu chí với dòng 'hằng chuỗi lớn' của unpack). Đọc đúng đối tượng V8 nên không cắt nhầm ở byte lạ như quét ASCII liên tục."""
+    h = v8cache.Heap(os.path.join(A.dir, 'cache.bin')); want = {int(x) for x in A.args}; od = os.path.join(A.dir, 'big'); os.makedirs(od, exist_ok=True)
+    rows = sorted(((len(h.string(o[0]) or ''), o[0]) for o in h.o if h.isstr(o[0]) and o[2] > 512 and (not want or o[0] in want)), reverse=True)
+    for n, i in rows:
+        s = h.string(i) or ''; open(os.path.join(od, f'obj{i}.txt'), 'w', encoding='utf-8', errors='replace').write(s)
+        head = s[:4096]; kind = 'WebAssembly base64' if s.startswith('AGFzbQ') else 'base64' if re.fullmatch(r'[A-Za-z0-9+/=\s]+', head) and len(head) > 64 else \
+            'JS dạng rõ' if re.search(r'\b(function|var|const|let)\b|=>|exports|require\(', head) else 'khác'
+        cnt = ' '.join(f'{k}={s.count(k)}' for k in BIGKEYS if s.count(k))
+        print(f'obj {i}: {n} ký tự, sha256 {hashlib.sha256(s.encode("utf-8", "replace")).hexdigest()[:16]}, loại {kind}; đầu {s[:60]!r}; cuối {s[-60:]!r}' + (f'; {cnt}' if cnt else ''))
+    if not rows: print('không có hằng chuỗi lớn' + (' khớp OBJ đã nêu' if want else ''))
+    else: print(f'nội dung đầy đủ: {od}/obj<N>.txt (dữ liệu từ mẫu; đọc có giới hạn bằng sed -n/grep, không chạy)')
+
 def grep(A):
     rx = re.compile(A.args[0], re.I); b = None
     for fn, tag in (('strings.txt', 'giải mã'), ('cpool.txt', 'hằng')):
@@ -96,6 +162,6 @@ def grep(A):
             if rx.search(t): print(f'{bb}\t{tag}\t{t[:300]!r}')
 
 if __name__ == '__main__':
-    ap = argparse.ArgumentParser(); ap.add_argument('cmd', choices=['unpack', 'dis', 'grep']); ap.add_argument('file'); ap.add_argument('args', nargs='*'); ap.add_argument('--out')
+    ap = argparse.ArgumentParser(); ap.add_argument('cmd', choices=['unpack', 'dis', 'grep', 'big']); ap.add_argument('file'); ap.add_argument('args', nargs='*'); ap.add_argument('--out')
     A = ap.parse_args(); A.dir = A.file
-    {'unpack': unpack, 'dis': dis, 'grep': grep}[A.cmd](A)
+    {'unpack': unpack, 'dis': dis, 'grep': grep, 'big': big}[A.cmd](A)

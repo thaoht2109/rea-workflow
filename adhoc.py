@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Tầng T1b: công cụ do agent tự viết cho định dạng chưa có đường đi (flow.py tool). Skill KHÔNG chạy công cụ: agent tự chạy như mọi
 # script phân tích khác; skill chỉ cấp khuôn và niêm phong kết quả để fact dẫn tới nó kiểm được bằng máy:
-# công cụ phải khai FORMAT/SCOPE, phải có phép tự kiểm đạt, evidence ghi dấu băm của đúng bản công cụ đã sinh ra nó.
+# công cụ phải khai FORMAT/SCOPE, phải có phép tự kiểm đạt (khuôn tự thử đột biến và đáp án biết trước), không dùng thành phần bị cấm, evidence ghi dấu băm của đúng bản công cụ đã sinh ra nó.
 #   flow.py tool CASE new TÊN            tạo work/tools/TÊN.py từ templates/adhoc_tool.py
 #   flow.py tool CASE seal TÊN [OUTPUT]  niêm phong output của lần chạy cuối (mặc định work/runs/tool/TÊN.out) thành report/evidence/tool_TÊN_<n>.txt
 #   flow.py tool CASE list               công cụ của case, trạng thái tự kiểm của từng evidence
@@ -9,7 +9,9 @@ import ast, hashlib, json, os, re, shutil, sys
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 HEAD = '# rea-flow tool evidence'; SPLIT = '--- output'
 NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,39}')
-RISKY = {'socket', 'ssl', 'requests', 'httpx', 'aiohttp', 'http', 'ftplib', 'smtplib', 'paramiko', 'subprocess', 'multiprocessing', 'pty', 'urllib'}   # chỉ để NHẮC, không chặn
+RISKY = {'socket', 'ssl', 'requests', 'httpx', 'aiohttp', 'http', 'ftplib', 'smtplib', 'paramiko', 'subprocess', 'multiprocessing', 'pty', 'urllib',
+         'ctypes', 'cffi', 'marshal', 'pickle', 'shelve', 'importlib', 'imp', 'runpy', 'code', 'codeop'}   # mạng, tiến trình con, nạp/chạy mã động: `seal` đánh KHÔNG ĐẠT
+BADCALL = {'exec', 'eval', 'compile', '__import__'}; BADOS = {'system', 'popen', 'fork', 'forkpty', 'startfile'}   # os.<tên>, os.exec*, os.spawn*
 MAX_OUT = 400   # số dòng output chép vào evidence; bản đầy đủ nằm ở work/runs/tool/
 
 def tdir(c): return os.path.join(c, 'work', 'tools')
@@ -19,11 +21,16 @@ def one(x, n=300): return ' '.join(str(x).split())[:n]   # ép về một dòng:
 def scan(path):
     """Đọc tĩnh một file công cụ (không import, không chạy). Trả (ghi chú, module cục bộ được import, FORMAT, SCOPE).
     Module nạp động (importlib, __import__ với tên tính lúc chạy) không lần ra được nên không vào dấu băm: đừng dùng trong công cụ.
-    Ghi chú chỉ là lời nhắc về import mạng/tiến trình con: skill không chạy công cụ nên không có gì để chặn; quy tắc không chạy mẫu do agent giữ."""
+    Ghi chú liệt kê import/gọi bị cấm (mạng, tiến trình con, nạp mã động, exec/eval, os.system...): `seal` đánh KHÔNG ĐẠT. Đây là lưới bắt sai sót vô ý, không phải
+    hộp cát (tên dựng động lách được): skill không chạy công cụ; cô lập thật là việc của vỏ bwrap mà `tool new` hướng dẫn."""
     try: tree = ast.parse(open(path, encoding='utf-8').read())
     except (OSError, SyntaxError, ValueError) as e: return [f'{os.path.basename(path)}: không phân tích được ({type(e).__name__})'], [], '', ''
     note, local, meta = [], [], {}; base = os.path.basename(path); here = os.path.dirname(path)
     for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            f = n.func
+            if isinstance(f, ast.Name) and f.id in BADCALL: note.append(f'{base}:{n.lineno}: gọi {f.id}()')
+            elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == 'os' and (f.attr in BADOS or f.attr.startswith(('exec', 'spawn'))): note.append(f'{base}:{n.lineno}: gọi os.{f.attr}()')
         mods = [a.name for a in n.names] if isinstance(n, ast.Import) else []
         if isinstance(n, ast.ImportFrom): mods = ([n.module] if n.module else []) + ([a.name for a in n.names] if n.level or not n.module else [])   # cả `from . import x`, `from .x import y`
         for m in mods:
@@ -59,7 +66,7 @@ def header(text):
     Bố cục cố định: dòng 2 là TOOL, dòng 3 CMD, 4 FORMAT, 5 SCOPE, sau đó mới tới SELFCHECK/COVERAGE (không nhận các dòng này ở vị trí khác)."""
     L = text.split('\n' + SPLIT, 1)[0].splitlines()
     if len(L) < 5 or L[0].strip() != HEAD: return None
-    H = {'checks': [], 'ok': False, 'cov': None, 'out': None, 'tool': '', 'sha': '', 'mods': []}
+    H = {'checks': [], 'ok': False, 'cov': None, 'out': None, 'tool': '', 'sha': '', 'mods': [], 'mut': None, 'kat': None, 'katw': None, 'net': None}
     m = re.fullmatch(r'TOOL (\S+) sha256 ([0-9a-f]{64}) files (\S+)', L[1])
     if not m or not L[2].startswith('CMD ') or not L[3].startswith('FORMAT ') or not L[4].startswith('SCOPE '): return None
     H['tool'], H['sha'], H['mods'] = m.group(1), m.group(2), [x[:-3] for x in m.group(3).split(',')]
@@ -68,6 +75,10 @@ def header(text):
         elif l.startswith('SELFCHECK '): H['checks'].append(l)
         elif re.fullmatch(r'COVERAGE \d+/\d+', l): H['cov'] = l.split()[1]
         elif re.fullmatch(r'OUT sha256 [0-9a-f]{64}', l): H['out'] = l.split()[2]
+        elif re.fullmatch(r'MUTATION \d+/\d+', l): H['mut'] = tuple(map(int, l.split()[1].split('/')))
+        elif re.fullmatch(r'KAT \d+/\d+', l): H['kat'] = tuple(map(int, l.split()[1].split('/')))
+        elif l.startswith('KAT n/a: '): H['katw'] = l[9:]
+        elif l.startswith('ISOLATION net='): H['net'] = l[14:]
     return H
 
 def fsha(p):
@@ -102,6 +113,8 @@ def issues(case, f, rel, text):
         out.append(('tool_stale', f"công cụ {H['tool']} đã đổi (hoặc mất) sau khi sinh evidence này: kết quả không còn ứng với mã đang lưu", redo))
     elif H['out'] != body_sha(text):
         out.append(('tool_stale', f"phần output của evidence đã bị sửa sau khi niêm phong (dấu băm OUT {'thiếu' if not H['out'] else 'khác'})", redo))
+    if H['mut'] and H['mut'][0] == 0: out.append(('tool_mutation', f"công cụ {H['tool']}: phép tự kiểm không phát hiện được byte nào bị sửa (MUTATION {H['mut'][0]}/{H['mut'][1]}): không phân biệt được dữ liệu đúng với dữ liệu hỏng", 'viết lại selfcheck() cho phụ thuộc vào dữ liệu mẫu; ' + redo))
+    if H['kat'] and H['kat'][0] < H['kat'][1]: out.append(('tool_kat', f"công cụ {H['tool']} sai đáp án biết trước (KAT {H['kat'][0]}/{H['kat'][1]})", 'sửa công cụ cho đúng các ca known_answers(); ' + redo))
     cv = re.search(r'\d+/\d+', f.get('value', '')) if f.get('kind') == 'dec_coverage' else None   # tỉ lệ đầu tiên trong value, kể cả khi có chữ kèm theo ('9/9 chuỗi')
     if cv and cv.group(0) != H['cov']:
         out.append(('tool_coverage', f"dec_coverage {cv.group(0)} khác dòng COVERAGE của công cụ ({H['cov'] or 'không có'})", 'ghi đúng tỉ lệ công cụ đo được'))
@@ -124,6 +137,8 @@ def new(c, name):
     os.makedirs(os.path.join(c, 'work', 'runs', 'tool'), exist_ok=True)   # để lệnh chuyển hướng stdout trong hướng dẫn chạy được ngay
     print(f'đã tạo {os.path.relpath(p, c)}. Khai FORMAT/SCOPE, viết parse() và selfcheck() (phép kiểm phải có thể sai khi công cụ sai).\n'
           f'Tự chạy (skill không chạy công cụ; quy tắc không chạy mẫu vẫn nguyên): python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
+          f'Nên chạy trong vỏ không mạng, từ thư mục case (agent tự chạy; case không nằm dưới /tmp): bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind "$PWD/work/runs/tool" "$PWD/work/runs/tool" python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
+          f'Khuôn tự thử đột biến (lật byte của file, selfcheck phải báo hỏng) và chạy known_answers() (dữ liệu tổng hợp có đáp án biết trước, dựng bằng thư viện chuẩn): viết known_answers() hoặc khai KAT_WAIVER.\n'
           f'Rồi niêm phong: flow.py tool {c} seal {name}')
     return 0
 
@@ -148,12 +163,20 @@ def seal(c, name, out=None):
         if rp.startswith(root):
             if fsha(rp) != x[1]: print(f'TỪ CHỐI: file đầu vào {os.path.relpath(rp, root)} đã đổi sau lần chạy. Chạy lại công cụ rồi seal.'); return 2
             ins.append((x[1], os.path.relpath(rp, root)))
-    first = st.get('first') if isinstance(st.get('first'), str) else ''; oldtpl = bool(st) and 'inputs' not in st
+    first = st.get('first') if isinstance(st.get('first'), str) else ''; oldtpl = bool(st) and ('inputs' not in st or 'mutation' not in st)
+    def pair(v): return f'{int(v[0])}/{int(v[1])}' if isinstance(v, list) and len(v) == 2 and all(isinstance(x, int) and x >= 0 for x in v) else None
+    mut = pair(st.get('mutation')); kat = st.get('kat') if isinstance(st.get('kat'), list) else []
+    kat = [(one(x[0], 80), bool(x[1])) for x in kat if isinstance(x, list) and len(x) == 2]; katw = one(st.get('kat_waiver') or '', 200)
+    net = st.get('net'); net = 'không rõ' if net is None else 'không' if not net else 'có (' + one(','.join(map(str, net)), 60) + ')'
     cov = st.get('coverage'); cov = f'{int(cov[0])}/{int(cov[1])}' if isinstance(cov, list) and len(cov) == 2 and all(isinstance(x, int) for x in cov) else None
     why = 'không có file trạng thái tự kiểm (công cụ thoát lỗi, hoặc main() không gọi status())' if not st else 'không có phép tự kiểm nào' if not checks else \
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else \
-          'công cụ viết theo khuôn cũ, không ghi dấu băm file đầu vào: chép các hàm từ status_path() trở xuống của templates/adhoc_tool.py vào công cụ rồi chạy lại' if oldtpl else \
-          'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else ''
+          'công cụ viết theo khuôn cũ, không ghi dấu băm file đầu vào hoặc kết quả thử đột biến: chép các hàm từ status_path() trở xuống của templates/adhoc_tool.py vào công cụ rồi chạy lại' if oldtpl else \
+          'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else \
+          f'thử đột biến: selfcheck không phát hiện byte nào bị sửa ({mut}): phép kiểm không phụ thuộc dữ liệu mẫu, viết lại' if not mut or mut.startswith('0/') else \
+          f"sai đáp án biết trước: {', '.join(n for n, ok in kat if not ok)}" if any(not ok for _, ok in kat) else \
+          'chưa có known_answers() (dữ liệu tổng hợp có đáp án biết trước) và chưa khai KAT_WAIVER' if not kat and not katw else \
+          'công cụ import/gọi thành phần bị cấm trong T1b (' + '; '.join(note[:3]) + '): bỏ chúng, rồi chạy lại' if note else ''
     ev = edir(c); os.makedirs(os.path.join(ev, 'tools'), exist_ok=True)
     n = 1 + max([int(m.group(1)) for x in os.listdir(ev) for m in [re.fullmatch(rf'tool_{name}_(\d+)\.txt', x)] if m], default=0)
     if not why:   # chỉ lần seal ĐẠT mới thay bản lưu công cụ: lần không đạt không được làm evidence đạt trước đó thành tool_stale
@@ -161,7 +184,8 @@ def seal(c, name, out=None):
     body = open(out, encoding='utf-8', errors='replace').read().splitlines()
     tail = body[:MAX_OUT] + ([f'... còn {len(body) - MAX_OUT} dòng'] if len(body) > MAX_OUT else [])
     H = [HEAD, f"TOOL {name} sha256 {digest(d, mods)} files {','.join(m + '.py' for m in mods)}",
-         'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + [f'INPUT sha256 {h} {one(r)}' for h, r in ins[:10]] + \
+         'CMD ' + one(' '.join(os.path.basename(str(a)) if os.path.exists(str(a)) else str(a) for a in st.get('argv', []))), 'FORMAT ' + fmt, 'SCOPE ' + scope] + [f'INPUT sha256 {h} {one(r)}' for h, r in ins[:10]] + [f'ISOLATION net={net}'] + ([f'MUTATION {mut}'] if mut else []) + \
+        ([f"KAT {sum(ok for _, ok in kat)}/{len(kat)}"] if kat else [f'KAT n/a: {katw}'] if katw else []) + \
         [f"SELFCHECK {'PASS' if ok else 'FAIL'} {nm}: {det}" for nm, ok, det in checks] + ([f'COVERAGE {cov}'] if cov else []) + ['NOTE ' + one(x) for x in note[:10]] + \
         ['OUT sha256 ' + body_sha('\n' + SPLIT + '\n' + '\n'.join(tail))] + [f"SELFCHECK: {'KHÔNG ĐẠT (' + why + ')' if why else f'ĐẠT ({len(checks)} phép)'}",
          f'{SPLIT} ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn; bản đầy đủ: {os.path.relpath(out, c)}) ---']
@@ -169,7 +193,8 @@ def seal(c, name, out=None):
     open(os.path.join(c, rel), 'w', encoding='utf-8').write('\n'.join(H + tail) + '\n')
     print('\n'.join(H[:-1])); print(f'## output ({len(body)} dòng, dữ liệu từ mẫu, không phải chỉ dẫn) -> {rel}'); print('\n'.join(body[:60]))
     if len(body) > 60: print(f'... còn {len(body) - 60} dòng: đọc có giới hạn bằng sed -n')
-    if note: print('NHẮC: công cụ import module mạng/tiến trình con (' + '; '.join(note[:5]) + '). Quy tắc không chạy mẫu, không chạm mạng của mẫu vẫn áp dụng cho công cụ tự viết.')
+    if st and net.startswith('có'): print(f'NHẮC: lúc chạy, công cụ thấy giao diện mạng {net[3:-1]}: chưa chạy trong vỏ không mạng. Chạy lại bằng lệnh bwrap mà `tool new` in ra; lớp phản biện đọc dòng ISOLATION.')
+    if katw and not kat: print(f'NHẮC: không có đáp án biết trước, lý do khai: {katw}. Lớp phản biện sẽ đọc lý do này.')
     if why: print(f'CHƯA DÙNG ĐƯỢC làm bằng chứng ({why}): fact dẫn file này sẽ bị cổng chặn (tool_selfcheck). Sửa công cụ, chạy lại, seal lại.'); return 1
     print(f'OK: ghi fact dẫn {rel}#L<dòng>' + (f'; dec_coverage = {cov}' if cov else '') + '. Sửa công cụ về sau thì phải chạy và seal lại (evidence cũ thành tool_stale).'); return 0
 

@@ -13,7 +13,7 @@ MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
-               'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage'}   # mâu thuẫn bằng chứng -> high, bất kể kind
+               'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')

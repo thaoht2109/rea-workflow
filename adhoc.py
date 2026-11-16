@@ -176,10 +176,10 @@ def seal(c, name, out=None):
           f'{sum(not ok for _, ok, _ in checks)} phép FAIL' if any(not ok for _, ok, _ in checks) else \
           'công cụ viết theo khuôn cũ, không ghi dấu băm file đầu vào hoặc kết quả thử đột biến: chép các hàm từ status_path() trở xuống của templates/adhoc_tool.py vào công cụ rồi chạy lại' if oldtpl else \
           'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else \
-          f"thử đột biến vô hiệu: {one(st.get('mut_note'), 200)}; công cụ phải parse được bản sao ở thư mục khác" if st.get('mut_note') else \
+          f"thử đột biến vô hiệu: {one(st.get('mut_note'), 200)}" if st.get('mut_note') else \
           'file đầu vào rỗng: không thử đột biến được' if st.get('empty') else \
           'chưa chạy thử đột biến: main() phải gọi status(checks, cov, _trials(path, dt)) như khuôn' if st.get('mutation') is None else \
-          f'thử đột biến: selfcheck không phát hiện byte nào bị sửa ({mut}): phép kiểm không phụ thuộc dữ liệu mẫu, viết lại' if not mut or mut.startswith('0/') else \
+          f'thử đột biến: selfcheck không phát hiện byte nào bị sửa ({mut}): phép kiểm không phụ thuộc dữ liệu mẫu, viết lại' + (f" ({int(st['mut_late'])} lần thử quá giờ không tính)" if isinstance(st.get('mut_late'), int) and st['mut_late'] > 0 else '') if not mut or mut.startswith('0/') else \
           f"sai đáp án biết trước: {', '.join(n for n, ok in kat if not ok)}" if any(not ok for _, ok in kat) else \
           'chưa có known_answers() (dữ liệu tổng hợp có đáp án biết trước) và chưa khai KAT_WAIVER' if not kat and not katw else \
           'công cụ import/gọi thành phần bị cấm trong T1b (' + '; '.join(note[:3]) + '): bỏ chúng, rồi chạy lại' if note else ''

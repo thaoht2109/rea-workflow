@@ -191,6 +191,23 @@ try:
     # main() tùy biến không truyền trials: báo đúng lý do
     q = mk('notr')[1]; src = open(q, encoding='utf-8').read(); assert '_trials(path, dt)' in src; time.sleep(0.02); open(q, 'w', encoding='utf-8').write(src.replace('_trials(path, dt)', 'None'))
     time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', q, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'notr.out'), 'wb').write(r0.stdout); r, t = sealed('notr'); assert r.returncode == 1 and 'chưa chạy thử đột biến' in t, t
+    # quá giờ trên dữ liệu đột biến (giới hạn nới xuống 1 giây): không tính vào mẫu số, báo đúng lý do chứ không phải 'selfcheck không phát hiện'
+    slow = BODY.replace("d = open(path, 'rb').read();", "d = open(path, 'rb').read(); import time; (time.sleep(3) if d != open(" + repr(smp) + ", 'rb').read() else 0);", 1)
+    mk('slow', slow, hd=None); qs = os.path.join(c, 'work', 'tools', 'slow.py'); ts = open(qs, encoding='utf-8').read(); time.sleep(0.02); open(qs, 'w', encoding='utf-8').write(ts.replace('TRIAL_SECONDS = 30', 'TRIAL_SECONDS = 1'))
+    time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', qs, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'slow.out'), 'wb').write(r0.stdout); r, t = sealed('slow')
+    assert r.returncode == 1 and 'đều quá giờ' in t and 'selfcheck không phát hiện' not in t, t
+    # một phần lần thử quá giờ + selfcheck không bắt được lần còn lại: kết quả nêu số lần quá giờ
+    half = weak.replace("d = open(path, 'rb').read();", "d = open(path, 'rb').read(); import time; (time.sleep(3) if d[:len(d) // 2] != open(" + repr(smp) + ", 'rb').read()[:len(d) // 2] else 0);", 1)
+    mk('half', half); qh = os.path.join(c, 'work', 'tools', 'half.py'); th = open(qh, encoding='utf-8').read(); time.sleep(0.02); open(qh, 'w', encoding='utf-8').write(th.replace('TRIAL_SECONDS = 30', 'TRIAL_SECONDS = 1'))
+    time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', qh, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'half.out'), 'wb').write(r0.stdout); r, t = sealed('half')
+    assert r.returncode == 1 and 'MUTATION 0/4' in t and '(4 lần thử quá giờ không tính)' in t, t
+    # công cụ khuôn cũ chuyển theo hướng dẫn (chép từ status_path() trở xuống) không có TRIAL_SECONDS ở phần đầu: vẫn chạy được
+    mk('oldh'); qo = os.path.join(c, 'work', 'tools', 'oldh.py'); to = open(qo, encoding='utf-8').read(); assert 'TRIAL_SECONDS = 30' in to
+    time.sleep(0.02); open(qo, 'w', encoding='utf-8').write(''.join(l for l in to.splitlines(True) if not l.startswith('TRIAL_SECONDS')))
+    time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', qo, smp], capture_output=True); assert r0.returncode == 0, r0.stderr[-400:]; open(os.path.join(c, 'work', 'runs', 'tool', 'oldh.out'), 'wb').write(r0.stdout); r, t = sealed('oldh'); assert r.returncode == 0, t
+    # known_answers() ném lỗi hoặc trả phần tử sai dạng: nêu đúng lý do KAT, không phải 'không có file trạng thái'
+    mk('kerr', BODY.replace("    import struct, zlib      # đáp án", "    raise ValueError('hỏng')\n    import struct, zlib      # đáp án", 1)); r, t = sealed('kerr'); assert r.returncode == 1 and 'known_answers() lỗi (ValueError' in t and 'KAT 0/1' in t, t
+    mk('kbad', BODY.replace("return [('thông điệp ngắn'", "return [('chỉ-tên',), ('thông điệp ngắn'", 1)); r, t = sealed('kbad'); assert r.returncode == 1 and 'sai đáp án biết trước: chỉ-tên' in t, t
     # file rỗng: nói đúng lý do
     e0 = os.path.join(c, 'work', 'sample', 'empty.dat'); open(e0, 'wb').close(); q = os.path.join(c, 'work', 'tools', 'b9.py'); time.sleep(0.02)
     r0 = subprocess.run([sys.executable, '-I', q, e0], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'b9.out'), 'wb').write(r0.stdout)

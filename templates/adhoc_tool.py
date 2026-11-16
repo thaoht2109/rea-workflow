@@ -55,7 +55,8 @@ def _trials(path, dt=0.0):
        ít nhất một lần, nếu không phép kiểm không phân biệt được dữ liệu đúng với dữ liệu hỏng;
     2. đáp án biết trước: known_answers() chạy qua parse() và so với đáp án."""
     import contextlib, io, tempfile
-    def alarm(*a): raise TimeoutError('quá thời gian trên dữ liệu thử')
+    timed = [False]
+    def alarm(*a): timed[0] = True; raise TimeoutError('quá thời gian trên dữ liệu thử')      # cờ: parse() có nuốt TimeoutError rồi ném lỗi khác thì vẫn không tính là phát hiện
     def run(f):
         if hasattr(signal, 'SIGALRM'): signal.signal(signal.SIGALRM, alarm); signal.alarm(limit)
         try: return f()
@@ -67,13 +68,16 @@ def _trials(path, dt=0.0):
         tp = os.path.join(td, 'trial.bin')
         if data:      # đối chứng: bản KHÔNG đột biến trong thư mục tạm phải parse được, nếu không (quá giờ, cần file cạnh đầu vào...) thì phép thử vô hiệu, không tính là 'phát hiện'
             open(tp, 'wb').write(data)
-            try: run(lambda: parse(tp))
+            try:
+                bad = [str(nm) for nm, ok, _ in run(lambda: selfcheck(tp, parse(tp))) if not ok]      # cả selfcheck: phép kiểm phụ thuộc file cạnh đầu vào cũng làm 'phát hiện' giả
+                if bad: note = f"bản không đột biến bị selfcheck báo hỏng trong thư mục tạm ({', '.join(bad)[:80]})"
             except (Exception, SystemExit) as e: note = f'bản không đột biến cũng lỗi trong thư mục tạm ({type(e).__name__}: {str(e)[:80]})'
         for i in range(n if data and not note else 0):
             b = bytearray(data); b[len(data) * (2 * i + 1) // (2 * n)] ^= 0xFF; open(tp, 'wb').write(b); mut[1] += 1
-            try: mut[0] += any(not ok for _, ok, _ in run(lambda: selfcheck(tp, parse(tp))))
-            except TimeoutError: pass      # quá giờ không phải bằng chứng selfcheck phát hiện được
-            except (Exception, SystemExit): mut[0] += 1      # parse/selfcheck từ chối dữ liệu hỏng
+            timed[0] = False
+            try: bad = any(not ok for _, ok, _ in run(lambda: selfcheck(tp, parse(tp))))
+            except (Exception, SystemExit): bad = True      # parse/selfcheck từ chối dữ liệu hỏng
+            mut[0] += bad and not timed[0]      # quá giờ không phải bằng chứng selfcheck phát hiện được
         for name, fix, expect in (globals().get('known_answers') or list)():      # thiếu hàm = không có ca nào
             open(tp, 'wb').write(fix)
             try: ok = bool(run(lambda: expect(parse(tp))))

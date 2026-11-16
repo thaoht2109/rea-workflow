@@ -116,7 +116,7 @@ def issues(case, f, rel, text):
         out.append(('tool_stale', f"công cụ {H['tool']} đã đổi (hoặc mất) sau khi sinh evidence này: kết quả không còn ứng với mã đang lưu", redo))
     elif H['out'] != body_sha(text):
         out.append(('tool_stale', f"phần output của evidence đã bị sửa sau khi niêm phong (dấu băm OUT {'thiếu' if not H['out'] else 'khác'})", redo))
-    if H['mut'] and H['mut'][0] == 0: out.append(('tool_mutation', f"công cụ {H['tool']}: phép tự kiểm không phát hiện được byte nào bị sửa (MUTATION {H['mut'][0]}/{H['mut'][1]}): không phân biệt được dữ liệu đúng với dữ liệu hỏng", 'viết lại selfcheck() cho phụ thuộc vào dữ liệu mẫu; ' + redo))
+    if H['mut'] and H['mut'][1] and H['mut'][0] == 0: out.append(('tool_mutation', f"công cụ {H['tool']}: phép tự kiểm không phát hiện được byte nào bị sửa (MUTATION {H['mut'][0]}/{H['mut'][1]}): không phân biệt được dữ liệu đúng với dữ liệu hỏng", 'viết lại selfcheck() cho phụ thuộc vào dữ liệu mẫu; ' + redo))
     if H['kat'] and H['kat'][0] < H['kat'][1]: out.append(('tool_kat', f"công cụ {H['tool']} sai đáp án biết trước (KAT {H['kat'][0]}/{H['kat'][1]})", 'sửa công cụ cho đúng các ca known_answers(); ' + redo))
     cv = re.search(r'\d+/\d+', f.get('value', '')) if f.get('kind') == 'dec_coverage' else None   # tỉ lệ đầu tiên trong value, kể cả khi có chữ kèm theo ('9/9 chuỗi')
     if cv and cv.group(0) != H['cov']:
@@ -178,6 +178,7 @@ def seal(c, name, out=None):
           'file đầu vào (tham số đầu) không nằm trong thư mục case: chép nó vào work/extract/ rồi chạy lại' if not first or os.path.relpath(os.path.realpath(first), root) not in [r for _, r in ins] else \
           f"thử đột biến vô hiệu: {one(st.get('mut_note'), 200)}; công cụ phải parse được bản sao ở thư mục khác" if st.get('mut_note') else \
           'file đầu vào rỗng: không thử đột biến được' if st.get('empty') else \
+          'chưa chạy thử đột biến: main() phải gọi status(checks, cov, _trials(path, dt)) như khuôn' if st.get('mutation') is None else \
           f'thử đột biến: selfcheck không phát hiện byte nào bị sửa ({mut}): phép kiểm không phụ thuộc dữ liệu mẫu, viết lại' if not mut or mut.startswith('0/') else \
           f"sai đáp án biết trước: {', '.join(n for n, ok in kat if not ok)}" if any(not ok for _, ok in kat) else \
           'chưa có known_answers() (dữ liệu tổng hợp có đáp án biết trước) và chưa khai KAT_WAIVER' if not kat and not katw else \

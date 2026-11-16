@@ -185,6 +185,12 @@ try:
     # (e) phép thử đột biến vô hiệu: parse chỉ chạy được khi đứng cạnh file khác -> bản sao ở thư mục tạm lỗi, không được tính là 'phát hiện'
     side = BODY.replace("d = open(path, 'rb').read();", "open(os.path.join(os.path.dirname(path), 'blob.dat')).close(); d = open(path, 'rb').read();")
     mk('side', side); r, t = sealed('side'); assert r.returncode == 1 and 'thử đột biến vô hiệu' in t, t
+    # selfcheck phụ thuộc file cạnh đầu vào (parse thì không): bản đối chứng bị selfcheck báo hỏng -> vô hiệu, không được ra MUTATION 8/8
+    mk('side2', BODY.replace("return [('độ dài khớp", "return [('có file cạnh', os.path.exists(os.path.join(os.path.dirname(path), 'blob.dat')), ''), ('độ dài khớp", 1)); r, t = sealed('side2')
+    assert r.returncode == 1 and 'thử đột biến vô hiệu' in t and 'có file cạnh' in t and 'MUTATION 8/8' not in t, t
+    # main() tùy biến không truyền trials: báo đúng lý do
+    q = mk('notr')[1]; src = open(q, encoding='utf-8').read(); assert '_trials(path, dt)' in src; time.sleep(0.02); open(q, 'w', encoding='utf-8').write(src.replace('_trials(path, dt)', 'None'))
+    time.sleep(0.02); r0 = subprocess.run([sys.executable, '-I', q, smp], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'notr.out'), 'wb').write(r0.stdout); r, t = sealed('notr'); assert r.returncode == 1 and 'chưa chạy thử đột biến' in t, t
     # file rỗng: nói đúng lý do
     e0 = os.path.join(c, 'work', 'sample', 'empty.dat'); open(e0, 'wb').close(); q = os.path.join(c, 'work', 'tools', 'b9.py'); time.sleep(0.02)
     r0 = subprocess.run([sys.executable, '-I', q, e0], capture_output=True); open(os.path.join(c, 'work', 'runs', 'tool', 'b9.out'), 'wb').write(r0.stdout)

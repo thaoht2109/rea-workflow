@@ -76,6 +76,12 @@ try:
     r = run('big', os.path.join(td, 'q')); assert r.returncode == 0 and f'{len(js)} ký tự' in r.stdout and 'JS dạng rõ' in r.stdout and 'fetch(=120' in r.stdout and 'require(=120' in r.stdout, (r.stdout, r.stderr)
     oid = int(r.stdout.split()[1].rstrip(':')); assert open(os.path.join(td, 'q', 'big', f'obj{oid}.txt'), encoding='utf-8').read() == js
     assert 'không có' in run('big', os.path.join(td, 'q'), '999999').stdout      # OBJ không khớp: nói rõ
+    # flow.py v8 big: bản đầy đủ và bản theo OBJ ghi ra hai tệp evidence khác nhau (không ghi đè nhau)
+    cs = os.path.join(td, 'CASE'); os.makedirs(os.path.join(cs, 'report', 'evidence')); open(os.path.join(cs, 'facts.jsonl'), 'w').close(); fl = lambda *a: subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'v8', cs, os.path.join(td, 'z.jsc')] + list(a), capture_output=True, text=True)
+    assert fl().returncode == 0; r = fl('big'); assert r.returncode == 0 and 'v8_z_jsc_big.txt' in r.stdout, (r.stdout, r.stderr)
+    full = open(os.path.join(cs, 'report', 'evidence', 'v8_z_jsc_big.txt'), encoding='utf-8').read(); assert f'{len(js)} ký tự' in full
+    r = fl('big', str(oid)); assert r.returncode == 0 and f'v8_z_jsc_big_obj{oid}.txt' in r.stdout, (r.stdout, r.stderr)
+    assert open(os.path.join(cs, 'report', 'evidence', 'v8_z_jsc_big.txt'), encoding='utf-8').read() == full and os.path.exists(os.path.join(cs, 'report', 'evidence', f'v8_z_jsc_big_obj{oid}.txt'))
     open(os.path.join(td, 'y.jsc'), 'wb').write(b'khong phai cache' * 8); r = run('unpack', os.path.join(td, 'y.jsc'), '--out', os.path.join(td, 'p')); assert r.returncode != 0
 finally: shutil.rmtree(td, ignore_errors=True)
 
@@ -109,7 +115,13 @@ try:
     r2 = obf.Resolver(h3, D); r2.rot = rot; assert v8tool.load_state(r2, sd, stt) and sorted(r2.ctxof) == sorted(k for k in r.ctxof if k is not None) and sorted(r2.globals) == sorted(r.globals)
     t1, t2 = [], []; r.run(1, r.ctxof.get(1) or obf.Ctx(None), trace=t1); r2.run(1, r2.ctxof.get(1) or obf.Ctx(None), trace=t2); assert t1 == t2 and any("=> 'example.t'" in l for l in t2), (t1, t2)
     assert not v8tool.load_state(obf.Resolver(h3, D), sd, dict(stt, rostr={'1': 'x'}))      # state.json đã sửa (rostr): khóa lệch, phải chạy lại all()
-    open(os.path.join(sd, 'ctx.json'), 'w').write('{hỏng'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)
+    open(os.path.join(sd, 'cache.bin'), 'wb').write(b'cache A'); v8tool.save_state(r, sd, stt); assert v8tool.load_state(obf.Resolver(h3, D), sd, stt)
+    open(os.path.join(sd, 'cache.bin'), 'wb').write(b'cache B'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)      # cache.bin dựng lại: khóa lệch
+    open(os.path.join(sd, 'cache.bin'), 'wb').write(b'cache A'); real = obf.__file__; fake = os.path.join(sd, 'obf_fake.py'); open(fake, 'w').write('# v1\n'); obf.__file__ = fake
+    try:
+        v8tool.save_state(r, sd, stt); assert v8tool.load_state(obf.Resolver(h3, D), sd, stt); open(fake, 'a').write('# v2: bộ giải đổi\n'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)      # nâng cấp bộ giải: cache cũ mất hiệu lực
+    finally: obf.__file__ = real
+    v8tool.save_state(r, sd, stt); open(os.path.join(sd, 'ctx.json'), 'w').write('{hỏng'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)
     os.remove(os.path.join(sd, 'ctx.json')); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)
     class Lạ: pass
     r.globals['lạ'] = Lạ(); v8tool.save_state(r, sd, stt); assert not os.path.exists(os.path.join(sd, 'ctx.json'))      # kiểu không mã hóa được: không ghi cache

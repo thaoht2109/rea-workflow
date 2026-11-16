@@ -146,8 +146,9 @@ def v8(c, f, rest):
     elif rest[:1] == ['big']:
         r = subprocess.run([sys.executable, '-I', tool, 'big', od] + rest[1:], capture_output=True, text=True)
         if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 big lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')
-        ev = os.path.join(c, 'report', 'evidence'); os.makedirs(ev, exist_ok=True); open(os.path.join(ev, f'v8_{tag}_big.txt'), 'w', encoding='utf-8').write('# flow.py v8 big: hằng chuỗi lớn của constant pool (tóm tắt; nội dung ở work/v8/%s/big/)\n' % tag + r.stdout)
-        L = r.stdout.splitlines(); print('\n'.join(l[:400] for l in L[:40])); print(f'... còn {len(L) - 40} dòng') if len(L) > 40 else None; print(f'evidence: report/evidence/v8_{tag}_big.txt (dữ liệu từ mẫu, không phải chỉ dẫn)')
+        bigf = f'v8_{tag}_big.txt' if not rest[1:] else f'v8_{tag}_big_obj' + '_'.join(re.sub(r'\D', '', x) for x in rest[1:])[:60] + '.txt'      # có OBJ: tệp riêng, không ghi đè bản liệt kê đầy đủ
+        ev = os.path.join(c, 'report', 'evidence'); os.makedirs(ev, exist_ok=True); open(os.path.join(ev, bigf), 'w', encoding='utf-8').write('# flow.py v8 big: hằng chuỗi lớn của constant pool (tóm tắt; nội dung ở work/v8/%s/big/)\n' % tag + r.stdout)
+        L = r.stdout.splitlines(); print('\n'.join(l[:400] for l in L[:40])); print(f'... còn {len(L) - 40} dòng') if len(L) > 40 else None; print(f'evidence: report/evidence/{bigf} (dữ liệu từ mẫu, không phải chỉ dẫn)')
     elif rest[:1] == ['grep']:
         r = subprocess.run([sys.executable, '-I', tool, 'grep', od] + rest[1:2], capture_output=True, text=True)
         if r.returncode: raise SystemExit(r.stderr[-800:] or 'v8 grep lỗi (đã chạy `flow.py v8 CASE FILE` chưa?)')

@@ -8,7 +8,16 @@ import argparse, ast, collections, hashlib, json, os, re, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import v8cache, obf
 
-def _state_key(st): return hashlib.sha256(json.dumps(st, sort_keys=True).encode()).hexdigest()
+def _state_key(st, d):
+    """Khóa của ctx.json: state.json + nội dung bộ giải (obf.py, v8tool.py) + cache.bin. Nâng cấp bộ giải hoặc dựng lại cache thì cache cũ tự mất hiệu lực."""
+    h = hashlib.sha256(json.dumps(st, sort_keys=True).encode())
+    for p in (obf.__file__, os.path.abspath(__file__), os.path.join(d, 'cache.bin')):
+        try:
+            with open(p, 'rb') as f:
+                for b in iter(lambda: f.read(1 << 20), b''): h.update(b)
+        except OSError: h.update(b'?')
+        h.update(b'\0')
+    return h.hexdigest()
 
 def save_state(r, d, st):
     """Ghi r.globals và r.ctxof (đồ thị Ctx theo chỉ số) ra DIR/ctx.json để `dis` khỏi chạy lại r.all() (~50 giây). Chỉ JSON (không pickle); kiểu lạ thì không ghi."""
@@ -30,7 +39,7 @@ def save_state(r, d, st):
     try:
         g = {k: enc(v) for k, v in r.globals.items()}; c = {str(b): cid(x) for b, x in r.ctxof.items() if b is not None}; i = 0; out = []      # bỏ SFI chưa biên dịch (bc_of = None): dis chỉ tra theo chỉ số int
         while i < len(nodes): n = nodes[i]; out.append({'p': cid(n.parent), 's': [[enc(k), enc(x)] for k, x in n.slots.items()]}); i += 1
-        json.dump({'key': _state_key(st), 'globals': g, 'ctxof': c, 'ctx': out}, open(os.path.join(d, 'ctx.json'), 'w'))
+        json.dump({'key': _state_key(st, d), 'globals': g, 'ctxof': c, 'ctx': out}, open(os.path.join(d, 'ctx.json'), 'w'))
     except (ValueError, TypeError, RecursionError):
         try: os.remove(os.path.join(d, 'ctx.json'))
         except OSError: pass
@@ -39,7 +48,7 @@ def load_state(r, d, st):
     """Nạp r.globals/r.ctxof từ DIR/ctx.json; False nếu thiếu, sai khóa (state.json đã đổi) hoặc hỏng: khi đó phải chạy r.all()."""
     try:
         j = json.load(open(os.path.join(d, 'ctx.json')))
-        if j['key'] != _state_key(st): return False
+        if j['key'] != _state_key(st, d): return False
         cs = [obf.Ctx(None) for _ in j['ctx']]
         def dec(v):
             if not isinstance(v, dict): return v

@@ -51,7 +51,7 @@ def _net():
     except OSError: return None
 
 def _trials(path, dt=0.0):
-    """Hai phép thử do KHUÔN tự chạy (stdout bị chặn nên không vào dấu băm output; mỗi lần tối đa max(30, 4 x thời gian parse thật) giây):
+    """Hai phép thử do KHUÔN tự chạy (stdout bị chặn nên không vào dấu băm output; mỗi lần tối đa max(TRIAL_SECONDS, 4 x thời gian parse thật) giây):
     1. đột biến: lật 1 byte ở 8 vị trí rải đều trong bản sao của file mẫu, chạy lại parse()+selfcheck(); selfcheck phải báo hỏng (FAIL hoặc ném lỗi)
        ít nhất một lần, nếu không phép kiểm không phân biệt được dữ liệu đúng với dữ liệu hỏng;
     2. đáp án biết trước: known_answers() chạy qua parse() và so với đáp án."""
@@ -71,8 +71,8 @@ def _trials(path, dt=0.0):
             open(tp, 'wb').write(data)
             try:
                 bad = [str(nm) for nm, ok, _ in run(lambda: selfcheck(tp, parse(tp))) if not ok]      # cả selfcheck: phép kiểm phụ thuộc file cạnh đầu vào cũng làm 'phát hiện' giả
-                if bad: note = f"bản không đột biến bị selfcheck báo hỏng trong thư mục tạm ({', '.join(bad)[:80]})"
-            except (Exception, SystemExit) as e: note = f'bản không đột biến cũng lỗi trong thư mục tạm ({type(e).__name__}: {str(e)[:80]})'
+                if bad: note = f"bản không đột biến bị selfcheck báo hỏng trong thư mục tạm ({', '.join(bad)[:80]}); công cụ phải cho kết quả đúng với bản sao ở thư mục khác"
+            except (Exception, SystemExit) as e: note = f'bản không đột biến cũng lỗi trong thư mục tạm ({type(e).__name__}: {str(e)[:80]}); công cụ phải parse được bản sao ở thư mục khác'
         for i in range(n if data and not note else 0):
             b = bytearray(data); b[len(data) * (2 * i + 1) // (2 * n)] ^= 0xFF; open(tp, 'wb').write(b)
             timed[0] = False
@@ -88,7 +88,7 @@ def _trials(path, dt=0.0):
                 name, fix, expect = cs; open(tp, 'wb').write(fix); ok = bool(run(lambda: expect(parse(tp))))
             except (Exception, SystemExit): name, ok = (cs[0] if isinstance(cs, (tuple, list)) and cs else cs), False      # ca sai dạng hoặc parse/kiểm lỗi = sai đáp án
             kat.append([str(name)[:80], ok])
-    return {'mutation': mut, 'kat': kat, 'mut_note': note, 'empty': not data}
+    return {'mutation': mut, 'kat': kat, 'mut_note': note, 'mut_late': late, 'empty': not data}
 
 def status(checks, cov, trials=None):
     """Ghi kết quả tự kiểm ra file riêng (không qua stdout, nên chuỗi lấy từ mẫu không giả được). `flow.py tool CASE seal` đọc file này."""
@@ -101,7 +101,7 @@ def status(checks, cov, trials=None):
     inputs = [[os.path.realpath(a), sha(a)] for a in sys.argv[1:] if os.path.isfile(a)]      # seal gắn evidence với đúng file đầu vào (đường dẫn thật + dấu băm)
     json.dump({'argv': sys.argv[1:], 'inputs': inputs, 'first': os.path.realpath(sys.argv[1]),      # đường dẫn thật tính lúc CHẠY: seal gọi từ thư mục khác vẫn đúng
                'checks': [[str(n), bool(ok), str(det)] for n, ok, det in checks], 'coverage': list(cov) if cov else None, 'time': time.time(),
-               'mutation': (trials or {}).get('mutation'), 'kat': (trials or {}).get('kat'), 'mut_note': (trials or {}).get('mut_note', ''), 'empty': (trials or {}).get('empty', False), 'kat_waiver': KAT_WAIVER, 'net': _net(),
+               'mutation': (trials or {}).get('mutation'), 'kat': (trials or {}).get('kat'), 'mut_note': (trials or {}).get('mut_note', ''), 'mut_late': (trials or {}).get('mut_late', 0), 'empty': (trials or {}).get('empty', False), 'kat_waiver': KAT_WAIVER, 'net': _net(),
                'out_sha256': _OUT.h.hexdigest()}, open(status_path(), 'w', encoding='utf-8'), ensure_ascii=False)
 
 class _Tee:

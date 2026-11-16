@@ -14,5 +14,7 @@ try:
     open(rd, 'w', encoding='utf-8').write('# B\n\n## 9. Evidence\n\n| File | Nội dung |\n|---|---|\n| `a.txt` | thử |\n'); assert case.audit(c) == [], case.audit(c)
     open(rd, 'w', encoding='utf-8').write('# B\n\n## 9. Evidence\n\n| File | Nội dung |\n|---|---|\n| `b.txt` | thử |\n'); P = case.audit(c)
     assert not any('bảng Markdown' in p for p in P) and any('README thiếu: a.txt' in p for p in P), P      # bảng có nhưng thiếu file: không nhắc nhầm định dạng
+    open(rd, 'w', encoding='utf-8').write('# B\n\n## 9. Evidence\n\n| File | Nội dung |\n|---|---|\n| `data.txt` | thử |\n'); open(os.path.join(c, 'report', 'evidence', 'data.txt'), 'w').write('x\n')
+    P = case.audit(c); assert not any('bảng Markdown' in p for p in P) and any('README thiếu: a.txt' in p for p in P), P      # a.txt là chuỗi con của data.txt: không được tính là có mặt trong văn xuôi
 finally: shutil.rmtree(c, ignore_errors=True)
 print('OK check_audit_hint')

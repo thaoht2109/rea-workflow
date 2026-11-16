@@ -28,7 +28,7 @@ def save_state(r, d, st):
         if t in (list, tuple): return {'L' if t is list else 'T': [enc(x) for x in v]}
         raise ValueError(t.__name__)
     try:
-        g = {k: enc(v) for k, v in r.globals.items()}; c = {str(b): cid(x) for b, x in r.ctxof.items()}; i = 0; out = []
+        g = {k: enc(v) for k, v in r.globals.items()}; c = {str(b): cid(x) for b, x in r.ctxof.items() if b is not None}      # SFI chưa biên dịch (bc_of = None): dis chỉ tra theo chỉ số int; i = 0; out = []
         while i < len(nodes): n = nodes[i]; out.append({'p': cid(n.parent), 's': [[enc(k), enc(x)] for k, x in n.slots.items()]}); i += 1
         json.dump({'key': _state_key(st), 'globals': g, 'ctxof': c, 'ctx': out}, open(os.path.join(d, 'ctx.json'), 'w'))
     except (ValueError, TypeError, RecursionError):

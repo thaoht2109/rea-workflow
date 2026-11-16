@@ -104,8 +104,9 @@ assert obf.detect(h3) is None       # không có bảng chữ cái base64 đảo
 import tempfile as _tf, v8tool
 sd = _tf.mkdtemp(prefix='rea-v8st-')
 try:
+    r.ctxof[None] = obf.Ctx(None)      # SFI chưa biên dịch: bc_of = None, không được làm hỏng cache
     stt = {'obf': D, 'rot': rot, 'rostr': {}}; v8tool.save_state(r, sd, stt); assert os.path.exists(os.path.join(sd, 'ctx.json'))
-    r2 = obf.Resolver(h3, D); r2.rot = rot; assert v8tool.load_state(r2, sd, stt) and sorted(r2.ctxof) == sorted(r.ctxof) and sorted(r2.globals) == sorted(r.globals)
+    r2 = obf.Resolver(h3, D); r2.rot = rot; assert v8tool.load_state(r2, sd, stt) and sorted(r2.ctxof) == sorted(k for k in r.ctxof if k is not None) and sorted(r2.globals) == sorted(r.globals)
     t1, t2 = [], []; r.run(1, r.ctxof.get(1) or obf.Ctx(None), trace=t1); r2.run(1, r2.ctxof.get(1) or obf.Ctx(None), trace=t2); assert t1 == t2 and any("=> 'example.t'" in l for l in t2), (t1, t2)
     assert not v8tool.load_state(obf.Resolver(h3, D), sd, dict(stt, rostr={'1': 'x'}))      # state.json đã sửa (rostr): khóa lệch, phải chạy lại all()
     open(os.path.join(sd, 'ctx.json'), 'w').write('{hỏng'); assert not v8tool.load_state(obf.Resolver(h3, D), sd, stt)

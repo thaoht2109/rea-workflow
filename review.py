@@ -305,9 +305,21 @@ def gate(c):
     return False, 'chưa có review PASS khớp facts.jsonl hiện tại'
 
 # ---------- điểm dừng sớm ----------
-def accepted(c):
+def accepted(c, strict=False):
+    """Hạn chế đã chấp nhận {Cx: lý do}. File hỏng: mặc định cảnh báo và coi như rỗng (next/report vẫn chạy);
+    strict=True (sắp ghi đè, vd next --accept) thì dừng để không làm mất các mục cũ."""
     p = os.path.join(c, 'work', 'accepted.json')
-    return json.load(open(p)) if os.path.exists(p) else {}
+    if not os.path.exists(p): return {}
+    def bad(why):
+        if strict: raise SystemExit(f'{p} hỏng ({why}): sửa tay hoặc xóa file rồi chạy lại; không ghi đè để khỏi mất các mục đã chấp nhận')
+        print(f'cảnh báo: bỏ qua {p} ({why})', file=sys.stderr); return {}
+    try: d = json.load(open(p, encoding='utf-8'))
+    except UnicodeDecodeError:                      # file cũ ghi bằng encoding mặc định của máy
+        try: d = json.load(open(p))
+        except (ValueError, OSError) as e: return bad(f'đọc lỗi: {e}')
+    except (ValueError, OSError) as e: return bad(f'đọc lỗi: {e}')
+    if not isinstance(d, dict): return bad('không phải object JSON')
+    return {str(k): '' if v is None else str(v) for k, v in d.items()}
 
 def accept_args(a):
     """Gộp mọi cờ --accept của dòng lệnh; cờ đứng cuối mà thiếu giá trị thì dừng với lỗi rõ thay vì bỏ qua lặng lẽ."""
@@ -317,12 +329,12 @@ def accept_args(a):
     return '; '.join(v)
 
 def next_step(c, accept=''):
-    acc = accepted(c)
+    acc = accepted(c, strict=bool(accept))
     for kv in filter(None, map(str.strip, re.split(r'[;,]\s*(?=C\d+=)', accept))):   # tách trước 'Cx=' nên lý do được chứa dấu phẩy
         k, _, why = kv.partition('=')
         if not why: raise SystemExit(f'--accept {k} cần lý do: {k}=lý do')
         acc[k] = why
-    if accept: json.dump(acc, open(os.path.join(c, 'work', 'accepted.json'), 'w'), ensure_ascii=False, indent=1)
+    if accept: json.dump(acc, open(os.path.join(c, 'work', 'accepted.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     rows = C.check(c)
     todo = [(k, v, n) for k, v, n in rows if not (v == 'ok' or v.startswith('n/a')) and k.split()[0] not in acc and k.split()[0] != 'C0']
     ok, why = gate(c)

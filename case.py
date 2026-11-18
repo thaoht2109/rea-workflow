@@ -303,8 +303,11 @@ def report(case):
     F = list(cur.values()); n = {s: sum(f['status'] == s for f in F) for s in ('active', 'hypothesis', 'retracted')}
     m = RPT.match(os.path.basename(rm)); gate = review.gate(case); todo = review.report_todo(case) if gate[0] else []
     if todo: gate = (False, 'báo cáo viết tay chưa nhắc fact đã sửa: ' + ', '.join(x['id'] for x in todo))   # cùng điều kiện chặn report --final
+    acc = review.accepted(case)   # mục chưa đạt nhưng đã chấp nhận là hạn chế (next --accept): hiện lý do thay cho việc còn lại
+    rows = [(k, f'chấp nhận: {v}', 'Hạn chế đã chấp nhận: ' + acc[k.split()[0]]) if k.split()[0] in acc and k.split()[0] != 'C0'
+            and not (v == 'ok' or v.startswith('n/a')) else (k, v, h) for k, v, h in check(case, shown=name)]
     open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(   # ngày và tên nguồn theo đúng file báo cáo đang dùng
-        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), check(case, shown=name),   # file HTML để chia sẻ: không lộ đường dẫn máy
+        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), rows,   # file HTML để chia sẻ: gợi ý điền tên case, không lộ đường dẫn máy
         dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm)))
     return L
 

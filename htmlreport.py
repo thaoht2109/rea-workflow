@@ -114,7 +114,7 @@ def _list(items):
     return ''.join(out)
 
 def badge(v):
-    k = 'ok' if v.startswith('ok') else 'na' if v.startswith('n/a') else 'fail' if v.startswith('fail') else 'partial' if v.startswith('partial') else 'missing'
+    k = 'ok' if v.startswith('ok') else 'na' if v.startswith(('n/a', 'chấp nhận')) else 'fail' if v.startswith('fail') else 'partial' if v.startswith('partial') else 'missing'
     return f'<span class="b {k}">{esc(v)}</span>'
 
 CSS = """

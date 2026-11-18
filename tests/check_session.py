@@ -30,6 +30,10 @@ try:
         assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-flow thắng' in p, p                     # trỏ tới skill dịch ngược khác
         s = shlex.split(run(E0, '--strict').stdout.strip().splitlines()[-1])
         assert '--safe-mode' in s and '--strict' not in s, s
+    # CLAUDE_CONFIG_DIR riêng đã cài skill -> Claude Code tự nạp, không liệt kê lại; không đặt -> vẫn liệt kê
+    os.makedirs(os.path.join(H, 'cfg', 'skills', 'rev-x'))
+    rs = lambda env: subprocess.run([sys.executable, '-c', f'import sys; sys.path.insert(0, {SKILL!r}); import flow; print([n for n, _, _ in flow.re_skills({ws!r})])'], capture_output=True, text=True, env=env).stdout.strip()
+    assert rs(E0) == "['rev-x']" and rs(dict(E0, CLAUDE_CONFIG_DIR=os.path.join(H, 'cfg'))) == '[]', (rs(E0), rs(dict(E0, CLAUDE_CONFIG_DIR=os.path.join(H, 'cfg'))))
     shutil.rmtree(H)
     env = dict(os.environ, PATH=tempfile.mkdtemp())                # máy không có claude
     r = run(env); assert r.returncode == 2 and 'chỉ hỗ trợ Claude Code' in r.stdout, r.stdout

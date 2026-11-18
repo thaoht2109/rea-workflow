@@ -46,7 +46,7 @@ try:
     c = cs[0]; a = calls()[-1]
     os.remove(os.path.join(inbox, 'fresh.bin'))   # đã kiểm: chưa nhận; xóa để vòng sau (đã quá SETTLE) không nhận
     assert len(calls()) == 1 and a[a.index('--model') + 1] == 'mx' and a[a.index('--permission-mode') + 1] == 'default', a
-    assert 'Bash(python3:*)' in a[a.index('--allowedTools') + 1] and 'mcp__' not in a[a.index('--allowedTools') + 1] and 'WebFetch' in a[a.index('--disallowedTools') + 1], a
+    assert 'Bash(python3:*)' in a[a.index('--allowedTools') + 1] and 'mcp__' not in a[a.index('--allowedTools') + 1] and json.loads(a[a.index('--mcp-config') + 1]) == {'mcpServers': {}} and 'WebFetch' in a[a.index('--disallowedTools') + 1], a
     assert st(c)['sessions'] == 1 and st(c)['stall'] == 1 and os.path.exists(os.path.join(ws, c, 'work', 'runs', 'watch', 's01.jsonl')), st(c)
     # trùng nội dung, tên khác: không tạo case mới; phiên đổi báo cáo -> stall về 0
     drop('copy.sh', '#!/bin/sh\necho hi\n'); W('--model', 'mx', FAKE_TOUCH='1')

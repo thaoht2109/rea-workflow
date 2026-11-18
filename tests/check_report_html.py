@@ -38,6 +38,7 @@ try:
     assert not re.search(r'<(link|img|iframe)\b|src=', h), 'không tải tài nguyên'
     assert '<strong>đậm</strong>' in h and '<em>nghiêng</em>' in h and 'snake_case_name' in h and '<pre><code>int x = a &lt; b;' in h
     assert re.search(r'<ul><li>mục 1<ul><li>mục con', h) and '<code>a|b</code>' in h, 'danh sách lồng, | trong code của bảng'
+    assert 'title="report/evidence/e.txt#L2"' in h and '<code>e.txt#L2</code>' in h, 'nhãn evidence rút gọn'
     assert 'BẢN NHÁP' in h and 'C11' in h and 'id="phu-luc"' in h and 'Ngày phân tích 2026-03-04' in h
 
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML

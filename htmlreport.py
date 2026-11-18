@@ -21,8 +21,8 @@ def _href(u):
     return u[len('report/'):] if u.startswith('report/evidence/') else u
 
 def _code(c):
-    m = re.match(r'^report/(evidence/[^\s#`]+)(#L\d+(?:-L?\d+)?)?$', c)
-    return f'<a class="ev" href="{esc(m.group(1))}"><code>{esc(c)}</code></a>' if m else f'<code>{esc(c)}</code>'
+    m = re.match(r'^report/(evidence/[^\s#`]+)(#L\d+(?:-L?\d+)?)?$', c)   # nhãn bỏ tiền tố report/evidence/ cho cột hẹp; đường dẫn đủ ở title
+    return f'<a class="ev" href="{esc(m.group(1))}" title="{esc(c)}"><code>{esc(c[len("report/evidence/"):])}</code></a>' if m else f'<code>{esc(c)}</code>'
 
 def inline(t):
     """Mã và link thay bằng chỗ giữ trước (không định dạng bên trong mã), rồi escape + đậm/nghiêng cả dòng, cuối cùng trả chỗ giữ."""
@@ -140,7 +140,7 @@ pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow:auto}pre
 blockquote{margin:12px 0;padding:4px 16px;border-left:3px solid var(--acc);color:var(--mut)}
 .tw{overflow-x:auto;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:13.5px}
 th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}th{background:var(--code);font-weight:600}
-tr.hide{display:none}.b{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
+a.ev code{white-space:nowrap;word-break:normal}tr.hide{display:none}.b{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap}
 .b.ok{background:var(--okb);color:var(--ok)}.b.partial{background:var(--pab);color:var(--pa)}.b.missing,.b.fail{background:var(--mib);color:var(--mi)}.b.na{background:var(--nab);color:var(--na)}
 .filter{width:100%;max-width:420px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit;margin:8px 0}
 .note{color:var(--mut);font-size:13px}.tools{float:right}.tools button{font:inherit;font-size:12.5px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer}
@@ -155,13 +155,14 @@ var f=document.getElementById('filter');if(!f)return;f.oninput=function(){var q=
 document.querySelectorAll('#phu-luc-body tbody tr').forEach(function(t){t.classList.toggle('hide',q&&t.textContent.toLowerCase().indexOf(q)<0)})}})();
 """
 
-def render(case, date, body_md, gen_md, checklist, stats):
-    """checklist: [(mục, trạng thái, gợi ý)] từ case.check(); stats: active/hypothesis/retracted/ioc/evidence."""
+def render(case, date, body_md, gen_md, checklist, stats, gate=None):
+    """checklist: [(mục, trạng thái, gợi ý)] từ case.check(); stats: active/hypothesis/retracted/ioc/evidence;
+    gate: (ok, lý do) của review.gate (cùng điều kiện với report --final); không có thì suy từ C0."""
     used, toc = {'tom-tat', 'checklist', 'phu-luc'}, []
     body = md(re.sub(r'\A\s*#\s[^\n]*\n', '', body_md), 0, used, toc) if body_md.strip() else '<p class="note">Chưa có báo cáo viết tay (report/report-&lt;ngày&gt;.md).</p>'
     gen = md(gen_md, 1, used)
     c0 = next((v for k, v, _ in checklist if k.startswith('C0')), 'missing')
-    done = c0.startswith('ok')
+    done, why = gate if gate else (c0.startswith('ok'), c0)
     rows = ''.join(f'<tr><td>{esc(k)}</td><td>{badge(v)}</td><td>{esc(n)}</td></tr>' for k, v, n in checklist)
     S = [('active', 'fact hiệu lực'), ('hypothesis', 'giả thuyết'), ('retracted', 'đã rút/thay'), ('ioc', 'IOC'), ('evidence', 'file evidence')]
     stat = ''.join(f'<div class="stat"><b>{stats.get(k, 0)}</b><span>{t}</span></div>' for k, t in S)
@@ -174,7 +175,7 @@ def render(case, date, body_md, gen_md, checklist, stats):
 <body><div class="wrap"><nav><div class="t">{esc(case)}</div>{nav}</nav><main>
 <header><div class="tools"><button id="theme" type="button">Sáng/tối</button></div><h1>Báo cáo phân tích: {esc(case)}</h1>
 <div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-flow · nguồn: <code>facts.jsonl</code>, <code>report-{esc(date)}.md</code></div>
-<div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(c0) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(c0) + ')'}</div>
+<div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(why) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(why) + ')'}</div>
 <div class="stats" id="tom-tat">{stat}</div></header>
 <section><h2 id="checklist">Checklist C0–C11</h2><div class="tw"><table><thead><tr><th>Mục</th><th>Trạng thái</th><th>Việc còn lại</th></tr></thead><tbody>{rows}</tbody></table></div></section>
 <section>{body}</section>

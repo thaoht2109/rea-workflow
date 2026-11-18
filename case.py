@@ -298,12 +298,12 @@ def report(case):
     L += [f"| `{r}` | {os.path.getsize(os.path.join(case, EV, r))} | `{sha(os.path.join(case, EV, r))[:16]}…` | {'có' if r in refs else '—'} |"
           for r in ev_files(case)]
     open(os.path.join(case, 'report', 'GENERATED.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
-    import htmlreport   # bản HTML gộp báo cáo viết tay + bảng sinh từ fact + checklist: chỉ để xem, nguồn vẫn là .md và facts.jsonl
+    import htmlreport, review   # bản HTML gộp báo cáo viết tay + bảng sinh từ fact + checklist: chỉ để xem, nguồn vẫn là .md và facts.jsonl
     rm, name = report_md(case), os.path.basename(os.path.abspath(case)); body = open(rm, encoding='utf-8', errors='replace').read() if os.path.isfile(rm) else ''
     F = list(cur.values()); n = {s: sum(f['status'] == s for f in F) for s in ('active', 'hypothesis', 'retracted')}
     open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(
         name, analysis_date(case, body), body, '\n'.join(L), [(k, v, h.replace(shlex.quote(case), shlex.quote(name))) for k, v, h in check(case)],   # file HTML để chia sẻ: không lộ đường dẫn máy
-        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case)))))
+        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), review.gate(case)))
     return L
 
 def audit(case):

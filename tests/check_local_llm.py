@@ -116,6 +116,7 @@ open(c2 + '/report/report-2026-01-01.md', 'a').write('Xem f1.r10 và xf1.r1.\n')
 open(c2 + '/report/report-2026-01-01.md', 'a').write('Đính chính: đã rút f1.r1.\n')
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr
+assert 'Cổng phản biện: đạt' in open(C.report_html(c2), encoding='utf-8').read(), 'bản HTML theo review.gate'
 
 # thất bại không được cache: chạy lại phải gọi model lần nữa
 c3 = mkcase(); json.dump(dict(items=[dict(item)]), open(c3 + '/work/review/r1/review.json', 'w'))

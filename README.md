@@ -106,6 +106,13 @@ Mở agent trong thư mục chứa case và giao việc bằng lời:
 
 Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và viết báo cáo. Bạn chỉ cần trả lời khi agent hỏi, và gõ `/clear` khi được đề nghị để giảm ngữ cảnh.
 
+Có hai chế độ. Trong Claude Code, thư mục skill có `.claude-plugin/plugin.json` nên được nạp thành plugin với hai skill:
+
+- `/rea-workflow:manual`: phân tích từng mẫu, có người theo dõi từng bước (như ví dụ trên).
+- `/rea-workflow:auto`: chạy cả một thư mục và theo dõi mẫu mới (`flow.py watch INBOX`). Mỗi mẫu một case, mỗi mốc một phiên `claude -p` riêng; case dừng và báo người khi phản biện FAIL 2 lần, hết trần phiên hoặc không còn tiến triển. Phiên không có người duyệt, nên chạy trong VM không có mạng ra ngoài.
+
+Agent khác (Codex, Cursor…) dùng `SKILL.md` ở gốc, trong đó có mục "Hai chế độ".
+
 **Lệnh thường dùng** (khi muốn tự điều khiển):
 
 | Lệnh | Mục đích |

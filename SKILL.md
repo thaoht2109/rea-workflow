@@ -35,3 +35,8 @@ Code dẫn đường, không cần đọc lại tài liệu:
 Kho tra chéo giữa các case (`flow.py kb`): `new`/`triage` tự in gợi ý mẫu tương tự nếu kho đã dựng. Gợi ý **không phải fact**: không chép vào evidence hay báo cáo, không quy kết theo case khác; chỉ dùng để biết nên thử gì trước, rồi tự chứng minh lại trên mẫu của case này.
 
 Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`. Lệnh `rea` được phép theo loại mẫu và lệnh bị cấm: `$SKILL/FLOW.md` mục 4a.
+
+## Hai chế độ
+
+- **Từng mẫu, có người theo dõi:** quy trình ở trên. Trong Claude Code là skill `rea-workflow:manual`.
+- **Cả thư mục và theo dõi mẫu mới, không người trực:** `flow.py watch`, hướng dẫn ở `$SKILL/skills/auto/SKILL.md`. Trong Claude Code là skill `rea-workflow:auto`.

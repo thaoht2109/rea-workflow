@@ -24,6 +24,8 @@
 #   flow.py kb build | match CASE | tools | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
 #                                      gợi ý mẫu tương tự (KHÔNG phải fact, phải tự chứng minh lại) | thống kê đính chính để theo dõi luật lint sau này
 #   flow.py kb export FILE [--name TÊN] | import FILE [--name TÊN]   chia sẻ/backup kho giữa các server (không có mẫu, có IOC)
+#   flow.py watch INBOX [--once] [--model M]   chạy liên tục: mẫu mới trong INBOX (theo sha256) thành case, mỗi mốc một phiên `claude -p` theo `next`;
+#                                      dừng và báo khi STOPPED/DONE, hết trần phiên hoặc fact không đổi (REA_WATCH_*); không --model thì hỏi
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
@@ -421,6 +423,7 @@ if __name__ == '__main__':
     if a[:1] == ['session']: sys.exit(session(a[1:]))
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if a[:1] == ['opencode']: sys.exit(opencode(a[1:]))
+    if a[:1] == ['watch']: import watch; sys.exit(watch.main(a[1:]))
     if a[:1] == ['kb']: import kb; sys.exit(kb.main(a[1:]))
     if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])

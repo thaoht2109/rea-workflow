@@ -13,7 +13,7 @@ try:
     json.dump({'enabledPlugins': {'ponytail@p': True, 'ida-helper@m': True, 'old@x': False}}, open(os.path.join(H, '.claude', 'settings.json'), 'w'))
     open(os.path.join(H, '.agents', 'skills', 'rev', 'SKILL.md'), 'w').write('---\nname: rev-x\ndescription: Reverse engineer binaries\n---\n')
     open(os.path.join(H, '.agents', 'skills', 'ui', 'SKILL.md'), 'w').write('---\nname: ui-x\ndescription: Make web pages pretty\n---\n')
-    E0 = dict(os.environ, HOME=H)
+    E0 = {**{k: v for k, v in os.environ.items() if k != 'CLAUDE_CONFIG_DIR'}, 'HOME': H}   # không để biến của máy chạy test lọt vào
     run = lambda env=None, *x: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'session', '--print', *x, '-p'], cwd=ws, capture_output=True, text=True, env=env)
     r = run(E0)
     if shutil.which('claude'):

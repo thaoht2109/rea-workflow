@@ -216,14 +216,20 @@ def shell_rcs():
     return [p for p in rcs if os.path.isfile(p)]
 
 def migrate_hook(old):
-    """session --migrate OLD: bản cài ở OLD sắp bị gỡ (vd tên cũ rea-flow -> rea-workflow). Khối shell trỏ tới OLD/flow.py thì cài lại
-    theo bản này cho đúng workspace của khối, và ghi lại quy tắc của workspace đó. Không có khối nào trỏ tới OLD: không làm gì."""
-    old = os.path.realpath(old) + '/flow.py'
+    """session --migrate OLD: bản cài ở OLD sắp bị gỡ (vd tên cũ rea-flow -> rea-workflow). Trong từng file rc, khối shell trỏ tới OLD/flow.py
+    được đổi sang bản này (giữ đúng workspace của khối đó) và quy tắc của workspace được ghi lại; workspace không còn thì bỏ qua."""
+    old, new = (shlex.quote(os.path.realpath(x) + '/flow.py') for x in (old, TOOLS))
+    pat, done, rc = re.compile(re.escape(SB) + r'.*?' + re.escape(SE), re.S), set(), 0
     for p in shell_rcs():
-        b = re.search(re.escape(SB) + r'.*?' + re.escape(SE), open(p, encoding='utf-8').read(), re.S)
-        m = b and old in b.group(0) and re.search(r'claude\(\) \{ case "\$PWD/" in (.+?)/\*\)', b.group(0))
-        if m: ws = shlex.split(m.group(1))[0]; return shell_hook(['--install', ws]) or rules(['--project', ws])
-    return 0
+        s = open(p, encoding='utf-8').read(); b = pat.search(s)
+        if not b or old not in b.group(0): continue
+        open(p, 'w', encoding='utf-8').write(s[:b.start()] + b.group(0).replace(old, new) + s[b.end():]); print(f'chuyển {p}')
+        m = re.search(r'claude\(\) \{ case "\$PWD/" in (.+?)/\*\)', b.group(0)); ws = m and shlex.split(m.group(1))[0]
+        if not ws or ws in done: continue
+        done.add(ws)
+        if os.path.isdir(ws): rc = rules(['--project', ws]) or rc
+        else: print(f'bỏ qua quy tắc: workspace {ws} không còn')
+    return rc
 
 def shell_hook(a):
     """Hàm shell `claude`: trong workspace -> flow.py session, nơi khác -> claude thường. Ghi vào ~/.bashrc, ~/.zshrc (file thường)

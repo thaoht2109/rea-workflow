@@ -59,8 +59,12 @@ try:
     shutil.copytree(SKILL, old, ignore=shutil.ignore_patterns('.git', 'tests', 'evals', '.claude', 'node_modules'))
     subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws], env=E, capture_output=True, check=True)
     assert old + '/flow.py' in open(rc).read(), open(rc).read()
-    subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True)
-    t = open(rc).read(); assert T + '/flow.py' in t and old not in t and t.count('rea-flow session >>>') == 1, t
+    rc2, ws2 = os.path.join(ws, 'rc2'), tempfile.mkdtemp(); open(rc2, 'w').write('')   # rc thứ hai trỏ workspace khác, đã bị xóa
+    subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws2], env=dict(E, REA_SHELL_RC=rc2), capture_output=True, check=True)
+    shutil.rmtree(ws2); ws2 = os.path.realpath(ws2)
+    subprocess.run(fl + ['--migrate', old], env=dict(E, REA_SHELL_RC=rc + ':' + rc2), capture_output=True, check=True)
+    t = open(rc).read(); assert T + '/flow.py' in t and old not in t and t.count('rea-flow session >>>') == 1 and ws2 not in t, t
+    t2 = open(rc2).read(); assert T + '/flow.py' in t2 and old not in t2 and ws2 in t2 and not os.path.exists(ws2), t2   # giữ workspace riêng, không tạo lại
     assert f'`{T}/SKILL.md`' in open(os.path.join(ws, 'AGENTS.md')).read()
     subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True); assert open(rc).read() == t   # không còn khối trỏ OLD: không đổi
     assert subprocess.run(fl + ['--migrate'], env=E, capture_output=True).returncode == 2   # thiếu thư mục: báo cách dùng

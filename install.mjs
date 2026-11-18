@@ -38,9 +38,11 @@ const rules = (dir, extra) => {
 };
 
 if (sub === 'remove') {
-  const dir = skillDir();
-  if (dir) rules(dir, ['--remove']);
-  process.exit(run('npx', ['-y', SKILLS, 'remove', dir ? basename(dir) : 'rea-workflow', ...rest]));
+  const ds = ['rea-workflow', OLD].map(n => skillDir([n])).filter(Boolean);   // còn cả hai tên (vd migrate dở): gỡ cả hai
+  if (ds.length) rules(ds[0], ['--remove']);
+  let rc = 0;
+  for (const n of ds.length ? ds.map(d => basename(d)) : ['rea-workflow']) rc = run('npx', ['-y', SKILLS, 'remove', n, ...rest]) || rc;
+  process.exit(rc);
 }
 if (sub === 'version' || sub === 'update') {
   const dir = skillDir();   // skills update báo "không thấy" mà vẫn trả 0, nên kiểm trước
@@ -50,18 +52,18 @@ if (sub === 'version' || sub === 'update') {
   const tag = to && (to.startsWith('v') ? to : 'v' + to);
   const git = run('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0;   // clone git: skills CLI không quản
   const G = a => run('git', ['-C', dir, ...a]);
-  const [M, m] = tag ? tag.slice(1).split('.').map(Number) : [];
-  if (tag && !git && (M < 1 || (M === 1 && m < 12))) {   // trước 1.12 skill tên rea-flow: skills add sẽ cài thêm một skill song song
+  const [M, m] = tag ? tag.slice(1).split('.').map(Number) : [], pre = !!tag && (M < 1 || (M === 1 && m < 12));   // trước 1.12 skill tên rea-flow
+  if (pre && !git && basename(dir) !== OLD) {   // đang ở tên mới: skills add bản cũ sẽ cài thêm một skill song song
     console.error(`Bản ${tag} còn mang tên ${OLD}; hạ bản qua skills CLI sẽ cài hai skill song song. Gỡ rồi cài bản cũ:\n  npx github:${REPO} remove ${global ? '-g' : ''}\n  npx github:${REPO}#${tag} ${global ? '-g' : ''}`);
     process.exit(1);
   }
   let rc;
   if (git && tag) rc = G(['fetch', '--tags', '--quiet', 'origin']) || G(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', tag]);
   else if (git) rc = (run('git', ['-C', dir, 'symbolic-ref', '-q', 'HEAD'], 'ignore') ? G(['checkout', '--quiet', 'main']) : 0) || G(['pull', '--ff-only']);   // đang ghim tag thì về main
-  else if (tag || lockRef(dir) || basename(dir) === OLD) {   // skills update giữ ref đang ghim nên đổi bản phải add lại; bản tên cũ: add tên mới rồi gỡ tên cũ
+  else if (tag || lockRef(dir) || basename(dir) === OLD) {   // bản tên cũ hạ về bản tên cũ (pre): chỉ add, không chuyển tên   // skills update giữ ref đang ghim nên đổi bản phải add lại; bản tên cũ: add tên mới rồi gỡ tên cũ
     const old = realpathSync(dir);
     rc = run('npx', ['-y', SKILLS, 'add', REPO + (tag ? '#' + tag : ''), ...rest]);
-    if (!rc && basename(dir) === OLD) {   // chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
+    if (!rc && basename(dir) === OLD && !pre) {   // chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
       const nd = skillDir(['rea-workflow']);
       if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
       rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);

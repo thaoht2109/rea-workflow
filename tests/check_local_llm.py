@@ -108,6 +108,8 @@ assert review.gate(c2)[0], review.gate(c2)
 final = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'report', c2, '--final'], capture_output=True, text=True)
 assert review.report_todo(c2) and review.report_todo(c2)[0]['id'] == 'f1.r1' and 'thay f1) -> retracted' in review.report_todo(c2)[0]['line'], review.report_todo(c2)
 assert review.next_step(c2, 'C1=x,C2=x,C3=x,C4=x,C5=x,C6=x,C7=x,C8=x,C9=x,C10=x,C11=x') == 1
+C.report(c2); h = open(C.report_html(c2), encoding='utf-8').read()
+assert 'BẢN NHÁP' in h and 'f1.r1' in h and 'Cổng phản biện: đạt' not in h, 'HTML: cổng mở nhưng report_todo còn thì vẫn là bản nháp'
 r = final(); assert r.returncode != 0 and 'report-2026-01-01.md' in r.stderr and 'thay f1) -> retracted' in r.stderr, r.stdout + r.stderr
 os.utime(c2 + '/report/report-2026-01-01.md', (2 ** 32, 2 ** 32)); assert review.report_todo(c2), 'touch không được coi là đã cập nhật'
 open(c2 + '/report/report-2026-01-01.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'

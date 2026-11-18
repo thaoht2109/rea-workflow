@@ -301,9 +301,11 @@ def report(case):
     import htmlreport, review   # bản HTML gộp báo cáo viết tay + bảng sinh từ fact + checklist: chỉ để xem, nguồn vẫn là .md và facts.jsonl
     rm, name = report_md(case), os.path.basename(os.path.abspath(case)); body = open(rm, encoding='utf-8', errors='replace').read() if os.path.isfile(rm) else ''
     F = list(cur.values()); n = {s: sum(f['status'] == s for f in F) for s in ('active', 'hypothesis', 'retracted')}
-    open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(
-        name, analysis_date(case, body), body, '\n'.join(L), [(k, v, h.replace(shlex.quote(case), shlex.quote(name))) for k, v, h in check(case)],   # file HTML để chia sẻ: không lộ đường dẫn máy
-        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), review.gate(case)))
+    m = RPT.match(os.path.basename(rm)); gate = review.gate(case); todo = review.report_todo(case) if gate[0] else []
+    if todo: gate = (False, 'báo cáo viết tay chưa nhắc fact đã sửa: ' + ', '.join(x['id'] for x in todo))   # cùng điều kiện chặn report --final
+    open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(   # ngày và tên nguồn theo đúng file báo cáo đang dùng
+        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), [(k, v, h.replace(shlex.quote(case), shlex.quote(name))) for k, v, h in check(case)],   # file HTML để chia sẻ: không lộ đường dẫn máy
+        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm)))
     return L
 
 def audit(case):

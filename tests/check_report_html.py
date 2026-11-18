@@ -41,6 +41,11 @@ try:
     assert 'title="report/evidence/e.txt#L2"' in h and '<code>e.txt#L2</code>' in h, 'nhãn evidence rút gọn'
     assert 'BẢN NHÁP' in h and 'C11' in h and 'id="phu-luc"' in h and 'Ngày phân tích 2026-03-04' in h
 
+    # bản mới nhất có dòng 'Ngày bắt đầu' khác tên file: HTML theo tên file đang dùng
+    open(os.path.join(c, 'report', 'report-2026-05-06.md'), 'w', encoding='utf-8').write('# x\n\n> Ngày bắt đầu: 2026-03-04\n')
+    case.report(c); h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
+    assert 'Ngày phân tích 2026-05-06' in h and '<code>report-2026-05-06.md</code>' in h and 'report-2026-03-04.md</code>' not in h
+
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML
     s = os.path.join(w, 'x.bin'); open(s, 'wb').write(b'MZ' + b'\0' * 200)
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'new', os.path.join(w, 'NEW'), s], capture_output=True, text=True)
@@ -52,5 +57,8 @@ try:
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'report', c3], capture_output=True, text=True)
     assert r.returncode == 0 and 'đổi tên' in r.stdout and not os.path.exists(os.path.join(c3, 'report', 'README.md')), r.stdout + r.stderr
     assert htmlreport.md('| a |\n|---|\n| [x](javascript:alert(1)) |').count('href') == 0, 'javascript: không thành link'
+    for u in ['/\\evil.example/x', '\\/evil.example', '\\\\evil\\s', '/etc/passwd', '\x01javascript:alert(1)', 'java\tscript:alert(1)', ' //evil', 'file:///x', 'HTTPS://a']:
+        assert htmlreport._href(u) is None, u
+    assert htmlreport._href('evidence/a.txt#L2') == 'evidence/a.txt#L2' and htmlreport._href('#muc') == '#muc' and htmlreport._href('GENERATED.md') == '#phu-luc'
 finally: shutil.rmtree(w, ignore_errors=True)
 print('OK check_report_html')

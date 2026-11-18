@@ -14,9 +14,11 @@ def slug(t, used):
     used.add(k); return k
 
 def _href(u):
-    """Chỉ nhận đường dẫn tương đối (evidence/, GENERATED.md…). URL có scheme hoặc // thì không thành link: tránh bấm nhầm vào hạ tầng mã độc."""
-    u = u.strip()
-    if re.match(r'^([a-z][a-z0-9+.-]*:|//|\\)', u, re.I): return None
+    """Chỉ nhận đường dẫn tương đối (evidence/, GENERATED.md, #mục). URL có scheme, đường tuyệt đối, //host hay /\\host (trình duyệt
+    chuẩn hóa thành //host: file:// -> UNC/SMB) thì không thành link: tránh bấm nhầm vào hạ tầng mã độc. Ký tự điều khiển/khoảng trắng
+    bị trình duyệt bỏ khi phân tích URL nên bỏ trước khi kiểm (\\x01javascript: -> javascript:)."""
+    u = re.sub(r'[\x00-\x20\x7f]', '', u).replace('\\', '/')
+    if not u or u.startswith('/') or re.match(r'^[^/?#]*:', u): return None
     if u.split('#')[0] == 'GENERATED.md': return '#phu-luc'
     return u[len('report/'):] if u.startswith('report/evidence/') else u
 
@@ -155,7 +157,7 @@ var f=document.getElementById('filter');if(!f)return;f.oninput=function(){var q=
 document.querySelectorAll('#phu-luc-body tbody tr').forEach(function(t){t.classList.toggle('hide',q&&t.textContent.toLowerCase().indexOf(q)<0)})}})();
 """
 
-def render(case, date, body_md, gen_md, checklist, stats, gate=None):
+def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None):
     """checklist: [(mục, trạng thái, gợi ý)] từ case.check(); stats: active/hypothesis/retracted/ioc/evidence;
     gate: (ok, lý do) của review.gate (cùng điều kiện với report --final); không có thì suy từ C0."""
     used, toc = {'tom-tat', 'checklist', 'phu-luc'}, []
@@ -174,7 +176,7 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None):
 <meta name="referrer" content="no-referrer"><title>Báo cáo {esc(case)}</title><style>{CSS}</style></head>
 <body><div class="wrap"><nav><div class="t">{esc(case)}</div>{nav}</nav><main>
 <header><div class="tools"><button id="theme" type="button">Sáng/tối</button></div><h1>Báo cáo phân tích: {esc(case)}</h1>
-<div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-flow · nguồn: <code>facts.jsonl</code>, <code>report-{esc(date)}.md</code></div>
+<div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-flow · nguồn: <code>facts.jsonl</code>, <code>{esc(src or f'report-{date}.md')}</code></div>
 <div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(why) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(why) + ')'}</div>
 <div class="stats" id="tom-tat">{stat}</div></header>
 <section><h2 id="checklist">Checklist C0–C11</h2><div class="tw"><table><thead><tr><th>Mục</th><th>Trạng thái</th><th>Việc còn lại</th></tr></thead><tbody>{rows}</tbody></table></div></section>

@@ -25,7 +25,7 @@ T = tempfile.mkdtemp(prefix='rea-watch-')
 try:
     ws, inbox, H, fb = (os.path.join(T, x) for x in ('ws', 'inbox', 'home', 'bin'))
     for d in (ws, inbox, H, fb): os.makedirs(d)
-    open(os.path.join(fb, 'claude'), 'w').write(FAKE); os.chmod(os.path.join(fb, 'claude'), 0o755)
+    open(os.path.join(fb, 'claude'), 'w').write(FAKE); os.chmod(os.path.join(fb, 'claude'), 0o700)
     log = os.path.join(T, 'log')
     E0 = {**{k: v for k, v in os.environ.items() if k != 'CLAUDE_CONFIG_DIR' and not k.startswith('REA_')}, 'HOME': H,
           'PATH': fb + ':' + os.environ['PATH'], 'FAKE_LOG': log, 'REA_WATCH_STALL': '2'}

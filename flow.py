@@ -277,7 +277,7 @@ def session_tools(ws):
 
 def re_skills(ws):
     """Skill dịch ngược khác trên máy mà Claude Code không tự nạp (vd cài cho mọi agent ở ~/.agents/skills): (tên, mô tả, thư mục)."""
-    native = {os.path.expanduser('~/.claude/skills'), os.path.join(ws, '.claude', 'skills')}
+    native = {os.path.join(os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude'), 'skills'), os.path.join(ws, '.claude', 'skills')}
     out = []
     for base in (os.path.expanduser('~/.agents/skills'), os.path.join(ws, '.agents', 'skills')):
         for d in sorted(glob.glob(os.path.join(base, '*', 'SKILL.md'))):

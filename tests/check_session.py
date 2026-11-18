@@ -13,7 +13,7 @@ try:
     json.dump({'enabledPlugins': {'ponytail@p': True, 'ida-helper@m': True, 'old@x': False}}, open(os.path.join(H, '.claude', 'settings.json'), 'w'))
     open(os.path.join(H, '.agents', 'skills', 'rev', 'SKILL.md'), 'w').write('---\nname: rev-x\ndescription: Reverse engineer binaries\n---\n')
     open(os.path.join(H, '.agents', 'skills', 'ui', 'SKILL.md'), 'w').write('---\nname: ui-x\ndescription: Make web pages pretty\n---\n')
-    E0 = dict(os.environ, HOME=H)
+    E0 = {**{k: v for k, v in os.environ.items() if k != 'CLAUDE_CONFIG_DIR'}, 'HOME': H}   # không để biến của máy chạy test lọt vào
     run = lambda env=None, *x: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'session', '--print', *x, '-p'], cwd=ws, capture_output=True, text=True, env=env)
     r = run(E0)
     if shutil.which('claude'):
@@ -30,6 +30,10 @@ try:
         assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-flow thắng' in p, p                     # trỏ tới skill dịch ngược khác
         s = shlex.split(run(E0, '--strict').stdout.strip().splitlines()[-1])
         assert '--safe-mode' in s and '--strict' not in s, s
+    # CLAUDE_CONFIG_DIR riêng đã cài skill -> Claude Code tự nạp, không liệt kê lại; không đặt -> vẫn liệt kê
+    os.makedirs(os.path.join(H, 'cfg', 'skills', 'rev-x'))
+    rs = lambda env: subprocess.run([sys.executable, '-c', f'import sys; sys.path.insert(0, {SKILL!r}); import flow; print([n for n, _, _ in flow.re_skills({ws!r})])'], capture_output=True, text=True, env=env).stdout.strip()
+    assert rs(E0) == "['rev-x']" and rs(dict(E0, CLAUDE_CONFIG_DIR=os.path.join(H, 'cfg'))) == '[]', (rs(E0), rs(dict(E0, CLAUDE_CONFIG_DIR=os.path.join(H, 'cfg'))))
     shutil.rmtree(H)
     env = dict(os.environ, PATH=tempfile.mkdtemp())                # máy không có claude
     r = run(env); assert r.returncode == 2 and 'chỉ hỗ trợ Claude Code' in r.stdout, r.stdout

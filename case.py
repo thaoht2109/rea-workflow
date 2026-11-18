@@ -196,7 +196,7 @@ def review_status(case):
     if not last or last['facts_sha256'] != cur: return 'missing'     # review đã cũ: facts đổi sau lần review cuối
     return ('partial' if last.get('weak') else 'ok') if last['verdict'] == 'PASS' else 'partial'
 
-def check(case):
+def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợi ý (HTML dùng tên case để không lộ đường dẫn máy)
     F = [f for f in load(case).values() if f['status'] != 'retracted']
     act = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'active']
     hyp = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'hypothesis']
@@ -239,7 +239,7 @@ def check(case):
     FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' (có hàm giải mã) hoặc 'n/a: lý do' (chỉ khi mọi str_algo cũng 'n/a: lý do')",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
             'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)"}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
-    q = shlex.quote(case)
+    q = shlex.quote(case if shown is None else shown)
     hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
     return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]
 
@@ -304,7 +304,7 @@ def report(case):
     m = RPT.match(os.path.basename(rm)); gate = review.gate(case); todo = review.report_todo(case) if gate[0] else []
     if todo: gate = (False, 'báo cáo viết tay chưa nhắc fact đã sửa: ' + ', '.join(x['id'] for x in todo))   # cùng điều kiện chặn report --final
     open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(   # ngày và tên nguồn theo đúng file báo cáo đang dùng
-        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), [(k, v, h.replace(shlex.quote(case), shlex.quote(name))) for k, v, h in check(case)],   # file HTML để chia sẻ: không lộ đường dẫn máy
+        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), check(case, shown=name),   # file HTML để chia sẻ: không lộ đường dẫn máy
         dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm)))
     return L
 

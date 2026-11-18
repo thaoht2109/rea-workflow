@@ -46,6 +46,13 @@ try:
     case.report(c); h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
     assert 'Ngày phân tích 2026-05-06' in h and '<code>report-2026-05-06.md</code>' in h and 'report-2026-03-04.md</code>' not in h
 
+    # chạy với CASE='.': gợi ý checklist không bị thay nhầm mọi dấu chấm
+    cwd = os.getcwd(); os.chdir(c)
+    try: case.report('.')
+    finally: os.chdir(cwd)
+    h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
+    assert 'flow.py review OLD' in h and 'flowOLDpy' not in h and 'triage_*.json' in h, 'gợi ý dùng tên case, không thay chuỗi'
+
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML
     s = os.path.join(w, 'x.bin'); open(s, 'wb').write(b'MZ' + b'\0' * 200)
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'new', os.path.join(w, 'NEW'), s], capture_output=True, text=True)

@@ -265,7 +265,7 @@ def version():
     if os.path.realpath(q('rev-parse', '--show-toplevel') or '/nonexistent') == os.path.realpath(TOOLS):
         src = f"clone git {q('describe', '--tags', '--always', '--dirty')}"
     else:   # lock của skills CLI: project (<project>/skills-lock.json) hoặc toàn máy (~/.agents/.skill-lock.json)
-        e = next((x for x in (next(filter(None, map((jload(p).get('skills') or {}).get, ('rea-workflow', 'rea-flow'))), None) for p in (os.path.join(TOOLS, '..', '..', '..', 'skills-lock.json'),
+        e = next((x for x in (next(filter(None, map((jload(p).get('skills') or {}).get, sorted(('rea-workflow', 'rea-flow'), key=lambda n: n != os.path.basename(os.path.normpath(TOOLS))))), None) for p in (os.path.join(TOOLS, '..', '..', '..', 'skills-lock.json'),
                  os.path.expanduser('~/.agents/.skill-lock.json'))) if x), {})
         src = f"skills CLI, ghim {e['ref']}" if e.get('ref') else 'skills CLI, theo main'
     print(f'rea-workflow {v} ({src}) tại {TOOLS}')

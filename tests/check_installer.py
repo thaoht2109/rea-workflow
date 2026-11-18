@@ -58,6 +58,10 @@ r, o = case(['update', '-g', '--to', 'v1.11.2'], git=True)   # clone git: checko
 assert 'checkout --quiet v1.11.2' in o, o
 r, o = case(['update', '-g', '--to', 'v1.11.2'], name='rea-flow')   # đang ở tên cũ hạ về bản tên cũ: chỉ add, không chuyển tên
 assert ' add thaoht2109/rea-workflow#v1.11.2 -g' in o and '--migrate' not in o and ' remove ' not in o and r.returncode == 0, (o, r.stderr)
+r, o = case(['-g', '-y'], name='rea-flow')   # cài lại khi máy còn bản tên cũ: add, chuyển rồi gỡ tên cũ như update
+assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index('session --migrate ') < o.index(' remove rea-flow -g -y'), o
+r, o = case(['-g', '-y'], name='rea-flow', git=True)   # bản tên cũ là clone git: không gỡ, chỉ nhắc
+assert ' remove ' not in o and '--migrate' not in o and 'clone git' in r.stdout, (o, r.stdout)
 r, o = case(['remove', '-g'], name='rea-flow', both=True)   # còn cả hai tên: gỡ cả hai, quy tắc gỡ một lần
 assert ' remove rea-workflow -g' in o and ' remove rea-flow -g' in o and o.count('rules --remove') == 1, o
 r, o = case(['remove', '-g'], name='rea-flow')   # gỡ bản tên cũ: đúng tên đang cài

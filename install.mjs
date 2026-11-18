@@ -37,6 +37,14 @@ const rules = (dir, extra) => {
   if (run('python3', [join(dir, 'flow.py'), 'rules', ...extra]) === 127) console.error('Cần python3 để chép quy tắc.');
 };
 
+const toNew = (dir, old) => {   // bản tên cũ: chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
+  const nd = skillDir(['rea-workflow']);
+  if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
+  const rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
+  if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global ? '-g' : ''}`); process.exit(rc); }
+  console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
+};
+
 if (sub === 'remove') {
   const ds = ['rea-workflow', OLD].map(n => skillDir([n])).filter(Boolean);   // còn cả hai tên (vd migrate dở): gỡ cả hai
   if (ds.length) rules(ds[0], ['--remove']);
@@ -63,18 +71,15 @@ if (sub === 'version' || sub === 'update') {
   else if (tag || lockRef(dir) || basename(dir) === OLD) {   // bản tên cũ hạ về bản tên cũ (pre): chỉ add, không chuyển tên   // skills update giữ ref đang ghim nên đổi bản phải add lại; bản tên cũ: add tên mới rồi gỡ tên cũ
     const old = realpathSync(dir);
     rc = run('npx', ['-y', SKILLS, 'add', REPO + (tag ? '#' + tag : ''), ...rest]);
-    if (!rc && basename(dir) === OLD && !pre) {   // chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
-      const nd = skillDir(['rea-workflow']);
-      if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
-      rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
-      if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global ? '-g' : ''}`); process.exit(rc); }
-      console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
-    }
+    if (!rc && basename(dir) === OLD && !pre) toNew(dir, old);
   } else rc = run('npx', ['-y', SKILLS, 'update', 'rea-workflow', ...rest]);
   if (rc) process.exit(rc);
 } else {
+  const od = skillDir([OLD]), old = od && realpathSync(od);   // cài lại khi máy còn bản tên cũ: chuyển như update
   const rc = run('npx', ['-y', SKILLS, 'add', REPO, ...rest]);
   if (rc) process.exit(rc);
+  if (od && run('git', ['-C', od, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0) console.log(`Còn bản clone git tên ${OLD} tại ${od}: đổi tên hoặc xóa theo README.`);
+  else if (od) toNew(od, old);
 }
 const dir = skillDir();
 if (!dir) { console.error('Không tìm thấy skill vừa cài: chạy tay `python3 <thư mục skill>/flow.py rules`.'); process.exit(1); }

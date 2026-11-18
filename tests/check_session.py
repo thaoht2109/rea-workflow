@@ -68,6 +68,10 @@ try:
     assert f'`{T}/SKILL.md`' in open(os.path.join(ws, 'AGENTS.md')).read()
     subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True); assert open(rc).read() == t   # không còn khối trỏ OLD: không đổi
     assert subprocess.run(fl + ['--migrate'], env=E, capture_output=True).returncode == 2   # thiếu thư mục: báo cách dùng
+    hl = tempfile.mkdtemp(); os.makedirs(os.path.join(hl, '.agents'))   # lock còn cả hai tên: version của bản rea-flow báo ref của rea-flow
+    json.dump({'skills': {'rea-workflow': {'ref': 'v9.9.9'}, 'rea-flow': {'ref': 'v1.11.0'}}}, open(os.path.join(hl, '.agents', '.skill-lock.json'), 'w'))
+    v = subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'version'], env=dict(E, HOME=hl), capture_output=True, text=True).stdout.splitlines()[0]
+    assert 'ghim v1.11.0' in v, v; shutil.rmtree(hl)
     subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True); shutil.rmtree(od)
     shutil.rmtree(fake)
     print('OK test_session')

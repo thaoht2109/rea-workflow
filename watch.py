@@ -28,7 +28,7 @@ def load(c):
 def save(c, st): open(wj(c) + '.tmp', 'w', encoding='utf-8').write(json.dumps(st, ensure_ascii=False, indent=1)); os.replace(wj(c) + '.tmp', wj(c))
 def stop(c, st, why):
     st['stop'] = why; save(c, st)
-    say(c, ('XONG: ' if why.startswith('DONE') else 'DỪNG, cần người: ') + why + ('' if why.startswith('DONE') else f'. Chạy tiếp: xóa khóa "stop" trong {wj(c)}'))
+    say(c, ('XONG: ' if why.startswith('DONE') else 'DỪNG, cần người: ') + why + ('' if why.startswith('DONE') else f'. Chạy tiếp: xóa khóa "stop" trong {wj(c)} (và đặt "stall"/"sessions" về 0 nếu dừng vì chúng)'))
 
 def lock(c):
     f = open(os.path.join(c, 'work', '.watch.lock'), 'a')

@@ -39,4 +39,4 @@ Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`. Lệnh `rea
 ## Hai chế độ
 
 - **Từng mẫu, có người theo dõi:** quy trình ở trên. Trong Claude Code là skill `rea-workflow:manual`.
-- **Cả thư mục và theo dõi mẫu mới, không người trực:** `flow.py watch`, hướng dẫn ở `$SKILL/skills/auto/SKILL.md`. Trong Claude Code là skill `rea-workflow:auto`.
+- **Cả thư mục và theo dõi mẫu mới, không người trực:** `flow.py watch`, hướng dẫn ở `$SKILL/plugin-skills/auto/SKILL.md`. Trong Claude Code là skill `rea-workflow:auto`.

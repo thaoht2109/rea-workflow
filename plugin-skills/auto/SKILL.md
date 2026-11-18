@@ -18,6 +18,6 @@ Các bước:
 2. **Model.** Bash của agent không có terminal nên watcher không tự hỏi được: hỏi người dùng dùng model nào (alias lấy từ `claude --help`, mục `--model`), truyền `--model M`; không chọn thì bỏ cờ (mặc định của claude) hoặc đặt `REA_WATCH_MODEL` trong `~/.config/rea-flow/rea.env`. Trần và nhịp quét: các biến `REA_WATCH_*` trong `$SKILL/rea.env.example`.
 3. **Chạy.** Một lượt để thử: `flow.py watch INBOX --once` (một vòng quét, mỗi case tối đa một bước; mỗi phiên có thể tới `REA_WATCH_TIMEOUT` giây). Chạy liên tục: dùng chế độ lệnh nền của agent, hoặc đề nghị người dùng chạy trong tmux/systemd; không tự bọc `nohup`. Muốn song song nhiều case thì mở thêm watcher cùng workspace (khóa theo case).
 4. **Theo dõi.** Đọc dòng log `DỪNG, cần người` / `XONG` và `work/watch.json`, không đọc transcript thô. Case STOPPED: báo người dùng nội dung `<CASE>/work/review/STOP_REPORT.md`, không tự tạo `OVERRIDE`. Hậu kiểm báo nghi chạy mẫu: báo ngay, không chạy tiếp case đó.
-5. **Làm tiếp một case đã dừng** sau khi người dùng xử lý xong: xóa khóa `stop` trong `work/watch.json` (đặt lại `sessions` nếu muốn thêm lượt). Muốn tự làm tay một case thì chuyển sang `rea-workflow:manual` và giữ `stop` để watcher không đụng vào.
+5. **Làm tiếp một case đã dừng** sau khi người dùng xử lý xong: xóa khóa `stop` trong `work/watch.json`; dừng vì không đổi facts thì đặt `stall` về 0, vì đủ trần thì đặt lại `sessions`. Muốn tự làm tay một case thì chuyển sang `rea-workflow:manual` và giữ `stop` để watcher không đụng vào.
 
 Mọi lệnh và tham số: `python3 $SKILL/flow.py help`.

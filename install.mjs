@@ -42,7 +42,7 @@ const toNew = (dir, old) => {   // bản tên cũ: chuyển khối shell + quy t
   const r = rootOf(dir), nd = skillDir(['rea-workflow'], [r]), g = r === homedir() && !rest.includes('-g') && !rest.includes('--global');
   if (!nd) { console.log(`Bản ${OLD} tại ${dir} khác phạm vi bản vừa cài: giữ nguyên. Muốn chuyển: chạy tại ${r}: npx github:${REPO} update${r === homedir() ? ' -g' : ''}`); return; }
   const rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest, ...(g ? ['-g'] : [])]);
-  if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global ? '-g' : ''}`); process.exit(rc); }
+  if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global || g ? '-g' : ''}`); process.exit(rc); }
   console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
 };
 

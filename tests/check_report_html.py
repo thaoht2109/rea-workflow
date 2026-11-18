@@ -63,6 +63,9 @@ try:
     open(A, 'w').write('{hỏng'); case.report(c); assert 'chấp nhận: missing' not in open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
     json.dump({'C9': None, 'C8': 3}, open(A, 'w')); case.report(c); assert review.accepted(c) == {'C9': '', 'C8': '3'}
     json.dump(['C9'], open(A, 'w')); assert review.accepted(c) == {}
+    try: review.next_step(c, 'C8=lý do'); raise AssertionError('next --accept không được ghi đè file hỏng')
+    except SystemExit as e: assert 'không ghi đè' in str(e), e
+    assert json.load(open(A)) == ['C9'], 'file hỏng còn nguyên'
 
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML
     s = os.path.join(w, 'x.bin'); open(s, 'wb').write(b'MZ' + b'\0' * 200)

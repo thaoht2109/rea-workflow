@@ -48,10 +48,22 @@ def exec_pats(c):
     end = r'''(?=[\s;&|)`'"]|$)'''
     ps = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
     for n in map(re.escape, names):
-        ps += [r'(?:subprocess|os\.system|os\.exec|popen|pty\.spawn)[^\n]*' + n,
-POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*(?:\S*/)?' + n + end,
+        ps += [r'(?:subprocess|os\.system|os\.exec|os\.spawn|popen|pty\.spawn|runpy)[^\n]*' + n,
+               POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*(?:\S*/)?' + n + end,
                POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
     return [re.compile(p) for p in ps]
+
+RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
+
+def tool_names(out):
+    """Tên mọi tool_use trong transcript stream-json (kể cả lời gọi bị từ chối: ý định chạy mẫu cũng là vi phạm)."""
+    r = []
+    for l in out.splitlines():
+        try: e = json.loads(l)
+        except ValueError: continue
+        if isinstance(e, dict) and e.get('type') == 'assistant':
+            r += [b.get('name', '') for b in (e.get('message') or {}).get('content', []) if isinstance(b, dict) and b.get('type') == 'tool_use']
+    return r
 
 def models(help_text):
     """Alias model mà CLI claude đang cài khai trong `claude --help` (vd 'fable', 'opus', 'sonnet')."""
@@ -60,7 +72,8 @@ def models(help_text):
 
 def pick_model(a):
     """--model > REA_WATCH_MODEL > hỏi (chỉ khi có terminal) > trống = mặc định của claude."""
-    if '--model' in a: return a[a.index('--model') + 1]
+    if '--model' in a:
+        i = a.index('--model'); return a[i + 1] if i + 1 < len(a) and not a[i + 1].startswith('-') else None
     m = CFG.get('REA_WATCH_MODEL', '', path=False)
     if m or not sys.stdin.isatty(): return m
     try: ms = models(subprocess.run([CFG.CLAUDE, '--help'], capture_output=True, text=True, timeout=30).stdout)
@@ -82,7 +95,7 @@ def session(c, st, model):
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
-    bad = [x for x in cmds if any(p.search(x) for p in exec_pats(c))]
+    bad = [x for x in cmds if any(p.search(x) for p in exec_pats(c))] + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)]
     st['stall'] = 0 if fp(c) != before else st.get('stall', 0) + 1
     say(c, f"phiên {n} xong: facts/báo cáo {'đổi' if not st['stall'] else 'không đổi'}" + (f", lỗi: {init['_error']}" if init['_error'] else ''))
     why = (f'hậu kiểm: lệnh nghi chạy mẫu ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi facts/báo cáo" if st['stall'] >= STALL
@@ -115,7 +128,9 @@ def ingest(inbox):
         if h in known: continue
         c = (re.sub(r'\W+', '_', os.path.splitext(n)[0]).strip('_')[:40] or 'sample') + '_' + h[:8]
         try: os.mkdir(c)
-        except FileExistsError: continue   # watcher khác vừa nhận mẫu này
+        except FileExistsError:   # watcher khác vừa nhận mẫu này, hoặc thư mục trùng tên không do watch tạo / watcher chết giữa chừng
+            if not os.path.exists(wj(c)) and time.time() - os.path.getmtime(c) > 60: say(c, f'bỏ qua {p}: thư mục {c} đã có nhưng không có {wj(c)}; xem rồi xóa hoặc đổi tên')
+            continue
         os.makedirs(os.path.join(c, 'work')); known.add(h)
         with lock(c):
             st = {'sha256': h, 'source': p, 'sessions': 0}; save(c, st); say(c, f'mẫu mới {p}')
@@ -126,6 +141,7 @@ def main(a):
     if not a or a[0].startswith('-') or not os.path.isdir(a[0]):
         print('dùng: flow.py watch INBOX [--once] [--model M]   (chạy ở workspace; case tạo trong thư mục hiện tại)'); return 2
     model = pick_model(a)
+    if model is None: print('--model cần tên model'); return 2
     say('', f"theo dõi {a[0]}, workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên / {STALL} lần không đổi")
     while True:
         ingest(a[0])   # ponytail: các case chạy tuần tự trong một watcher; song song thì mở thêm watcher (khóa theo case)

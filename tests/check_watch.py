@@ -16,8 +16,10 @@ open(os.environ['FAKE_LOG'], 'a').write(json.dumps(a) + '\n')
 c = re.search(r'case `([^`]+)`', a[a.index('-p') + 1])[1]
 if os.environ.get('FAKE_TOUCH'): open(glob.glob(c + '/report/report-*.md')[0], 'a').write('x\n')
 s = glob.glob(c + '/work/sample/*')[0]
-cmd = f'cd x && bash {s}' if os.environ.get('FAKE_EXEC') else f'python3 flow.py resume {c}; grep -n bash {s}'
-print(json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Bash', 'input': {'command': cmd}}]}}))
+x = os.environ.get('FAKE_EXEC', '')
+cmd = {'sh': f'cd x && bash {s}', 'py': f"python3 -c \"import os; os.system('sh {s}')\""}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
+use = {'type': 'tool_use', 'name': 'mcp__frida__spawn', 'input': {'target': s}} if x == 'mcp' else {'type': 'tool_use', 'name': 'Bash', 'input': {'command': cmd}}
+print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
 print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
 '''.replace('HELP_TEXT', repr(HELP))
 assert watch.models(HELP) == ['fable', 'opus', 'sonnet']
@@ -42,8 +44,9 @@ try:
     out = W('--model', 'mx')
     cs = cases(); assert len(cs) == 1 and cs[0].startswith('s_'), (cs, out)
     c = cs[0]; a = calls()[-1]
+    os.remove(os.path.join(inbox, 'fresh.bin'))   # đã kiểm: chưa nhận; xóa để vòng sau (đã quá SETTLE) không nhận
     assert len(calls()) == 1 and a[a.index('--model') + 1] == 'mx' and a[a.index('--permission-mode') + 1] == 'default', a
-    assert 'Bash(python3:*)' in a[a.index('--allowedTools') + 1] and 'WebFetch' in a[a.index('--disallowedTools') + 1], a
+    assert 'Bash(python3:*)' in a[a.index('--allowedTools') + 1] and 'mcp__' not in a[a.index('--allowedTools') + 1] and 'WebFetch' in a[a.index('--disallowedTools') + 1], a
     assert st(c)['sessions'] == 1 and st(c)['stall'] == 1 and os.path.exists(os.path.join(ws, c, 'work', 'runs', 'watch', 's01.jsonl')), st(c)
     # trùng nội dung, tên khác: không tạo case mới; phiên đổi báo cáo -> stall về 0
     drop('copy.sh', '#!/bin/sh\necho hi\n'); W('--model', 'mx', FAKE_TOUCH='1')
@@ -57,9 +60,9 @@ try:
     assert 'không đổi' in st(c).get('stop', '') and 'DỪNG' in out, (st(c), out)
     n = len(calls()); W('--model', 'mx'); assert len(calls()) == n
     # hậu kiểm: phiên chạy mẫu -> dừng case (grep tên mẫu ở trên không bị bắt nhầm)
-    drop('e.sh', 'echo evil\n')
-    W('--model', 'mx', FAKE_EXEC='1')
-    e = [x for x in cases() if x != c]; assert len(e) == 1 and 'hậu kiểm' in st(e[0]).get('stop', ''), st(e[0])
+    for k in ('sh', 'py', 'mcp'):   # chạy qua shell, qua os.system trong python3 -c, qua tool MCP chạy target
+        old = set(cases()); drop(f'e{k}.sh', f'echo {k}\n'); W('--model', 'mx', FAKE_EXEC=k)
+        e = sorted(set(cases()) - old); assert len(e) == 1 and 'hậu kiểm' in st(e[0]).get('stop', ''), (k, st(e[0]))
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)
     drop('m.sh', 'echo m\n'); W(REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')
     m = [x for x in cases() if x.startswith('m_')][0]
@@ -76,7 +79,8 @@ try:
         if st('CASE_R').get('stop'): break
         time.sleep(0.5)
     assert 'review lớp 2 cần người' in st('CASE_R').get('stop', '') and len(calls()) == n, st('CASE_R')
-    assert not any(x.startswith('fresh') for x in cases())
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch'], capture_output=True, text=True); assert r.returncode == 2, r.stdout
+    r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model'], cwd=ws, env=E0, capture_output=True, text=True)
+    assert r.returncode == 2 and '--model cần' in r.stdout, r.stdout + r.stderr
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

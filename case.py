@@ -276,7 +276,7 @@ def ev_files(case):
 
 def report(case):
     cur, H = load(case), history(case)
-    L = ['<!-- Sinh tự động bởi rea-flow case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', '## IOC', '',
+    L = ['<!-- Sinh tự động bởi rea-workflow case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', '## IOC', '',
          '| Loại | Giá trị | Nguồn | Evidence |', '|---|---|---|---|']
     L += [f"| {f['kind']} | `{f['value']}` | {'+'.join(f['verified_by'])} | `{f['evidence']}` |"
           for k in IOC_KINDS for f in cur.values() if f['kind'] == k and f['status'] == 'active']

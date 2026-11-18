@@ -6,20 +6,25 @@ import os, shutil, tempfile, subprocess
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 if not shutil.which('node'): print('SKIP test_installer (không có node)'); raise SystemExit
 
-def case(args, missing=True, tty=False, git=False, installed=True, lock_ref=None):
+def case(args, missing=True, tty=False, git=False, installed=True, lock_ref=None, name='rea-workflow', both=False, proj=False):
     h = tempfile.mkdtemp(prefix='rea-inst-'); b = os.path.join(h, 'bin'); os.makedirs(b)
-    sk = os.path.join(h, '.claude', 'skills', 'rea-flow'); os.makedirs(sk)
+    sk = os.path.join(h, '.claude', 'skills', name); os.makedirs(sk)
     log = os.path.join(h, 'log'); open(log, 'w').close()
     open(os.path.join(b, 'git'), 'w').write(f'#!/bin/sh\necho "git $@" >> {log}\nexit {0 if git else 128}\n'); os.chmod(os.path.join(b, 'git'), 0o755)
     open(os.path.join(sk, 'flow.py'), 'w').write(   # flow.py giả: ghi tham số; setup không --yes trả 1 khi "thiếu"
         f'import sys\nopen({log!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")\n'
         f'sys.exit(1 if {missing} and sys.argv[1:2] == ["setup"] and "--yes" not in sys.argv else 0)\n')
     if lock_ref is not None:
-        os.makedirs(os.path.join(h, '.agents')); open(os.path.join(h, '.agents', '.skill-lock.json'), 'w').write(f'{{"skills": {{"rea-flow": {{"ref": "{lock_ref}"}}}}}}')
+        os.makedirs(os.path.join(h, '.agents')); open(os.path.join(h, '.agents', '.skill-lock.json'), 'w').write(f'{{"skills": {{"{name}": {{"ref": "{lock_ref}"}}}}}}')
     if not installed: os.rename(os.path.join(sk, 'flow.py'), os.path.join(h, 'flow.py'))
-    open(os.path.join(b, 'npx'), 'w').write(f'#!/bin/sh\necho "npx $@" >> {log}\n'); os.chmod(os.path.join(b, 'npx'), 0o755)
+    nw = os.path.join(h, '.claude', 'skills', 'rea-workflow')   # npx giả: add tạo bản tên mới (chép flow.py giả), remove rea-flow xóa bản cũ
+    open(os.path.join(b, 'npx'), 'w').write(f'#!/bin/sh\necho "npx $@" >> {log}\nN={nw}; case "$*" in *" -g"*) ;; *) N=$PWD/.claude/skills/rea-workflow ;; esac\n'   # không -g: cài vào project (cwd)
+                                            f'case "$*" in *" add "*) [ -d $N ] || {{ mkdir -p $N && cp {sk}/flow.py $N/; }} ;;'
+                                            f' *" remove rea-flow"*) rm -rf {sk} ;; esac\n'); os.chmod(os.path.join(b, 'npx'), 0o755)
+    if both: os.makedirs(nw); shutil.copy(os.path.join(sk, 'flow.py'), nw)   # máy còn cả hai tên
     env = dict(os.environ, HOME=h, PATH=b + ':' + os.environ['PATH'])
-    r = subprocess.run(['node', os.path.join(SKILL, 'install.mjs')] + args, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=h)
+    cwd = os.path.join(h, 'proj') if proj else h; os.makedirs(cwd, exist_ok=True)
+    r = subprocess.run(['node', os.path.join(SKILL, 'install.mjs')] + args, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=cwd)
     out = open(log).read(); shutil.rmtree(h); return r, out
 
 r, o = case(['-g', '-y'])                       # -y: cài skill, quy tắc, kiểm rồi cài công cụ không hỏi
@@ -33,19 +38,40 @@ assert 'setup --yes' not in o and 'setup --yes' in r.stdout, (o, r.stdout)
 r, o = case(['-g', '-y'], missing=False)        # đủ công cụ: không chạy setup --yes
 assert 'setup --yes' not in o, o
 r, o = case(['update', '-g', '-y'])             # update: skills update thay cho add, rồi quy tắc + công cụ như lúc cài
-assert ' update rea-flow -g -y' in o and ' add ' not in o and 'rules\n' in o and 'setup --yes\n' in o and 'cập nhật' in r.stdout, (o, r.stdout)
+assert ' update rea-workflow -g -y' in o and ' add ' not in o and 'rules\n' in o and 'setup --yes\n' in o and 'cập nhật' in r.stdout, (o, r.stdout)
 r, o = case(['update', '-g'], git=True)         # skill là bản clone git: git pull, không gọi skills CLI
 assert 'pull --ff-only' in o and 'npx' not in o and 'rules\n' in o and 'setup --yes' not in o, o
 r, o = case(['update', '-g'], installed=False)  # chưa cài: báo lỗi, không gọi gì
 assert r.returncode == 1 and 'Chưa cài' in r.stderr and 'npx' not in o and 'rules' not in o, (r.stderr, o)
-r, o = case(['update', '-g', '--to', '1.0.0'])   # --to qua skills CLI: add lại với ref là tag
-assert ' add thaoht2109/rea-workflow#v1.0.0 -g' in o and ' update rea-flow' not in o, o
+r, o = case(['update', '-g', '--to', '1.12.0'])   # --to qua skills CLI: add lại với ref là tag
+assert ' add thaoht2109/rea-workflow#v1.12.0 -g' in o and ' update rea-workflow' not in o, o
 r, o = case(['update', '-g', '--to', 'v1.0.0'], git=True)   # --to bản clone git: fetch tag rồi checkout
 assert 'fetch --tags' in o and 'checkout --quiet v1.0.0' in o and 'pull' not in o, o
 r, o = case(['update', '-g', '--to', 'main;rm'])  # --to sai dạng: dừng, không gọi gì
 assert r.returncode == 1 and 'npx' not in o and 'rules' not in o, o
 r, o = case(['update', '-g'], lock_ref='v1.0.0')  # đang ghim tag mà update không --to: add lại không ref (về main)
-assert ' add thaoht2109/rea-workflow -g' in o and ' update rea-flow' not in o, o
+assert ' add thaoht2109/rea-workflow -g' in o and ' update rea-workflow' not in o, o
+r, o = case(['update', '-g', '-y'], name='rea-flow')   # bản cài tên cũ (trước 1.12): add tên mới rồi gỡ tên cũ
+assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index('session --migrate ') < o.index(' remove rea-flow -g -y') and ' update ' not in o and 'rules\n' in o, o
+assert '/.claude/skills/rea-flow\n' in o and 'Đã chuyển rea-flow' in r.stdout, (o, r.stdout)   # migrate nhận đường dẫn bản cũ
+r, o = case(['update', '-g', '--to', 'v1.11.2'])   # hạ về bản còn tên rea-flow qua skills CLI: chặn, không cài song song
+assert r.returncode == 1 and 'remove' in r.stderr and 'npx' not in o and 'rules' not in o, (r.stderr, o)
+r, o = case(['update', '-g', '--to', 'v1.11.2'], git=True)   # clone git: checkout tag như thường
+assert 'checkout --quiet v1.11.2' in o, o
+r, o = case(['update', '-g', '--to', 'v1.11.2'], name='rea-flow')   # đang ở tên cũ hạ về bản tên cũ: chỉ add, không chuyển tên
+assert ' add thaoht2109/rea-workflow#v1.11.2 -g' in o and '--migrate' not in o and ' remove ' not in o and r.returncode == 0, (o, r.stderr)
+r, o = case(['-g', '-y'], name='rea-flow')   # cài lại khi máy còn bản tên cũ: add, chuyển rồi gỡ tên cũ như update
+assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index('session --migrate ') < o.index(' remove rea-flow -g -y'), o
+r, o = case(['-g', '-y'], name='rea-flow', git=True)   # bản tên cũ là clone git: không gỡ, chỉ nhắc
+assert ' remove ' not in o and '--migrate' not in o and 'clone git' in r.stdout, (o, r.stdout)
+r, o = case(['-y'], name='rea-flow', proj=True)   # không -g, bản cũ toàn máy, bản mới vào project: không chuyển hàm shell toàn máy, không gỡ
+assert ' add thaoht2109/rea-workflow -y' in o and '--migrate' not in o and ' remove ' not in o and 'khác phạm vi' in r.stdout, (o, r.stdout)
+r, o = case(['update', '-y'], name='rea-flow')   # không -g nhưng bản cũ ở ~ và bản mới cũng ở ~: chuyển, gỡ bản cũ với -g
+assert '--migrate' in o and ' remove rea-flow -y -g' in o, o
+r, o = case(['remove', '-g'], name='rea-flow', both=True)   # còn cả hai tên: gỡ cả hai, quy tắc gỡ một lần
+assert ' remove rea-workflow -g' in o and ' remove rea-flow -g' in o and o.count('rules --remove') == 1, o
+r, o = case(['remove', '-g'], name='rea-flow')   # gỡ bản tên cũ: đúng tên đang cài
+assert 'rules --remove' in o and ' remove rea-flow -g' in o, o
 r, o = case(['version', '-g'])                  # version chuyển cho flow.py
 assert 'version\n' in o and 'npx' not in o, o
 print('OK test_installer')

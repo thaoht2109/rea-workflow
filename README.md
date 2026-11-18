@@ -19,7 +19,7 @@
 
 rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
 
-> Skill được cài với định danh `rea-flow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-flow`), thư mục cấu hình (`~/.config/rea-flow`) và khi gọi skill trong agent.
+> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, `~/.cache/rea-flow`). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
 
 ## Tính năng
 
@@ -73,15 +73,15 @@ Lệnh này làm ba việc: cài skill cho các agent bạn chọn, thêm quy t�
 <summary>Cài không có Node.js</summary>
 
 ```bash
-git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-flow
-python3 ~/.claude/skills/rea-flow/flow.py rules --global
-python3 ~/.claude/skills/rea-flow/flow.py setup --yes
+git clone https://github.com/thaoht2109/rea-workflow.git ~/.claude/skills/rea-workflow
+python3 ~/.claude/skills/rea-workflow/flow.py rules --global
+python3 ~/.claude/skills/rea-workflow/flow.py setup --yes
 ```
 </details>
 
 ### Kiểm tra
 
-Trong tài liệu này, `$SKILL` là thư mục skill đã cài, thường là `~/.claude/skills/rea-flow` hoặc `~/.agents/skills/rea-flow`.
+Trong tài liệu này, `$SKILL` là thư mục skill đã cài, thường là `~/.claude/skills/rea-workflow` hoặc `~/.agents/skills/rea-workflow`.
 
 ```bash
 python3 $SKILL/flow.py doctor
@@ -102,7 +102,7 @@ Từ đó, gõ `claude` trong thư mục này sẽ mở phiên chỉ giữ công
 
 Mở agent trong thư mục chứa case và giao việc bằng lời:
 
-> Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) bằng skill rea-flow
+> Phân tích mẫu `~/samples/invoice.zip` (mật khẩu `infected`) bằng skill rea-workflow
 
 Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và viết báo cáo. Bạn chỉ cần trả lời khi agent hỏi, và gõ `/clear` khi được đề nghị để giảm ngữ cảnh.
 

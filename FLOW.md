@@ -1,4 +1,4 @@
-# Flow phân tích dịch ngược cho mọi mẫu (rea-flow)
+# Flow phân tích dịch ngược cho mọi mẫu (rea-workflow)
 
 Áp dụng cho mọi file cần dịch ngược: PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer (NSIS…), file nén, script, Office/PDF.
 File này là quy trình thao tác; quy tắc bắt buộc tóm tắt ở `SKILL.md`.
@@ -23,7 +23,7 @@ File này là quy trình thao tác; quy tắc bắt buộc tóm tắt ở `SKILL
 
 ## 1. Môi trường
 
-Trong tài liệu này `$SKILL` là thư mục chứa `SKILL.md` (ví dụ `~/.claude/skills/rea-flow`). Mọi lệnh chạy từ **workspace**: thư mục chứa các case (thư mục hiện tại, hoặc `$REA_WORKSPACE`).
+Trong tài liệu này `$SKILL` là thư mục chứa `SKILL.md` (ví dụ `~/.claude/skills/rea-workflow`). Mọi lệnh chạy từ **workspace**: thư mục chứa các case (thư mục hiện tại, hoặc `$REA_WORKSPACE`).
 
 ```bash
 cd <workspace>
@@ -139,7 +139,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 - Mỗi file chỉ đọc tóm tắt triage, mã giả của **những hàm đã chọn** và `status`. Không đọc toàn bộ danh sách hàm, strings hay disassembly.
 - Tra cứu có mục tiêu bằng `grep -m`, `sed -n 'a,bp'`, `jq`. Không dùng `cat` trên file lớn.
 - Cùng một lỗi công cụ sửa 3 lần không được thì dừng, ghi vào mục hạn chế và đổi hướng.
-- **Mở phiên phân tích bằng `flow.py session`** (Claude Code): giữ skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh, hoặc `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`), tắt MCP/plugin không liên quan và hook; skill dịch ngược cài cho agent khác (`~/.agents/skills`) được trỏ tới để đọc khi cần; SKILL.md rea-flow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace nạp bằng `--append-system-prompt-file`. Quy tắc rea-flow thắng khi mâu thuẫn. Danh sách lọc tính lúc chạy nên dùng được ở mọi máy; settings người dùng vẫn giữ. `--strict`: `--safe-mode`, chỉ còn rea-flow. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-flow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
+- **Mở phiên phân tích bằng `flow.py session`** (Claude Code): giữ skill, MCP và plugin phục vụ dịch ngược (nhận theo tên/lệnh, hoặc `REA_SESSION_MCP`/`REA_SESSION_PLUGINS`), tắt MCP/plugin không liên quan và hook; skill dịch ngược cài cho agent khác (`~/.agents/skills`) được trỏ tới để đọc khi cần; SKILL.md rea-workflow và ghi chú `CLAUDE.md`/`AGENTS.md` của workspace nạp bằng `--append-system-prompt-file`. Quy tắc rea-workflow thắng khi mâu thuẫn. Danh sách lọc tính lúc chạy nên dùng được ở mọi máy; settings người dùng vẫn giữ. `--strict`: `--safe-mode`, chỉ còn rea-workflow. Cài một lần `flow.py session --install [WORKSPACE]` (thêm hàm shell `claude` vào `~/.bashrc`/`~/.zshrc`): từ đó gõ `claude` trong workspace là tự mở phiên gọn, ở thư mục khác vẫn là claude thường. Cùng khối đó bọc `codex`, `gemini`, `copilot`, `cursor-agent`, `opencode`: trong workspace, trước khi chạy sẽ cập nhật khối quy tắc rea-workflow vào `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` (agent đọc file này lúc mở), rồi chạy như thường; các agent này chưa có chế độ giảm ngữ cảnh nền. Agent khác: mở phiên mới bình thường, quy tắc nằm trong `AGENTS.md` (`flow.py rules`).
 - Tách phiên theo mốc (`checkpoint`) và làm tiếp sau khi ngữ cảnh bị nén (`resume`): quy tắc ở `SKILL.md`. `checkpoint` kiểm lint fail, `work/runs` mới hơn fact cuối, evidence chưa có fact trỏ tới.
 
 ## 6. Kiểm tra công cụ (sau khi sửa)

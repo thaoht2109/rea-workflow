@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Cài rea-flow bằng một lệnh: `skills add` (vercel-labs/skills), chép "Quy tắc bắt buộc" vào CLAUDE.md/AGENTS.md
+// Cài rea-workflow bằng một lệnh: `skills add` (vercel-labs/skills), chép "Quy tắc bắt buộc" vào CLAUDE.md/AGENTS.md
 // đúng phạm vi vừa cài (toàn máy hoặc project hiện tại), rồi kiểm và cài công cụ phân tích (flow.py setup).
 // skills CLI không có post-install hook nên các bước sau nằm ở đây.
 //   npx github:thaoht2109/rea-workflow [-g] [-a claude-code -a codex ...] [-y] [--no-tools] [--no-ghidra]
@@ -10,8 +10,8 @@
 //   npx github:thaoht2109/rea-workflow version [-g]                              bản đang cài và các bản có trên GitHub
 //   npx github:thaoht2109/rea-workflow remove [-g]                               gỡ quy tắc rồi gỡ skill
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
+import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
@@ -24,11 +24,12 @@ const yes = rest.includes('-y') || rest.includes('--yes'), noTools = all.include
 const global = rest.includes('-g') || rest.includes('--global');
 const run = (cmd, a, stdio = 'inherit') => { const r = spawnSync(cmd, a, { stdio, env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
 const roots = global ? [homedir()] : [process.cwd(), homedir()];   // không -g: CLI có thể vẫn hỏi và cài toàn máy
-const skillDir = () => roots.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].map(d => join(r, d, 'skills', 'rea-flow')))
+const OLD = 'rea-flow';   // tên trước 1.12: update chuyển bản cài cũ sang tên mới
+const skillDir = (names = ['rea-workflow', OLD], rts = roots) => rts.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].flatMap(d => names.map(n => join(r, d, 'skills', n))))
   .filter(p => existsSync(join(p, 'flow.py'))).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 const lockRef = dir => {   // ref đang ghim trong lock của skills CLI (project: <project>/skills-lock.json, toàn máy: ~/.agents)
   for (const p of [join(dir, '..', '..', '..', 'skills-lock.json'), join(homedir(), '.agents', '.skill-lock.json')]) {
-    try { const e = JSON.parse(readFileSync(p, 'utf8')).skills?.['rea-flow']; if (e) return e.ref || ''; } catch {}
+    try { const e = JSON.parse(readFileSync(p, 'utf8')).skills?.[basename(dir)]; if (e) return e.ref || ''; } catch {}
   }
   return '';
 };
@@ -36,34 +37,56 @@ const rules = (dir, extra) => {
   if (run('python3', [join(dir, 'flow.py'), 'rules', ...extra]) === 127) console.error('Cần python3 để chép quy tắc.');
 };
 
+const rootOf = d => roots.filter(r => d.startsWith(r + '/')).sort((a, b) => b.length - a.length)[0];   // gốc phạm vi: ~ hoặc project
+const toNew = (dir, old) => {   // bản tên cũ: chuyển khối shell + quy tắc workspace sang bản mới CÙNG phạm vi rồi mới gỡ bản cũ
+  const r = rootOf(dir), nd = skillDir(['rea-workflow'], [r]), g = r === homedir() && !rest.includes('-g') && !rest.includes('--global');
+  if (!nd) { console.log(`Bản ${OLD} tại ${dir} khác phạm vi bản vừa cài: giữ nguyên. Muốn chuyển: chạy tại ${r}: npx github:${REPO} update${r === homedir() ? ' -g' : ''}`); return; }
+  const rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest, ...(g ? ['-g'] : [])]);
+  if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global || g ? '-g' : ''}`); process.exit(rc); }
+  console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
+};
+
 if (sub === 'remove') {
-  const dir = skillDir();
-  if (dir) rules(dir, ['--remove']);
-  process.exit(run('npx', ['-y', SKILLS, 'remove', 'rea-flow', ...rest]));
+  const ds = ['rea-workflow', OLD].map(n => skillDir([n])).filter(Boolean);   // còn cả hai tên (vd migrate dở): gỡ cả hai
+  if (ds.length) rules(ds[0], ['--remove']);
+  let rc = 0;
+  for (const n of ds.length ? ds.map(d => basename(d)) : ['rea-workflow']) rc = run('npx', ['-y', SKILLS, 'remove', n, ...rest]) || rc;
+  process.exit(rc);
 }
 if (sub === 'version' || sub === 'update') {
   const dir = skillDir();   // skills update báo "không thấy" mà vẫn trả 0, nên kiểm trước
-  if (!dir) { console.error(`Chưa cài rea-flow${global ? ' toàn máy' : ''}: npx github:${REPO} ${global ? '-g' : ''}`); process.exit(1); }
+  if (!dir) { console.error(`Chưa cài rea-workflow${global ? ' toàn máy' : ''}: npx github:${REPO} ${global ? '-g' : ''}`); process.exit(1); }
   if (sub === 'version') process.exit(run('python3', [join(dir, 'flow.py'), 'version']));
   if (ti >= 0 && !/^v?\d+\.\d+\.\d+$/.test(to)) { console.error('--to cần bản dạng vX.Y.Z (xem: npx github:' + REPO + ' version)'); process.exit(1); }
   const tag = to && (to.startsWith('v') ? to : 'v' + to);
   const git = run('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0;   // clone git: skills CLI không quản
   const G = a => run('git', ['-C', dir, ...a]);
+  const [M, m] = tag ? tag.slice(1).split('.').map(Number) : [], pre = !!tag && (M < 1 || (M === 1 && m < 12));   // trước 1.12 skill tên rea-flow
+  if (pre && !git && basename(dir) !== OLD) {   // đang ở tên mới: skills add bản cũ sẽ cài thêm một skill song song
+    console.error(`Bản ${tag} còn mang tên ${OLD}; hạ bản qua skills CLI sẽ cài hai skill song song. Gỡ rồi cài bản cũ:\n  npx github:${REPO} remove ${global ? '-g' : ''}\n  npx github:${REPO}#${tag} ${global ? '-g' : ''}`);
+    process.exit(1);
+  }
   let rc;
   if (git && tag) rc = G(['fetch', '--tags', '--quiet', 'origin']) || G(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', tag]);
   else if (git) rc = (run('git', ['-C', dir, 'symbolic-ref', '-q', 'HEAD'], 'ignore') ? G(['checkout', '--quiet', 'main']) : 0) || G(['pull', '--ff-only']);   // đang ghim tag thì về main
-  else if (tag || lockRef(dir)) rc = run('npx', ['-y', SKILLS, 'add', REPO + (tag ? '#' + tag : ''), ...rest]);   // skills update giữ ref đang ghim nên đổi bản phải add lại
-  else rc = run('npx', ['-y', SKILLS, 'update', 'rea-flow', ...rest]);
+  else if (tag || lockRef(dir) || basename(dir) === OLD) {   // bản tên cũ hạ về bản tên cũ (pre): chỉ add, không chuyển tên   // skills update giữ ref đang ghim nên đổi bản phải add lại; bản tên cũ: add tên mới rồi gỡ tên cũ
+    const old = realpathSync(dir);
+    rc = run('npx', ['-y', SKILLS, 'add', REPO + (tag ? '#' + tag : ''), ...rest]);
+    if (!rc && basename(dir) === OLD && !pre) toNew(dir, old);
+  } else rc = run('npx', ['-y', SKILLS, 'update', 'rea-workflow', ...rest]);
   if (rc) process.exit(rc);
 } else {
+  const od = skillDir([OLD]), old = od && realpathSync(od);   // cài lại khi máy còn bản tên cũ: chuyển như update
   const rc = run('npx', ['-y', SKILLS, 'add', REPO, ...rest]);
   if (rc) process.exit(rc);
+  if (od && run('git', ['-C', od, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0) console.log(`Còn bản clone git tên ${OLD} tại ${od}: đổi tên hoặc xóa theo README.`);
+  else if (od) toNew(od, old);
 }
 const dir = skillDir();
 if (!dir) { console.error('Không tìm thấy skill vừa cài: chạy tay `python3 <thư mục skill>/flow.py rules`.'); process.exit(1); }
 rules(dir, []);   // phạm vi tự theo nơi skill nằm: ~/.<agent>/skills -> toàn máy, <project>/.<agent>/skills -> project
 const flow = join(dir, 'flow.py'), extra = noGhidra ? ['--no-ghidra'] : [];
-console.log(`\nrea-flow đã ${sub === 'update' ? 'cập nhật' : 'cài'} tại ${dir}. Kiểm công cụ phân tích:\n`);
+console.log(`\nrea-workflow đã ${sub === 'update' ? 'cập nhật' : 'cài'} tại ${dir}. Kiểm công cụ phân tích:\n`);
 if (run('python3', [flow, 'setup', ...extra]) !== 0) {   // mã 1 = còn thiếu, đã in kế hoạch cài
   let go = !noTools && yes;
   if (!noTools && !yes && process.stdin.isTTY) {

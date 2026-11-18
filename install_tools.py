@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Kiểm và cài công cụ phân tích cho rea-flow. Mặc định chỉ kiểm và in kế hoạch; --yes mới cài.
+# Kiểm và cài công cụ phân tích cho rea-workflow. Mặc định chỉ kiểm và in kế hoạch; --yes mới cài.
 #   python3 install_tools.py [--yes] [--no-ghidra]      (hoặc: flow.py setup [--yes] [--no-ghidra])
 # Gói hệ thống cài bằng apt-get (Debian/Ubuntu/Kali, cần sudo); thư viện Python cài vào REA_PYLIB (pip --target, không cần sudo);
 # Ghidra tải bản đã kiểm từ GitHub, đối chiếu sha256 rồi giải nén vào ~/.local/share/rea-flow; rea cài từ npm (rea-agents).

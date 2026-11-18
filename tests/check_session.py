@@ -27,7 +27,7 @@ try:
         p = open(argv[argv.index('--append-system-prompt-file') + 1], encoding='utf-8').read()
         assert 'flow.py checkpoint' in p and '$SKILL' not in p and os.path.realpath(SKILL) in p, p[:300]   # SKILL.md đã thay đường dẫn
         assert 'ghi chú riêng: dùng tiếng Việt' in p and 'KHỐI CŨ' not in p, p[-300:]                     # giữ ghi chú, bỏ khối quy tắc trùng
-        assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-flow thắng' in p, p                     # trỏ tới skill dịch ngược khác
+        assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-workflow thắng' in p, p                     # trỏ tới skill dịch ngược khác
         s = shlex.split(run(E0, '--strict').stdout.strip().splitlines()[-1])
         assert '--safe-mode' in s and '--strict' not in s, s
     # CLAUDE_CONFIG_DIR riêng đã cài skill -> Claude Code tự nạp, không liệt kê lại; không đặt -> vẫn liệt kê
@@ -54,6 +54,25 @@ try:
     assert o.strip() == 'CODEX -q' and 'rea-flow:rules:begin' in open(os.path.join(ws, 'AGENTS.md')).read(), o
     subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True)
     assert open(rc).read() == 'export A=1\n', repr(open(rc).read())
+    # --migrate: khối shell do bản cài cũ (thư mục khác) ghi -> trỏ sang bản này, quy tắc workspace ghi lại theo bản này
+    od = tempfile.mkdtemp(); old = os.path.realpath(os.path.join(od, 'rea-flow')); T = os.path.realpath(SKILL)
+    shutil.copytree(SKILL, old, ignore=shutil.ignore_patterns('.git', 'tests', 'evals', '.claude', 'node_modules'))
+    subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws], env=E, capture_output=True, check=True)
+    assert old + '/flow.py' in open(rc).read(), open(rc).read()
+    rc2, ws2 = os.path.join(ws, 'rc2'), tempfile.mkdtemp(); open(rc2, 'w').write('')   # rc thứ hai trỏ workspace khác, đã bị xóa
+    subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws2], env=dict(E, REA_SHELL_RC=rc2), capture_output=True, check=True)
+    shutil.rmtree(ws2); ws2 = os.path.realpath(ws2)
+    subprocess.run(fl + ['--migrate', old], env=dict(E, REA_SHELL_RC=rc + ':' + rc2), capture_output=True, check=True)
+    t = open(rc).read(); assert T + '/flow.py' in t and old not in t and t.count('rea-flow session >>>') == 1 and ws2 not in t, t
+    t2 = open(rc2).read(); assert T + '/flow.py' in t2 and old not in t2 and ws2 in t2 and not os.path.exists(ws2), t2   # giữ workspace riêng, không tạo lại
+    assert f'`{T}/SKILL.md`' in open(os.path.join(ws, 'AGENTS.md')).read()
+    subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True); assert open(rc).read() == t   # không còn khối trỏ OLD: không đổi
+    assert subprocess.run(fl + ['--migrate'], env=E, capture_output=True).returncode == 2   # thiếu thư mục: báo cách dùng
+    hl = tempfile.mkdtemp(); os.makedirs(os.path.join(hl, '.agents'))   # lock còn cả hai tên: version của bản rea-flow báo ref của rea-flow
+    json.dump({'skills': {'rea-workflow': {'ref': 'v9.9.9'}, 'rea-flow': {'ref': 'v1.11.0'}}}, open(os.path.join(hl, '.agents', '.skill-lock.json'), 'w'))
+    v = subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'version'], env=dict(E, HOME=hl), capture_output=True, text=True).stdout.splitlines()[0]
+    assert 'ghim v1.11.0' in v, v; shutil.rmtree(hl)
+    subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True); shutil.rmtree(od)
     shutil.rmtree(fake)
     print('OK test_session')
 finally: shutil.rmtree(ws, ignore_errors=True)

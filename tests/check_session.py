@@ -63,6 +63,7 @@ try:
     t = open(rc).read(); assert T + '/flow.py' in t and old not in t and t.count('rea-flow session >>>') == 1, t
     assert f'`{T}/SKILL.md`' in open(os.path.join(ws, 'AGENTS.md')).read()
     subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True); assert open(rc).read() == t   # không còn khối trỏ OLD: không đổi
+    assert subprocess.run(fl + ['--migrate'], env=E, capture_output=True).returncode == 2   # thiếu thư mục: báo cách dùng
     subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True); shutil.rmtree(od)
     shutil.rmtree(fake)
     print('OK test_session')

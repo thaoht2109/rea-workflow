@@ -50,6 +50,11 @@ if (sub === 'version' || sub === 'update') {
   const tag = to && (to.startsWith('v') ? to : 'v' + to);
   const git = run('git', ['-C', dir, 'rev-parse', '--is-inside-work-tree'], 'ignore') === 0;   // clone git: skills CLI không quản
   const G = a => run('git', ['-C', dir, ...a]);
+  const [M, m] = tag ? tag.slice(1).split('.').map(Number) : [];
+  if (tag && !git && (M < 1 || (M === 1 && m < 12))) {   // trước 1.12 skill tên rea-flow: skills add sẽ cài thêm một skill song song
+    console.error(`Bản ${tag} còn mang tên ${OLD}; hạ bản qua skills CLI sẽ cài hai skill song song. Gỡ rồi cài bản cũ:\n  npx github:${REPO} remove ${global ? '-g' : ''}\n  npx github:${REPO}#${tag} ${global ? '-g' : ''}`);
+    process.exit(1);
+  }
   let rc;
   if (git && tag) rc = G(['fetch', '--tags', '--quiet', 'origin']) || G(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', tag]);
   else if (git) rc = (run('git', ['-C', dir, 'symbolic-ref', '-q', 'HEAD'], 'ignore') ? G(['checkout', '--quiet', 'main']) : 0) || G(['pull', '--ff-only']);   // đang ghim tag thì về main
@@ -60,7 +65,8 @@ if (sub === 'version' || sub === 'update') {
       const nd = skillDir(['rea-workflow']);
       if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
       rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
-      if (!rc) console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
+      if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global ? '-g' : ''}`); process.exit(rc); }
+      console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
     }
   } else rc = run('npx', ['-y', SKILLS, 'update', 'rea-workflow', ...rest]);
   if (rc) process.exit(rc);

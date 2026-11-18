@@ -307,7 +307,10 @@ def session(a):
     MCP/plugin dịch ngược của máy (vd skill REA, MCP Ghidra/IDA), nạp SKILL.md của rea-workflow + ghi chú workspace qua
     --append-system-prompt-file. Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ."""
     if '--install' in a or '--uninstall' in a: return shell_hook(a)
-    if '--migrate' in a: return migrate_hook(a[a.index('--migrate') + 1])
+    if '--migrate' in a:
+        i = a.index('--migrate')
+        if i + 1 >= len(a) or a[i + 1].startswith('-'): print('cách dùng: flow.py session --migrate <thư mục bản cài cũ>'); return 2
+        return migrate_hook(a[i + 1])
     T, ws = os.path.realpath(TOOLS), os.path.realpath(os.getcwd())
     sk = re.sub(r'^---\n.*?\n---\n', '', open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read(), flags=re.S).replace('$SKILL', T)
     pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)

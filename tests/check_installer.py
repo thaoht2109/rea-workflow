@@ -40,8 +40,8 @@ r, o = case(['update', '-g'], git=True)         # skill là bản clone git: git
 assert 'pull --ff-only' in o and 'npx' not in o and 'rules\n' in o and 'setup --yes' not in o, o
 r, o = case(['update', '-g'], installed=False)  # chưa cài: báo lỗi, không gọi gì
 assert r.returncode == 1 and 'Chưa cài' in r.stderr and 'npx' not in o and 'rules' not in o, (r.stderr, o)
-r, o = case(['update', '-g', '--to', '1.0.0'])   # --to qua skills CLI: add lại với ref là tag
-assert ' add thaoht2109/rea-workflow#v1.0.0 -g' in o and ' update rea-workflow' not in o, o
+r, o = case(['update', '-g', '--to', '1.12.0'])   # --to qua skills CLI: add lại với ref là tag
+assert ' add thaoht2109/rea-workflow#v1.12.0 -g' in o and ' update rea-workflow' not in o, o
 r, o = case(['update', '-g', '--to', 'v1.0.0'], git=True)   # --to bản clone git: fetch tag rồi checkout
 assert 'fetch --tags' in o and 'checkout --quiet v1.0.0' in o and 'pull' not in o, o
 r, o = case(['update', '-g', '--to', 'main;rm'])  # --to sai dạng: dừng, không gọi gì
@@ -51,6 +51,10 @@ assert ' add thaoht2109/rea-workflow -g' in o and ' update rea-workflow' not in 
 r, o = case(['update', '-g', '-y'], name='rea-flow')   # bản cài tên cũ (trước 1.12): add tên mới rồi gỡ tên cũ
 assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index('session --migrate ') < o.index(' remove rea-flow -g -y') and ' update ' not in o and 'rules\n' in o, o
 assert '/.claude/skills/rea-flow\n' in o and 'Đã chuyển rea-flow' in r.stdout, (o, r.stdout)   # migrate nhận đường dẫn bản cũ
+r, o = case(['update', '-g', '--to', 'v1.11.2'])   # hạ về bản còn tên rea-flow qua skills CLI: chặn, không cài song song
+assert r.returncode == 1 and 'remove' in r.stderr and 'npx' not in o and 'rules' not in o, (r.stderr, o)
+r, o = case(['update', '-g', '--to', 'v1.11.2'], git=True)   # clone git: checkout tag như thường
+assert 'checkout --quiet v1.11.2' in o, o
 r, o = case(['remove', '-g'], name='rea-flow')   # gỡ bản tên cũ: đúng tên đang cài
 assert 'rules --remove' in o and ' remove rea-flow -g' in o, o
 r, o = case(['version', '-g'])                  # version chuyển cho flow.py

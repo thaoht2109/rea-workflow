@@ -74,7 +74,7 @@ def md(text, shift=0, used=None, toc=None):
         m = re.match(r'^(#{1,6})\s+(.*?)\s*#*\s*$', ln)
         if m:
             lv = min(len(m.group(1)) + shift, 6); body = inline(m.group(2)); a = slug(body, used)
-            if toc is not None and lv == 2: toc.append((a, re.sub(r'<[^>]+>', '', body)))
+            if toc is not None and lv == 2: toc.append((a, html.unescape(re.sub(r'<[^>]+>', '', body))))
             out.append(f'<h{lv} id="{a}">{body}</h{lv}>'); i += 1; continue
         if re.match(r'^\s*([-*_])(\s*\1){2,}\s*$', ln): out.append('<hr>'); i += 1; continue
         if ln.lstrip().startswith('|') and i + 1 < len(L) and SEP.match(L[i + 1]):

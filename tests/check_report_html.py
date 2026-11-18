@@ -63,6 +63,7 @@ try:
     c3 = os.path.join(w, 'OLD3'); os.makedirs(os.path.join(c3, 'report', 'evidence')); open(os.path.join(c3, 'report', 'README.md'), 'w').write('# x\n')
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'report', c3], capture_output=True, text=True)
     assert r.returncode == 0 and 'đổi tên' in r.stdout and not os.path.exists(os.path.join(c3, 'report', 'README.md')), r.stdout + r.stderr
+    T = []; htmlreport.md('## A & <b> `x`\n', 0, set(), T); assert T[0][1] == 'A & <b> x', T      # mục lục: render() escape một lần
     assert htmlreport.md('| a |\n|---|\n| [x](javascript:alert(1)) |').count('href') == 0, 'javascript: không thành link'
     for u in ['/\\evil.example/x', '\\/evil.example', '\\\\evil\\s', '/etc/passwd', '\x01javascript:alert(1)', 'java\tscript:alert(1)', ' //evil', 'file:///x', 'HTTPS://a']:
         assert htmlreport._href(u) is None, u

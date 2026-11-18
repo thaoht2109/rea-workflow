@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Test plugin Claude Code: .claude-plugin/plugin.json + plugin-skills/manual, plugin-skills/auto (gọi là rea-workflow:manual / :auto).
-Lệnh flow.py mà skill con nhắc phải có trong flow.py help; SKILL.md gốc vẫn là nguồn quy tắc. Chạy: python3 tests/check_plugin.py"""
+Lệnh flow.py mà skill con nhắc phải có trong flow.py help; SKILL.md gốc vẫn là nguồn quy tắc. Chạy: python3 tests/check_plugin.py
+Đã kiểm tay với Claude Code 2.1.327 (CI không có claude): thư mục trong ~/.claude/skills có plugin.json được nạp thành
+rea-workflow@skills-dir với đúng hai skill auto, manual (`claude plugin details`); skills@1.7.4 chỉ cài một skill rea-workflow."""
 import os, re, json, shutil, subprocess
 
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))

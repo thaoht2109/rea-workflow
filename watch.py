@@ -16,7 +16,7 @@ MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), n
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
           'và làm MỘT mốc theo kết quả (NEED_MORE: phân tích tiếp; NEED_FIX: sửa fact theo where/redo; NEED_REPORT: cập nhật báo cáo viết tay). '
-          'Không thực thi mẫu. Không chạy `flow.py review`, `review-loop` hay `report --final` (bộ theo dõi lo). '
+          'Không thực thi mẫu. Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
           'Ghi hết kết luận thành fact, chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
 
 def say(c, m): print(f'{datetime.datetime.now():%F %T} [{c or "watch"}] {m}', flush=True)
@@ -53,6 +53,7 @@ def exec_pats(c):
                POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
     return [re.compile(p) for p in ps]
 
+NESTED = re.compile(r'flow\.py\s+watch\b')
 RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
 
 def tool_names(out):
@@ -95,10 +96,11 @@ def session(c, st, model):
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
-    bad = [x for x in cmds if any(p.search(x) for p in exec_pats(c))] + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)]
+    bad = ([x for x in cmds if any(p.search(x) for p in exec_pats(c)) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
+           + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     st['stall'] = 0 if fp(c) != before else st.get('stall', 0) + 1
     say(c, f"phiên {n} xong: facts/báo cáo {'đổi' if not st['stall'] else 'không đổi'}" + (f", lỗi: {init['_error']}" if init['_error'] else ''))
-    why = (f'hậu kiểm: lệnh nghi chạy mẫu ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi facts/báo cáo" if st['stall'] >= STALL
+    why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu hoặc watch lồng) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi facts/báo cáo" if st['stall'] >= STALL
            else f'đủ {MAXS} phiên' if n >= MAXS else '')
     stop(c, st, why) if why else save(c, st)
 

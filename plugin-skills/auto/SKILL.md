@@ -10,7 +10,7 @@ description: Chạy rea-workflow tự động cho cả một thư mục mẫu m�
 `python3 $SKILL/flow.py watch INBOX [--once] [--model M]`, chạy từ **workspace** (case tạo trong thư mục hiện tại):
 - File trong INBOX (không vào thư mục con, bỏ file ẩn) đứng yên đủ `REA_WATCH_SETTLE` giây thì được nhận; trùng sha256 với case đã có thì bỏ qua. Case tên `<tên file>_<sha8>`.
 - Mỗi vòng, mỗi case: `flow.py next` rồi NEED_MORE/NEED_FIX/NEED_REPORT → một phiên `claude -p` làm một mốc; NEED_REVIEW → `review --llm --detach`; DONE → `report --final`; STOPPED → dừng, báo người.
-- Dừng case và báo khi: đủ `REA_WATCH_MAX_SESSIONS` phiên, `REA_WATCH_STALL` phiên liên tiếp không đổi facts/báo cáo, hậu kiểm thấy lệnh nghi chạy mẫu, review lớp 2 cần người (mã 4/7), `flow.py new` lỗi. Trạng thái và lý do dừng ở `<CASE>/work/watch.json`; transcript từng phiên ở `<CASE>/work/runs/watch/`.
+- Dừng case và báo khi: đủ `REA_WATCH_MAX_SESSIONS` phiên, `REA_WATCH_STALL` phiên liên tiếp không đổi facts/báo cáo, hậu kiểm thấy lệnh nghi chạy mẫu hoặc mở `flow.py watch` lồng, review lớp 2 cần người (mã 4/7), `flow.py new` lỗi. Trạng thái và lý do dừng ở `<CASE>/work/watch.json`; transcript từng phiên ở `<CASE>/work/runs/watch/`.
 
 Các bước:
 

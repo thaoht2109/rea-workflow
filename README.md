@@ -19,7 +19,7 @@
 
 rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
 
-> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, `~/.cache/rea-flow`). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow`.
+> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, `~/.cache/rea-flow`). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
 
 ## Tính năng
 

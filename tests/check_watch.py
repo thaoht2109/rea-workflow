@@ -17,7 +17,7 @@ c = re.search(r'case `([^`]+)`', a[a.index('-p') + 1])[1]
 if os.environ.get('FAKE_TOUCH'): open(glob.glob(c + '/report/report-*.md')[0], 'a').write('x\n')
 s = glob.glob(c + '/work/sample/*')[0]
 x = os.environ.get('FAKE_EXEC', '')
-cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\""}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
+cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'fromw': "python3 -c \"from watch import main; main(['inbox'])\"", 'grepsub': 'grep -n subprocess flow.py watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\""}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
 use = {'type': 'tool_use', 'name': 'mcp__frida__spawn', 'input': {'target': s}} if x == 'mcp' else {'type': 'tool_use', 'name': 'Bash', 'input': {'command': cmd}}
 print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
 print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
@@ -60,7 +60,7 @@ try:
     assert 'không đổi' in st(c).get('stop', '') and 'DỪNG' in out, (st(c), out)
     n = len(calls()); W('--model', 'mx'); assert len(calls()) == n
     # hậu kiểm: phiên chạy mẫu -> dừng case (grep tên mẫu ở trên không bị bắt nhầm)
-    for k in ('sh', 'py', 'mcp', 'watch', 'pyw', 'subw', 'grepw', 'grepm'):   # shell, os.system trong python3 -c, tool MCP chạy target, watcher lồng; grep chỉ là đọc
+    for k in ('sh', 'py', 'mcp', 'watch', 'pyw', 'fromw', 'subw', 'grepw', 'grepm', 'grepsub'):   # shell, os.system trong python3 -c, tool MCP chạy target, watcher lồng; grep chỉ là đọc
         old = set(cases()); drop(f'e{k}.sh', f'echo {k}\n'); W('--model', 'mx', FAKE_EXEC=k)
         e = sorted(set(cases()) - old); assert len(e) == 1 and ('hậu kiểm' in st(e[0]).get('stop', '')) == (not k.startswith('grep')), (k, st(e[0]))
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)

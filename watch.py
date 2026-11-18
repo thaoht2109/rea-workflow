@@ -53,9 +53,9 @@ def exec_pats(c):
                POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
     return [re.compile(p) for p in ps]
 
-NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch\b'   # watch.py không có __main__
-                    r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-c\b[^\n]*\bwatch\.main\s*\('
-                    r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['",\s]+watch\b''')
+NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
+                    r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
+                    r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?watch(?![\w.])''')
 RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
 
 def tool_names(out):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Điều phối flow phân tích dịch ngược cho mọi mẫu (FLOW.md). Không bao giờ thực thi mẫu.
-#   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), README từ template, triage tất cả
+#   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), report/report-<ngày>.md từ template, triage tất cả
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
@@ -11,7 +11,8 @@
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
-#   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md (--final: chỉ khi phản biện đạt) | đối chiếu evidence README với đĩa
+#   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md + report-<ngày>.html (--final: chỉ khi phản biện đạt) | đối chiếu evidence báo cáo với đĩa
+#                                      báo cáo viết tay: report/report-<ngày phân tích>.md; case cũ còn report/README.md thì report tự đổi tên
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
 #   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
@@ -53,11 +54,10 @@ def new(c, srcs):
             else: raise SystemExit(f'không giải nén được {s}: cần mật khẩu')
         else: shutil.copy2(s, sd)
     for p in samples(c): os.chmod(p, 0o400)
-    rd = os.path.join(c, 'report', 'README.md')
-    if not os.path.exists(rd):
-        t = open(os.path.join(TOOLS, 'templates', 'README.md'), encoding='utf-8').read()
-        open(rd, 'w', encoding='utf-8').write(t.replace('{CASE}', os.path.basename(os.path.abspath(c)))
-                                              .replace('{DATE}', datetime.date.today().isoformat()))
+    case.migrate_report(c)   # case cũ: report/README.md -> report/report-<ngày>.md
+    if not os.path.exists(case.report_md(c)):
+        d = datetime.date.today().isoformat(); t = open(os.path.join(TOOLS, 'templates', 'report.md'), encoding='utf-8').read()
+        open(os.path.join(c, 'report', f'report-{d}.md'), 'w', encoding='utf-8').write(t.replace('{CASE}', os.path.basename(os.path.abspath(c))).replace('{DATE}', d))
     triage(c, samples(c))
 
 def triage(c, files):
@@ -412,12 +412,14 @@ if __name__ == '__main__':
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))
     elif cmd == 'report':
+        m = case.migrate_report(c)
+        if m: print(f'đổi tên report/README.md -> {os.path.relpath(m, c)} (tên báo cáo theo ngày phân tích)')
         if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (review.py)
             import review; ok, why = review.gate(c)
             if not ok: raise SystemExit(f'CHẶN report --final: {why}')
             rt = review.report_todo(c)
-            if rt: raise SystemExit(f'CHẶN report --final: cập nhật {c}/report/README.md và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
-        print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md')
+            if rt: raise SystemExit(f'CHẶN report --final: cập nhật {case.report_md(c)} và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
+        print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md; bản HTML để xem: {case.report_html(c)}')
         if '--final' in a: import kb; kb.refresh(c)   # case đã đóng vào kho tra chéo + thống kê đính chính
     elif cmd in ('review', 'review-loop') and '--detach' in a: import review; sys.exit(review.detach(c, cmd, [x for x in a[2:] if x != '--detach']))
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))

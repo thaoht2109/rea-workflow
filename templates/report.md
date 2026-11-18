@@ -10,6 +10,8 @@
 > Không chạy mẫu trên hệ điều hành thật. Không gửi request nào tới C2 hay hạ tầng phát tán.
 >
 > Trạng thái: _(đang phân tích / hoàn tất tới …)_. Xem `flow.py status` để biết mục nào còn thiếu.
+>
+> Bản HTML để xem (checklist + báo cáo này + bảng sinh từ facts): `report-{DATE}.html`, sinh lại bằng `flow.py report`; không sửa tay.
 
 ## 1. Tóm tắt
 

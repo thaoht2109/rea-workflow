@@ -5,5 +5,5 @@ Quy tắc bắt buộc:
 - Chỉ xử lý các fact trong danh sách. Mỗi fact có `problem`, `where`, `redo`. Làm theo `redo`, tự kiểm chứng lại bằng lệnh thật, rồi quyết định: fact đúng thì bổ sung evidence cho đúng chỗ; sai thì sửa; không chứng minh được thì hạ xuống `hypothesis`.
 - Không xóa hay sửa dòng cũ của facts.jsonl. Mọi thay đổi là fact MỚI qua `python3 {SKILL}/case.py add CASE id=... kind=... value=... src=S|E|V evidence=report/evidence/FILE[#Ln] supersedes=<id cũ> [status=hypothesis] [note=...] [recompute=...] --strict` (bỏ `--strict` khi ghi `status=retracted`). Id mới là `<id cũ>.r<số lượt review>`. Fact có con số đếm được thì kèm `recompute=` (xem FLOW.md mục 3).
 - Evidence: chép bằng chứng ngắn (mã giả, kết quả lệnh) vào CASE/report/evidence/ rồi mới trỏ tới. Không đọc log thô lớn; dùng grep/sed -n.
-- Nếu sửa dẫn tới câu chữ trong CASE/report/README.md sai thì sửa câu đó và thêm một dòng vào bảng đính chính; thêm file evidence mới vào bảng Evidence.
+- Nếu sửa dẫn tới câu chữ trong báo cáo viết tay CASE/report/report-<ngày>.md (case cũ: CASE/report/README.md) sai thì sửa câu đó và thêm một dòng vào bảng đính chính; thêm file evidence mới vào bảng Evidence.
 - Cuối cùng chạy `python3 {SKILL}/flow.py report CASE` và `python3 {SKILL}/flow.py audit CASE`. Trả lời ngắn: mỗi fact đã làm gì (đúng/sửa/hạ).

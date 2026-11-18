@@ -222,8 +222,8 @@ def review(c, llm=False, force=False, hint=True, preview=None):
     return 0 if v == 'PASS' else 1
 
 def report_todo(c):
-    """Fact do phiên sửa không có công cụ đổi mà report/README.md chưa nhắc tới id. Kiểm nội dung, không kiểm mtime: `touch` không được coi là đã cập nhật."""
-    p, r = os.path.join(DIR(c), 'report_todo.json'), os.path.join(c, 'report', 'README.md')
+    """Fact do phiên sửa không có công cụ đổi mà báo cáo viết tay (C.report_md) chưa nhắc tới id. Kiểm nội dung, không kiểm mtime: `touch` không được coi là đã cập nhật."""
+    p, r = os.path.join(DIR(c), 'report_todo.json'), C.report_md(c)
     if not os.path.exists(p): return []
     txt = open(r, encoding='utf-8', errors='replace').read() if os.path.exists(r) else ''
     items = [x if isinstance(x, dict) else dict(id=x.split(' ')[0], line=x) for x in json.load(open(p, encoding='utf-8'))]   # chuỗi: định dạng cũ
@@ -261,10 +261,10 @@ def analyst(c, k):
     bad += [f'mẫu đổi: {p}' for p, h in samples.items() if not os.path.exists(p) or sha_file(p) != h]
     if bad:
         open(fp, 'wb').write(before); print('PHÂN TÍCH LẠI BỊ HỦY, đã khôi phục facts.jsonl: ' + '; '.join(bad))
-    elif no_tool and after != before:   # mô hình không sửa được phần chữ: ghi lại để next và report --final chặn tới khi README được cập nhật
+    elif no_tool and after != before:   # mô hình không sửa được phần chữ: ghi lại để next và report --final chặn tới khi báo cáo viết tay được cập nhật
         new = [dict(id=f['id'], line=f"{f['id']} (thay {f['supersedes']}) -> {f['status']}: {f['value'][:80]}") for f in map(json.loads, after[len(before):].decode('utf-8').splitlines())]
         json.dump(report_todo(c) + new, open(os.path.join(DIR(c), 'report_todo.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-        print('Lưu ý: LLM không có công cụ chỉ sửa facts; cập nhật report/README.md và ghi id fact mới vào bảng đính chính')
+        print('Lưu ý: LLM không có công cụ chỉ sửa facts; cập nhật báo cáo report/report-<ngày>.md và ghi id fact mới vào bảng đính chính')
     return not bad, len(todo), after != before
 
 def loop(c, llm=True):
@@ -338,7 +338,7 @@ def next_step(c, accept=''):
         print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
     rt = report_todo(c)
     if rt:
-        print(f'NEED_REPORT: phản biện đạt nhưng {c}/report/README.md chưa nhắc các fact đã sửa; cập nhật phần chữ, ghi id vào bảng đính chính, rồi chạy lại next:')
+        print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} chưa nhắc các fact đã sửa; cập nhật phần chữ, ghi id vào bảng đính chính, rồi chạy lại next:')
         for x in rt: print(f"  {x['line']}")
         return 1
     print('DONE: checklist đủ và phản biện đạt -> flow.py report --final rồi đóng case. KHÔNG cần chạy VM.' + (' Ghi các mục chấp nhận vào mục hạn chế.' if acc else ''))

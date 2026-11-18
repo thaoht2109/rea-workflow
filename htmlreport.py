@@ -176,7 +176,7 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None):
 <meta name="referrer" content="no-referrer"><title>Báo cáo {esc(case)}</title><style>{CSS}</style></head>
 <body><div class="wrap"><nav><div class="t">{esc(case)}</div>{nav}</nav><main>
 <header><div class="tools"><button id="theme" type="button">Sáng/tối</button></div><h1>Báo cáo phân tích: {esc(case)}</h1>
-<div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-flow · nguồn: <code>facts.jsonl</code>, <code>{esc(src or f'report-{date}.md')}</code></div>
+<div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-workflow · nguồn: <code>facts.jsonl</code>, <code>{esc(src or f'report-{date}.md')}</code></div>
 <div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(why) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(why) + ')'}</div>
 <div class="stats" id="tom-tat">{stat}</div></header>
 <section><h2 id="checklist">Checklist C0–C11</h2><div class="tw"><table><thead><tr><th>Mục</th><th>Trạng thái</th><th>Việc còn lại</th></tr></thead><tbody>{rows}</tbody></table></div></section>

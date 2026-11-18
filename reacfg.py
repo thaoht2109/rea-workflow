@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Cấu hình theo máy của rea-flow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
+# Cấu hình theo máy của rea-workflow. Thứ tự ưu tiên: biến môi trường > ~/.config/rea-flow/rea.env (hoặc $REA_ENV) > mặc định dưới đây.
 # Không bắt buộc: mặc định đủ cho máy có công cụ trên PATH. Kiểm bằng `python3 <skill>/flow.py doctor`.
 # Workspace (nơi chứa các case) là thư mục hiện tại, hoặc $REA_WORKSPACE.
 import os, re, sys, shutil, tempfile, ipaddress, importlib.util, urllib.parse

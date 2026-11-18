@@ -1,6 +1,6 @@
 # Báo cáo phân tích: `{CASE}`
 
-> Ngày bắt đầu: {DATE}. Quy trình: rea-flow (`FLOW.md`).
+> Ngày bắt đầu: {DATE}. Quy trình: rea-workflow (`FLOW.md`).
 >
 > Phương pháp (mỗi kết luận ghi rõ một trong các nguồn sau):
 > - **S**: phân tích tĩnh trên file gốc (triage, rea/Ghidra, script tự viết).

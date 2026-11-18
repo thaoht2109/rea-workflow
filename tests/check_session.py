@@ -27,7 +27,7 @@ try:
         p = open(argv[argv.index('--append-system-prompt-file') + 1], encoding='utf-8').read()
         assert 'flow.py checkpoint' in p and '$SKILL' not in p and os.path.realpath(SKILL) in p, p[:300]   # SKILL.md đã thay đường dẫn
         assert 'ghi chú riêng: dùng tiếng Việt' in p and 'KHỐI CŨ' not in p, p[-300:]                     # giữ ghi chú, bỏ khối quy tắc trùng
-        assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-flow thắng' in p, p                     # trỏ tới skill dịch ngược khác
+        assert 'rev-x' in p and 'ui-x' not in p and 'quy tắc rea-workflow thắng' in p, p                     # trỏ tới skill dịch ngược khác
         s = shlex.split(run(E0, '--strict').stdout.strip().splitlines()[-1])
         assert '--safe-mode' in s and '--strict' not in s, s
     # CLAUDE_CONFIG_DIR riêng đã cài skill -> Claude Code tự nạp, không liệt kê lại; không đặt -> vẫn liệt kê

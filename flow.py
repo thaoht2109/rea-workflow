@@ -16,7 +16,7 @@
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
 #   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
-#   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-flow; chạy ở workspace
+#   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-workflow; chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
@@ -217,7 +217,7 @@ def shell_hook(a):
     rcs = [p for p in rcs if os.path.isfile(p)]
     ws, T = os.path.realpath(next((x for x in a if not x.startswith('--')), os.getcwd())), os.path.realpath(TOOLS)
     W, F = shlex.quote(ws), shlex.quote(T + '/flow.py')
-    blk = (f'{SB}\n# trong {ws}: claude -> phiên phân tích gọn (flow.py session); agent khác -> cập nhật quy tắc rea-flow vào'
+    blk = (f'{SB}\n# trong {ws}: claude -> phiên phân tích gọn (flow.py session); agent khác -> cập nhật quy tắc rea-workflow vào'
            f' AGENTS.md/CLAUDE.md/GEMINI.md rồi chạy như thường. Nơi khác: không đổi. Gỡ: python3 {F} session --uninstall\n'
            f'claude() {{ case "$PWD/" in {W}/*) (cd {W} && python3 {F} session "$@") ;; *) command claude "$@" ;; esac; }}\n'
            + ''.join(f'{x}() {{ case "$PWD/" in {W}/*) python3 {F} rules --project {W} >/dev/null 2>&1 ;; esac; command {x} "$@"; }}\n'
@@ -245,10 +245,10 @@ def version():
     if os.path.realpath(q('rev-parse', '--show-toplevel') or '/nonexistent') == os.path.realpath(TOOLS):
         src = f"clone git {q('describe', '--tags', '--always', '--dirty')}"
     else:   # lock của skills CLI: project (<project>/skills-lock.json) hoặc toàn máy (~/.agents/.skill-lock.json)
-        e = next((x for x in ((jload(p).get('skills') or {}).get('rea-flow') for p in (os.path.join(TOOLS, '..', '..', '..', 'skills-lock.json'),
+        e = next((x for x in (next(filter(None, map((jload(p).get('skills') or {}).get, ('rea-workflow', 'rea-flow'))), None) for p in (os.path.join(TOOLS, '..', '..', '..', 'skills-lock.json'),
                  os.path.expanduser('~/.agents/.skill-lock.json'))) if x), {})
         src = f"skills CLI, ghim {e['ref']}" if e.get('ref') else 'skills CLI, theo main'
-    print(f'rea-flow {v} ({src}) tại {TOOLS}')
+    print(f'rea-workflow {v} ({src}) tại {TOOLS}')
     try: r = subprocess.run(['git', 'ls-remote', '--tags', '--refs', f'https://github.com/{REPO}'], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired): r = None
     tags = sorted({l.rsplit('/', 1)[1] for l in (r.stdout if r else '').splitlines() if re.search(r'refs/tags/v\d+\.\d+\.\d+$', l)}, key=vkey)
@@ -284,13 +284,13 @@ def re_skills(ws):
             fm = open(d, encoding='utf-8', errors='replace').read(4000)
             name = (re.search(r'^name:\s*(.+)$', fm, re.M) or [None, os.path.basename(os.path.dirname(d))])[1].strip()
             desc = (re.search(r'^description:\s*(.+)$', fm, re.M) or [None, ''])[1].strip().strip('"')
-            if name != 'rea-flow' and RE_TOOL.search(name + ' ' + desc) and not any(os.path.exists(os.path.join(n, name)) for n in native):
+            if name not in ('rea-workflow', 'rea-flow') and RE_TOOL.search(name + ' ' + desc) and not any(os.path.exists(os.path.join(n, name)) for n in native):
                 out.append((name, desc[:240], os.path.dirname(d)))
     return out
 
 def session(a):
     """Phiên phân tích gọn, không phụ thuộc máy: bỏ phần không phục vụ dịch ngược (MCP và plugin không liên quan, hook), giữ skill và
-    MCP/plugin dịch ngược của máy (vd skill REA, MCP Ghidra/IDA), nạp SKILL.md của rea-flow + ghi chú workspace qua
+    MCP/plugin dịch ngược của máy (vd skill REA, MCP Ghidra/IDA), nạp SKILL.md của rea-workflow + ghi chú workspace qua
     --append-system-prompt-file. Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ."""
     if '--install' in a or '--uninstall' in a: return shell_hook(a)
     T, ws = os.path.realpath(TOOLS), os.path.realpath(os.getcwd())
@@ -302,15 +302,15 @@ def session(a):
         t = pat.sub('', open(p, encoding='utf-8').read()).strip() if os.path.exists(p) else ''
         if t and t not in notes: notes.append(t)
     os.makedirs(TMP, exist_ok=True); out = os.path.abspath(os.path.join(TMP, 'rea_session.md'))
-    head = (f'# Phiên phân tích mã độc theo skill rea-flow (`{T}`)\n\nSkill, MCP và công cụ dịch ngược khác trên máy (vd skill REA, MCP Ghidra/IDA) '
-            'được phép dùng cho phân tích tĩnh. Khi hướng dẫn của chúng mâu thuẫn với rea-flow thì quy tắc rea-flow thắng: không chạy mẫu, '
+    head = (f'# Phiên phân tích mã độc theo skill rea-workflow (`{T}`)\n\nSkill, MCP và công cụ dịch ngược khác trên máy (vd skill REA, MCP Ghidra/IDA) '
+            'được phép dùng cho phân tích tĩnh. Khi hướng dẫn của chúng mâu thuẫn với rea-workflow thì quy tắc rea-workflow thắng: không chạy mẫu, '
             'không dùng lệnh chạy target (`rea capture-*`, `debug-*`, `cutter-command`, chạy qua wine/qemu/gdb), mọi kết luận ghi thành fact.\n\n')
     extra = ''.join(f'- **{n}**: {d} Đọc `{p}/SKILL.md` khi cần (đường dẫn tương đối trong skill tính từ `{p}`).\n' for n, d, p in re_skills(ws))
     if extra: extra = '\n## Skill dịch ngược khác trên máy (Claude Code không tự nạp; đọc file khi cần)\n\n' + extra
     open(out, 'w', encoding='utf-8').write(head + sk + '\n' + extra + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
     cl = shutil.which('claude')
     if not cl: print('flow.py session chỉ hỗ trợ Claude Code. Agent khác: mở phiên mới như bình thường; quy tắc đã nằm trong AGENTS.md (flow.py rules).'); return 2
-    if '--strict' in a:   # chặt nhất: --safe-mode bỏ mọi tùy biến của máy (cả skill/MCP dịch ngược), chỉ còn rea-flow; nền thấp nhất
+    if '--strict' in a:   # chặt nhất: --safe-mode bỏ mọi tùy biến của máy (cả skill/MCP dịch ngược), chỉ còn rea-workflow; nền thấp nhất
         argv = [cl, '--safe-mode', '--append-system-prompt-file', out] + [x for x in a if x not in ('--print', '--strict')]
         if '--print' in a: print(shlex.join(argv)); return 0
         os.execv(cl, argv)
@@ -319,7 +319,7 @@ def session(a):
     fd = os.open(mf, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.write(fd, json.dumps({'mcpServers': mcp}).encode()); os.close(fd)
     argv = [cl, '--strict-mcp-config', '--mcp-config', mf, '--settings', json.dumps({'disableAllHooks': True, 'enabledPlugins': {p: False for p in off}}),
             '--append-system-prompt-file', out] + [x for x in a if x not in ('--print', '--strict')]
-    print(f"rea-flow session: giữ MCP dịch ngược [{', '.join(mcp) or 'không có'}], tắt {len(off)} plugin không liên quan, tắt hook; skill giữ nguyên", file=sys.stderr)
+    print(f"rea-workflow session: giữ MCP dịch ngược [{', '.join(mcp) or 'không có'}], tắt {len(off)} plugin không liên quan, tắt hook; skill giữ nguyên", file=sys.stderr)
     if '--print' in a: print(shlex.join(argv)); return 0
     os.execv(cl, argv)
 
@@ -327,7 +327,7 @@ def session(a):
 RB, RE_ = '<!-- rea-flow:rules:begin (sinh bởi flow.py rules; sửa SKILL.md rồi chạy lại) -->', '<!-- rea-flow:rules:end -->'
 
 def rules_scope():
-    """Đoán phạm vi theo nơi skill được cài: ~/.<agent>/skills/rea-flow -> global; <project>/.<agent>/skills/rea-flow -> project."""
+    """Đoán phạm vi theo nơi skill được cài: ~/.<agent>/skills/rea-workflow -> global; <project>/.<agent>/skills/rea-workflow -> project."""
     p, home = os.path.realpath(TOOLS), os.path.realpath(os.path.expanduser('~'))
     m = re.match(r'(.*?)/\.[^/]+/(?:[^/]+/)*skills/[^/]+$', p)
     return None if not m else ('global', home) if m.group(1) == home else ('project', m.group(1))
@@ -350,8 +350,8 @@ def rules(a):
     T = os.path.realpath(TOOLS)   # đường dẫn ổn định dù gọi qua symlink nào
     sk = open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read()
     body = sk.split('## Quy tắc bắt buộc', 1)[1].split('\n## ', 1)[0].strip().replace('$SKILL', T)
-    blk = (f'{RB}\n## rea-flow: quy tắc bắt buộc khi phân tích mã độc\n\nÁp dụng mỗi khi làm việc với mẫu mã độc hoặc case dịch ngược '
-           f'(skill rea-flow tại `{T}`, lệnh và quy trình trong `{T}/SKILL.md`).\n\n{body}\n{RE_}\n')
+    blk = (f'{RB}\n## rea-workflow: quy tắc bắt buộc khi phân tích mã độc\n\nÁp dụng mỗi khi làm việc với mẫu mã độc hoặc case dịch ngược '
+           f'(skill rea-workflow tại `{T}`, lệnh và quy trình trong `{T}/SKILL.md`).\n\n{body}\n{RE_}\n')
     pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)
     bad = 0
     print(f'phạm vi: {sc[0]} ({sc[1]})')
@@ -362,14 +362,14 @@ def rules(a):
         new = pat.sub('', s).rstrip() + '\n' if '--remove' in a else pat.sub(lambda _: blk, s) if RB in s else (s.rstrip() + '\n\n' if s.strip() else '') + blk
         if new.strip() != s.strip():
             if new.strip(): os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(new)
-            elif os.path.exists(p): os.remove(p)   # file chỉ có khối của rea-flow
+            elif os.path.exists(p): os.remove(p)   # file chỉ có khối của rea-workflow
             print(f"  {'gỡ' if '--remove' in a else 'ghi'} {p}")
         else: print(f'  không đổi {p}')
     return 1 if bad else 0
 
 def opencode(a):
     """OpenCode mặc định allow gần như mọi quyền và không có sandbox: sinh opencode.json trỏ về Ollama, kèm luật trong templates/opencode.json.
-    Khối `permission` thuộc về rea-flow (ghi đè mỗi lần chạy, vì thứ tự luật quyết định kết quả); cấu hình khác của người dùng được giữ."""
+    Khối `permission` thuộc về rea-workflow (ghi đè mỗi lần chạy, vì thứ tự luật quyết định kết quả); cấu hình khác của người dùng được giữ."""
     import argparse
     ap = argparse.ArgumentParser(prog='flow.py opencode')
     ap.add_argument('dir', nargs='?', default='.'); ap.add_argument('--model', default='qwen3-coder:30b')

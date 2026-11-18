@@ -1,11 +1,11 @@
 ---
-name: rea-flow
+name: rea-workflow
 description: Quy trình dịch ngược mã độc có kiểm chứng (PE, ELF, Go, .NET, shellcode, installer, script) - triage tĩnh, bóc vỏ, decompile, giả lập CPU, ghi fact có nguồn, cổng phản biện 2 lần, báo cáo tiếng Việt. Dùng khi được yêu cầu phân tích, dịch ngược hoặc viết báo cáo về một mẫu mã độc. Use for malware analysis, reverse engineering, unpacking, decompiling, string/config decryption, IOC extraction or a malware report on a sample. Không bao giờ thực thi mẫu (never executes the sample).
 license: MIT
 compatibility: Linux x86-64; Python >= 3.9; Node.js >= 22.20; JDK 21 + Ghidra 12; rea (npm rea-agents); 7z, pefile, capstone, unicorn 2.1.4. `flow.py setup` kiểm và in lệnh cài. Không cần mạng khi phân tích.
 ---
 
-# rea-flow: dịch ngược mã độc theo fact có kiểm chứng
+# rea-workflow: dịch ngược mã độc theo fact có kiểm chứng
 
 `$SKILL` dưới đây là thư mục chứa file này. Chạy mọi lệnh từ **workspace**: thư mục chứa các case (thường là thư mục hiện tại của người dùng). Trước case đầu tiên trên một máy, kiểm công cụ phân tích: `python3 $SKILL/flow.py setup` (chỉ kiểm, in kế hoạch). Thiếu thì báo người dùng và đề nghị `flow.py setup --yes` (cài bằng apt/sudo, tải Ghidra); không tự cài khi chưa được đồng ý. Cấu hình máy: `python3 $SKILL/flow.py doctor`. Quy trình đầy đủ: `$SKILL/FLOW.md`.
 

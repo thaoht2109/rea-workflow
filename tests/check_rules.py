@@ -7,8 +7,8 @@ H = tempfile.mkdtemp(dir='/var/tmp'); env = dict(os.environ, HOME=H)
 ign = shutil.ignore_patterns('.git', 'pylib', '__pycache__')
 run = lambda sk, *a, cwd=H: subprocess.run([sys.executable, os.path.join(sk, 'flow.py'), 'rules', *a], cwd=cwd, env=env, capture_output=True, text=True)
 R = lambda p: open(p, encoding='utf-8').read()
-# global: skill ở ~/.agents/skills/rea-flow; chỉ agent có thư mục cấu hình mới được ghi
-G = os.path.join(H, '.agents', 'skills', 'rea-flow'); shutil.copytree(SRC, G, ignore=ign)
+# global: skill ở ~/.agents/skills/rea-workflow; chỉ agent có thư mục cấu hình mới được ghi
+G = os.path.join(H, '.agents', 'skills', 'rea-workflow'); shutil.copytree(SRC, G, ignore=ign)
 os.makedirs(os.path.join(H, '.claude')); os.makedirs(os.path.join(H, '.codex')); os.makedirs(os.path.join(H, '.config', 'opencode'))
 open(os.path.join(H, '.claude', 'CLAUDE.md'), 'w').write('# của người dùng\n')
 assert run(G, '--check').returncode == 1
@@ -17,10 +17,10 @@ c = R(os.path.join(H, '.claude', 'CLAUDE.md')); assert c.startswith('# của ng�
 assert os.path.exists(os.path.join(H, '.codex', 'AGENTS.md')) and not os.path.exists(os.path.join(H, '.gemini'))
 assert 'Không bao giờ thực thi mẫu' in R(os.path.join(H, '.config', 'opencode', 'AGENTS.md'))
 assert 'không đổi' in run(G).stdout and run(G, '--check').returncode == 0
-# project: skill ở <proj>/.agents/skills/rea-flow -> chỉ ghi vào <proj>
-P = os.path.join(H, 'proj'); PS = os.path.join(P, '.agents', 'skills', 'rea-flow'); shutil.copytree(SRC, PS, ignore=ign)
+# project: skill ở <proj>/.agents/skills/rea-workflow -> chỉ ghi vào <proj>
+P = os.path.join(H, 'proj'); PS = os.path.join(P, '.agents', 'skills', 'rea-workflow'); shutil.copytree(SRC, PS, ignore=ign)
 r = run(PS); assert 'phạm vi: project' in r.stdout and os.path.exists(os.path.join(P, 'AGENTS.md')) and os.path.exists(os.path.join(P, 'CLAUDE.md')), r.stdout
-# gỡ: file chỉ có khối của rea-flow bị xóa, file có nội dung người dùng được giữ
+# gỡ: file chỉ có khối của rea-workflow bị xóa, file có nội dung người dùng được giữ
 run(G, '--remove'); run(PS, '--remove')
 assert R(os.path.join(H, '.claude', 'CLAUDE.md')).strip() == '# của người dùng' and not os.path.exists(os.path.join(H, '.codex', 'AGENTS.md'))
 assert not os.path.exists(os.path.join(H, '.config', 'opencode', 'AGENTS.md'))

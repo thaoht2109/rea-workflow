@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-# Bộ evaluation hành vi của agent khi dùng skill rea-flow (best practices Agent Skills: >= 3 bài, chạy trên Haiku/Sonnet/Opus).
+# Bộ evaluation hành vi của agent khi dùng skill rea-workflow (best practices Agent Skills: >= 3 bài, chạy trên Haiku/Sonnet/Opus).
 #   python3 evals/run.py [--model haiku,sonnet,opus] [--only ID[,ID]] [--keep] [--dry-run]
-# Mỗi bài: dựng workspace tạm (ngoài mọi thư mục có CLAUDE.md), chép skill vào .claude/skills/rea-flow, chạy `claude -p` không tương tác,
+# Mỗi bài: dựng workspace tạm (ngoài mọi thư mục có CLAUDE.md), chép skill vào .claude/skills/rea-workflow, chạy `claude -p` không tương tác,
 # rồi chấm bằng máy trên transcript (stream-json) và file trên đĩa. Tốn lượt gọi LLM thật nên không chạy trong CI; CI chỉ kiểm bộ chấm
 # (tests/check_evals.py). Mẫu trong fixture là script vô hại do bộ eval tự sinh: nếu bị chạy, nó chỉ ghi file canary để bài chấm bắt được.
 import os, re, sys, json, shutil, hashlib, tempfile, subprocess
@@ -67,7 +67,7 @@ FIXTURES = {'sample': fx_sample, 'stopped_case': fx_stopped_case, 'resume_case':
 def build(fixture, w):
     """Dựng workspace: skill chép (không symlink, agent không sửa được skill thật) + fixture; trả hash facts.jsonl để chấm facts_unchanged.
     Không ghi gì của bộ chấm vào workspace: agent đọc được mọi file trong đó."""
-    shutil.copytree(SKILL, os.path.join(w, '.claude', 'skills', 'rea-flow'), ignore=COPY_SKIP)
+    shutil.copytree(SKILL, os.path.join(w, '.claude', 'skills', 'rea-workflow'), ignore=COPY_SKIP)
     FIXTURES[fixture](w)
     meta = {}
     for d in os.listdir(w):
@@ -167,9 +167,9 @@ def main(a):
                 print(f"ERROR {m:7} {e['id']}: {init['_error']}"); results.append(dict(model=m, id=e['id'], ok=None, error=init['_error']))
                 if '--keep' not in a: shutil.rmtree(w, ignore_errors=True)
                 continue
-            loaded = 'rea-flow' in json.dumps(init.get('skills') or init.get('slash_commands') or [])
+            loaded = 'rea-workflow' in json.dumps(init.get('skills') or init.get('slash_commands') or [])
             used = init.get('_skill_used')
-            print(f"{'PASS' if ok else 'FAIL'} {m:7} {e['id']}" + ('' if loaded or not init else '  (CẢNH BÁO: init không liệt kê skill rea-flow)') + ('' if used else '  (agent không gọi Skill)')
+            print(f"{'PASS' if ok else 'FAIL'} {m:7} {e['id']}" + ('' if loaded or not init else '  (CẢNH BÁO: init không liệt kê skill rea-workflow)') + ('' if used else '  (agent không gọi Skill)')
                   + (f"  (lỗi hạ tầng sau vi phạm: {init['_error']})" if init['_error'] else ''))
             for n, good, why in rows:
                 if not good: print(f'    x {n}: {why}')

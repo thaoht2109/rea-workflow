@@ -49,7 +49,7 @@ jobs:
         context nào khác ngoài code đã checkout — tự đọc để hiểu.
 
         Bối cảnh và quy tắc riêng của repo:
-        Repo công khai: skill dịch ngược mã độc (rea-flow), Python thuần, mã viết nén.
+        Repo công khai: skill dịch ngược mã độc (rea-workflow), Python thuần, mã viết nén.
         - Không đưa tên case, mẫu, IOC hay đường dẫn máy cá nhân vào mã, test, commit hay PR.
         - Không bao giờ thêm đường thực thi mẫu (wine, qemu, chạy script mẫu); chỉ phân tích tĩnh và giả lập CPU.
         - Test trong tests/ phải dùng dữ liệu tổng hợp, không cần mẫu thật.
@@ -88,7 +88,7 @@ jobs:
         KHÔNG review lại toàn bộ PR — phần code không bị bot sửa đã được review ở lượt 1.
 
         Bối cảnh và quy tắc riêng của repo:
-        Repo công khai: skill dịch ngược mã độc (rea-flow), Python thuần, mã viết nén.
+        Repo công khai: skill dịch ngược mã độc (rea-workflow), Python thuần, mã viết nén.
         - Không đưa tên case, mẫu, IOC hay đường dẫn máy cá nhân vào mã, test, commit hay PR.
         - Không bao giờ thêm đường thực thi mẫu (wine, qemu, chạy script mẫu); chỉ phân tích tĩnh và giả lập CPU.
         - Test trong tests/ phải dùng dữ liệu tổng hợp, không cần mẫu thật.

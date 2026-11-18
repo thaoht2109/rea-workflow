@@ -58,6 +58,11 @@ try:
     case.report(c); h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
     assert 'chấp nhận: missing' in h and 'Hạn chế đã chấp nhận: không có payload trong mẫu' in h and 'T4 (cần payload thật)' not in h, 'C9 chấp nhận'
     assert 'không được tính' not in h, 'C0 không chấp nhận qua accepted.json'
+    # accepted.json hỏng hoặc giá trị không phải chuỗi: report vẫn chạy, không chấp nhận gì / ép về chuỗi
+    A = os.path.join(c, 'work', 'accepted.json')
+    open(A, 'w').write('{hỏng'); case.report(c); assert 'chấp nhận: missing' not in open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
+    json.dump({'C9': None, 'C8': 3}, open(A, 'w')); case.report(c); assert review.accepted(c) == {'C9': '', 'C8': '3'}
+    json.dump(['C9'], open(A, 'w')); assert review.accepted(c) == {}
 
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML
     s = os.path.join(w, 'x.bin'); open(s, 'wb').write(b'MZ' + b'\0' * 200)

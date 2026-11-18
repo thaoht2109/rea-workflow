@@ -306,8 +306,13 @@ def gate(c):
 
 # ---------- điểm dừng sớm ----------
 def accepted(c):
+    """Hạn chế đã chấp nhận {Cx: lý do}; file hỏng thì cảnh báo và coi như rỗng, không làm hỏng next/report."""
     p = os.path.join(c, 'work', 'accepted.json')
-    return json.load(open(p)) if os.path.exists(p) else {}
+    if not os.path.exists(p): return {}
+    try: d = json.load(open(p, encoding='utf-8'))
+    except (ValueError, OSError) as e: print(f'cảnh báo: bỏ qua {p} (đọc lỗi: {e})', file=sys.stderr); return {}
+    if not isinstance(d, dict): print(f'cảnh báo: bỏ qua {p} (không phải object JSON)', file=sys.stderr); return {}
+    return {str(k): '' if v is None else str(v) for k, v in d.items()}
 
 def accept_args(a):
     """Gộp mọi cờ --accept của dòng lệnh; cờ đứng cuối mà thiếu giá trị thì dừng với lỗi rõ thay vì bỏ qua lặng lẽ."""
@@ -322,7 +327,7 @@ def next_step(c, accept=''):
         k, _, why = kv.partition('=')
         if not why: raise SystemExit(f'--accept {k} cần lý do: {k}=lý do')
         acc[k] = why
-    if accept: json.dump(acc, open(os.path.join(c, 'work', 'accepted.json'), 'w'), ensure_ascii=False, indent=1)
+    if accept: json.dump(acc, open(os.path.join(c, 'work', 'accepted.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     rows = C.check(c)
     todo = [(k, v, n) for k, v, n in rows if not (v == 'ok' or v.startswith('n/a')) and k.split()[0] not in acc and k.split()[0] != 'C0']
     ok, why = gate(c)

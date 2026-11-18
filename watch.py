@@ -48,7 +48,8 @@ def exec_pats(c):
     end = r'''(?=[\s;&|)`'"]|$)'''
     ps = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
     for n in map(re.escape, names):
-        ps += [POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*(?:\S*/)?' + n + end,
+        ps += [r'(?:subprocess|os\.system|os\.exec|popen|pty\.spawn)[^\n]*' + n,
+POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*(?:\S*/)?' + n + end,
                POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
     return [re.compile(p) for p in ps]
 
@@ -72,10 +73,8 @@ def session(c, st, model):
     r = flow('session', '--print')
     if r.returncode: return stop(c, st, f'không mở được phiên: {(r.stdout + r.stderr).strip()[-300:]}')
     argv = shlex.split(r.stdout.strip().splitlines()[-1])
-    mf = argv[argv.index('--mcp-config') + 1] if '--mcp-config' in argv else None
-    mcp = ''.join(f',mcp__{k}' for k in (json.load(open(mf)).get('mcpServers') or {} if mf else {}))   # MCP dịch ngược mà session đã giữ
     argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
-             '--allowedTools', ALLOWED + mcp, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', '40'] + (['--model', model] if model else [])
+             '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', '40'] + (['--model', model] if model else [])
     n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
     before = fp(c); say(c, f'phiên {n}/{MAXS}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)

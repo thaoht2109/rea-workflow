@@ -10,7 +10,7 @@
 //   npx github:thaoht2109/rea-workflow version [-g]                              bản đang cài và các bản có trên GitHub
 //   npx github:thaoht2109/rea-workflow remove [-g]                               gỡ quy tắc rồi gỡ skill
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, realpathSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
@@ -25,7 +25,7 @@ const global = rest.includes('-g') || rest.includes('--global');
 const run = (cmd, a, stdio = 'inherit') => { const r = spawnSync(cmd, a, { stdio, env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
 const roots = global ? [homedir()] : [process.cwd(), homedir()];   // không -g: CLI có thể vẫn hỏi và cài toàn máy
 const OLD = 'rea-flow';   // tên trước 1.12: update chuyển bản cài cũ sang tên mới
-const skillDir = () => roots.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].flatMap(d => ['rea-workflow', OLD].map(n => join(r, d, 'skills', n))))
+const skillDir = (names = ['rea-workflow', OLD]) => roots.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].flatMap(d => names.map(n => join(r, d, 'skills', n))))
   .filter(p => existsSync(join(p, 'flow.py'))).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 const lockRef = dir => {   // ref đang ghim trong lock của skills CLI (project: <project>/skills-lock.json, toàn máy: ~/.agents)
   for (const p of [join(dir, '..', '..', '..', 'skills-lock.json'), join(homedir(), '.agents', '.skill-lock.json')]) {
@@ -54,8 +54,14 @@ if (sub === 'version' || sub === 'update') {
   if (git && tag) rc = G(['fetch', '--tags', '--quiet', 'origin']) || G(['-c', 'advice.detachedHead=false', 'checkout', '--quiet', tag]);
   else if (git) rc = (run('git', ['-C', dir, 'symbolic-ref', '-q', 'HEAD'], 'ignore') ? G(['checkout', '--quiet', 'main']) : 0) || G(['pull', '--ff-only']);   // đang ghim tag thì về main
   else if (tag || lockRef(dir) || basename(dir) === OLD) {   // skills update giữ ref đang ghim nên đổi bản phải add lại; bản tên cũ: add tên mới rồi gỡ tên cũ
+    const old = realpathSync(dir);
     rc = run('npx', ['-y', SKILLS, 'add', REPO + (tag ? '#' + tag : ''), ...rest]);
-    if (!rc && basename(dir) === OLD) rc = run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
+    if (!rc && basename(dir) === OLD) {   // chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
+      const nd = skillDir(['rea-workflow']);
+      if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
+      rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
+      if (!rc) console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
+    }
   } else rc = run('npx', ['-y', SKILLS, 'update', 'rea-workflow', ...rest]);
   if (rc) process.exit(rc);
 } else {

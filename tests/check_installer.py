@@ -17,7 +17,9 @@ def case(args, missing=True, tty=False, git=False, installed=True, lock_ref=None
     if lock_ref is not None:
         os.makedirs(os.path.join(h, '.agents')); open(os.path.join(h, '.agents', '.skill-lock.json'), 'w').write(f'{{"skills": {{"{name}": {{"ref": "{lock_ref}"}}}}}}')
     if not installed: os.rename(os.path.join(sk, 'flow.py'), os.path.join(h, 'flow.py'))
-    open(os.path.join(b, 'npx'), 'w').write(f'#!/bin/sh\necho "npx $@" >> {log}\n'); os.chmod(os.path.join(b, 'npx'), 0o755)
+    nw = os.path.join(h, '.claude', 'skills', 'rea-workflow')   # npx giả: add tạo bản tên mới (chép flow.py giả), remove rea-flow xóa bản cũ
+    open(os.path.join(b, 'npx'), 'w').write(f'#!/bin/sh\necho "npx $@" >> {log}\ncase "$*" in *" add "*) [ -d {nw} ] || {{ mkdir -p {nw} && cp {sk}/flow.py {nw}/; }} ;;'
+                                            f' *" remove rea-flow"*) rm -rf {sk} ;; esac\n'); os.chmod(os.path.join(b, 'npx'), 0o755)
     env = dict(os.environ, HOME=h, PATH=b + ':' + os.environ['PATH'])
     r = subprocess.run(['node', os.path.join(SKILL, 'install.mjs')] + args, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, cwd=h)
     out = open(log).read(); shutil.rmtree(h); return r, out
@@ -47,7 +49,8 @@ assert r.returncode == 1 and 'npx' not in o and 'rules' not in o, o
 r, o = case(['update', '-g'], lock_ref='v1.0.0')  # đang ghim tag mà update không --to: add lại không ref (về main)
 assert ' add thaoht2109/rea-workflow -g' in o and ' update rea-workflow' not in o, o
 r, o = case(['update', '-g', '-y'], name='rea-flow')   # bản cài tên cũ (trước 1.12): add tên mới rồi gỡ tên cũ
-assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index(' remove rea-flow -g -y') and ' update ' not in o and 'rules\n' in o, o
+assert o.index(' add thaoht2109/rea-workflow -g -y') < o.index('session --migrate ') < o.index(' remove rea-flow -g -y') and ' update ' not in o and 'rules\n' in o, o
+assert '/.claude/skills/rea-flow\n' in o and 'Đã chuyển rea-flow' in r.stdout, (o, r.stdout)   # migrate nhận đường dẫn bản cũ
 r, o = case(['remove', '-g'], name='rea-flow')   # gỡ bản tên cũ: đúng tên đang cài
 assert 'rules --remove' in o and ' remove rea-flow -g' in o, o
 r, o = case(['version', '-g'])                  # version chuyển cho flow.py

@@ -17,7 +17,8 @@
 #   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
 #   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
 #   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-workflow; chạy ở workspace
-#   flow.py session --install [WORKSPACE] | --uninstall   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn
+#   flow.py session --install [WORKSPACE] | --uninstall | --migrate OLD   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn;
+#                                      --migrate: khối shell đang trỏ bản cài OLD thì chuyển sang bản này (bộ cài gọi khi đổi tên)
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
 #   flow.py kb build | match CASE | tools | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
@@ -210,11 +211,24 @@ def checkpoint(c):
 SB, SE = '# >>> rea-flow session >>>', '# <<< rea-flow session <<<'
 AGENT_CLIS = ('codex', 'gemini', 'copilot', 'cursor-agent', 'opencode')   # đọc AGENTS.md/GEMINI.md lúc mở; chưa có chế độ gọn, chỉ giữ quy tắc luôn mới
 
+def shell_rcs():
+    rcs = [p for p in (os.environ.get('REA_SHELL_RC') or '').split(':') if p] or [os.path.expanduser(f) for f in ('~/.bashrc', '~/.zshrc')]
+    return [p for p in rcs if os.path.isfile(p)]
+
+def migrate_hook(old):
+    """session --migrate OLD: bản cài ở OLD sắp bị gỡ (vd tên cũ rea-flow -> rea-workflow). Khối shell trỏ tới OLD/flow.py thì cài lại
+    theo bản này cho đúng workspace của khối, và ghi lại quy tắc của workspace đó. Không có khối nào trỏ tới OLD: không làm gì."""
+    old = os.path.realpath(old) + '/flow.py'
+    for p in shell_rcs():
+        b = re.search(re.escape(SB) + r'.*?' + re.escape(SE), open(p, encoding='utf-8').read(), re.S)
+        m = b and old in b.group(0) and re.search(r'claude\(\) \{ case "\$PWD/" in (.+?)/\*\)', b.group(0))
+        if m: ws = shlex.split(m.group(1))[0]; return shell_hook(['--install', ws]) or rules(['--project', ws])
+    return 0
+
 def shell_hook(a):
     """Hàm shell `claude`: trong workspace -> flow.py session, nơi khác -> claude thường. Ghi vào ~/.bashrc, ~/.zshrc (file thường)
     hoặc các file trong REA_SHELL_RC (phân cách ':'). Khối có dấu mở/đóng nên cài lại không nhân đôi, gỡ sạch."""
-    rcs = [p for p in (os.environ.get('REA_SHELL_RC') or '').split(':') if p] or [os.path.expanduser(f) for f in ('~/.bashrc', '~/.zshrc')]
-    rcs = [p for p in rcs if os.path.isfile(p)]
+    rcs = shell_rcs()
     ws, T = os.path.realpath(next((x for x in a if not x.startswith('--')), os.getcwd())), os.path.realpath(TOOLS)
     W, F = shlex.quote(ws), shlex.quote(T + '/flow.py')
     blk = (f'{SB}\n# trong {ws}: claude -> phiên phân tích gọn (flow.py session); agent khác -> cập nhật quy tắc rea-workflow vào'
@@ -293,6 +307,7 @@ def session(a):
     MCP/plugin dịch ngược của máy (vd skill REA, MCP Ghidra/IDA), nạp SKILL.md của rea-workflow + ghi chú workspace qua
     --append-system-prompt-file. Settings người dùng (quyền, model, ngôn ngữ, sandbox) vẫn giữ."""
     if '--install' in a or '--uninstall' in a: return shell_hook(a)
+    if '--migrate' in a: return migrate_hook(a[a.index('--migrate') + 1])
     T, ws = os.path.realpath(TOOLS), os.path.realpath(os.getcwd())
     sk = re.sub(r'^---\n.*?\n---\n', '', open(os.path.join(T, 'SKILL.md'), encoding='utf-8').read(), flags=re.S).replace('$SKILL', T)
     pat = re.compile(re.escape(RB) + r'.*?' + re.escape(RE_) + r'\n?', re.S)

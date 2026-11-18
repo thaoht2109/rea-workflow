@@ -54,6 +54,16 @@ try:
     assert o.strip() == 'CODEX -q' and 'rea-flow:rules:begin' in open(os.path.join(ws, 'AGENTS.md')).read(), o
     subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True)
     assert open(rc).read() == 'export A=1\n', repr(open(rc).read())
+    # --migrate: khối shell do bản cài cũ (thư mục khác) ghi -> trỏ sang bản này, quy tắc workspace ghi lại theo bản này
+    od = tempfile.mkdtemp(); old = os.path.realpath(os.path.join(od, 'rea-flow')); T = os.path.realpath(SKILL)
+    shutil.copytree(SKILL, old, ignore=shutil.ignore_patterns('.git', 'tests', 'evals', '.claude', 'node_modules'))
+    subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws], env=E, capture_output=True, check=True)
+    assert old + '/flow.py' in open(rc).read(), open(rc).read()
+    subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True)
+    t = open(rc).read(); assert T + '/flow.py' in t and old not in t and t.count('rea-flow session >>>') == 1, t
+    assert f'`{T}/SKILL.md`' in open(os.path.join(ws, 'AGENTS.md')).read()
+    subprocess.run(fl + ['--migrate', old], env=E, capture_output=True, check=True); assert open(rc).read() == t   # không còn khối trỏ OLD: không đổi
+    subprocess.run(fl + ['--uninstall'], env=E, capture_output=True, check=True); shutil.rmtree(od)
     shutil.rmtree(fake)
     print('OK test_session')
 finally: shutil.rmtree(ws, ignore_errors=True)

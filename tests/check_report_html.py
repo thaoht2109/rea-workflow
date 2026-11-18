@@ -53,6 +53,12 @@ try:
     h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
     assert 'flow.py review OLD' in h and 'flowOLDpy' not in h and 'triage_*.json' in h, 'gợi ý dùng tên case, không thay chuỗi'
 
+    # mục đã chấp nhận là hạn chế (work/accepted.json): nhãn 'chấp nhận', hiện lý do thay gợi ý
+    import json; json.dump({'C9': 'không có payload trong mẫu', 'C0': 'không được tính'}, open(os.path.join(c, 'work', 'accepted.json'), 'w'), ensure_ascii=False)
+    case.report(c); h = open(os.path.join(c, 'report', 'report-2026-05-06.html'), encoding='utf-8').read()
+    assert 'chấp nhận: missing' in h and 'Hạn chế đã chấp nhận: không có payload trong mẫu' in h and 'T4 (cần payload thật)' not in h, 'C9 chấp nhận'
+    assert 'không được tính' not in h, 'C0 không chấp nhận qua accepted.json'
+
     # flow.py new: tạo report-<hôm nay>.md từ template, report in đường dẫn HTML
     s = os.path.join(w, 'x.bin'); open(s, 'wb').write(b'MZ' + b'\0' * 200)
     r = subprocess.run([sys.executable, os.path.join(T, 'flow.py'), 'new', os.path.join(w, 'NEW'), s], capture_output=True, text=True)

@@ -25,7 +25,7 @@ const global = rest.includes('-g') || rest.includes('--global');
 const run = (cmd, a, stdio = 'inherit') => { const r = spawnSync(cmd, a, { stdio, env: { DISABLE_TELEMETRY: '1', ...process.env } }); return r.error ? 127 : r.status ?? 1; };
 const roots = global ? [homedir()] : [process.cwd(), homedir()];   // không -g: CLI có thể vẫn hỏi và cài toàn máy
 const OLD = 'rea-flow';   // tên trước 1.12: update chuyển bản cài cũ sang tên mới
-const skillDir = (names = ['rea-workflow', OLD]) => roots.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].flatMap(d => names.map(n => join(r, d, 'skills', n))))
+const skillDir = (names = ['rea-workflow', OLD], rts = roots) => rts.flatMap(r => ['.agents', '.claude', '.opencode', '.config/opencode'].flatMap(d => names.map(n => join(r, d, 'skills', n))))
   .filter(p => existsSync(join(p, 'flow.py'))).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 const lockRef = dir => {   // ref đang ghim trong lock của skills CLI (project: <project>/skills-lock.json, toàn máy: ~/.agents)
   for (const p of [join(dir, '..', '..', '..', 'skills-lock.json'), join(homedir(), '.agents', '.skill-lock.json')]) {
@@ -37,10 +37,11 @@ const rules = (dir, extra) => {
   if (run('python3', [join(dir, 'flow.py'), 'rules', ...extra]) === 127) console.error('Cần python3 để chép quy tắc.');
 };
 
-const toNew = (dir, old) => {   // bản tên cũ: chuyển khối shell + quy tắc workspace sang bản mới rồi mới gỡ bản cũ
-  const nd = skillDir(['rea-workflow']);
-  if (!nd) { console.error(`Không thấy bản rea-workflow vừa cài: giữ bản cũ tại ${dir}.`); process.exit(1); }
-  const rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest]);
+const rootOf = d => roots.filter(r => d.startsWith(r + '/')).sort((a, b) => b.length - a.length)[0];   // gốc phạm vi: ~ hoặc project
+const toNew = (dir, old) => {   // bản tên cũ: chuyển khối shell + quy tắc workspace sang bản mới CÙNG phạm vi rồi mới gỡ bản cũ
+  const r = rootOf(dir), nd = skillDir(['rea-workflow'], [r]), g = r === homedir() && !rest.includes('-g') && !rest.includes('--global');
+  if (!nd) { console.log(`Bản ${OLD} tại ${dir} khác phạm vi bản vừa cài: giữ nguyên. Muốn chuyển: chạy tại ${r}: npx github:${REPO} update${r === homedir() ? ' -g' : ''}`); return; }
+  const rc = run('python3', [join(nd, 'flow.py'), 'session', '--migrate', old]) || run('npx', ['-y', SKILLS, 'remove', OLD, ...rest, ...(g ? ['-g'] : [])]);
   if (rc) { console.error(`Chưa chuyển xong ${OLD} -> rea-workflow (bản cũ còn ở ${dir}). Xử lý tay:\n  python3 ${join(nd, 'flow.py')} session --migrate ${old}\n  npx -y ${SKILLS} remove ${OLD} ${global ? '-g' : ''}`); process.exit(rc); }
   console.log(`Đã chuyển ${OLD} -> rea-workflow. Workspace từng chạy tay rules --project thì chạy lại: python3 ${join(nd, 'flow.py')} rules --project <thư mục>`);
 };

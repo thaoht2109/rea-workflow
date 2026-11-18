@@ -1,0 +1,11 @@
+{
+  "name": "rea-workflow",
+  "description": "Dịch ngược mã độc có kiểm chứng: rea-workflow:manual phân tích từng mẫu, rea-workflow:auto chạy cả thư mục và theo dõi mẫu mới",
+  "author": {
+    "name": "thaoht2109"
+  },
+  "homepage": "https://github.com/thaoht2109/rea-workflow",
+  "repository": "https://github.com/thaoht2109/rea-workflow",
+  "license": "MIT",
+  "skills": "./plugin-skills/"
+}

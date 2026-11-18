@@ -122,9 +122,10 @@ Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và v
 CASE/
 ├── facts.jsonl          mọi kết luận kèm nguồn và bằng chứng
 └── report/
-    ├── README.md        báo cáo
-    ├── GENERATED.md     bảng IOC, bảng đính chính, danh sách bằng chứng
-    └── evidence/        đoạn bằng chứng
+    ├── report-<ngày>.md   báo cáo (viết tay, đặt tên theo ngày phân tích)
+    ├── report-<ngày>.html bản HTML để xem: checklist + báo cáo + bảng sinh từ facts
+    ├── GENERATED.md       bảng IOC, bảng đính chính, danh sách bằng chứng
+    └── evidence/          đoạn bằng chứng
 ```
 
 **Chia sẻ kinh nghiệm giữa các server.** Kho tra chéo tự dựng ở lần phân tích đầu tiên và tự cập nhật mỗi khi đóng case. Để chuyển sang server khác hoặc giữ bản dự phòng:

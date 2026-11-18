@@ -91,7 +91,7 @@ def mkcase():
     open(d + '/report/evidence/e.txt', 'w').write('a\nhost good.example.com\n')
     C.add(d, id='good', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
     C.add(d, id='f1', kind='c2', value='bad.example.com', src='S', evidence='report/evidence/e.txt#L2')
-    open(d + '/report/README.md', 'w').write('# báo cáo\n'); os.utime(d + '/report/README.md', (1, 1))
+    open(d + '/report/report-2026-01-01.md', 'w').write('# báo cáo\n'); os.utime(d + '/report/report-2026-01-01.md', (1, 1))
     return d
 c2 = mkcase(); SCRIPT[:] = ['{"facts": [{"supersedes": "f1", "status": "hypothesis", "value": "bad.example.com", "evidence": "report/evidence/e.txt#L2"}]}',   # lớp 1 vẫn FAIL fact này
                             '{"facts": [{"supersedes": "f1", "status": "retracted", "note": "không có trong evidence"}]}']
@@ -104,18 +104,21 @@ F = C.load(c2); assert F['f1.r1']['status'] == 'retracted' and F['f1.r1']['value
 st['rounds'][-1]['reviewer'] = 'mech+stub'; review.save_state(c2, st)
 assert review.gate(c2)[0], review.gate(c2)
 
-# review PASS nhưng README chưa đổi theo fact đã rút: next và report --final phải chặn tới khi sửa README
+# review PASS nhưng báo cáo chưa đổi theo fact đã rút: next và report --final phải chặn tới khi sửa báo cáo
 final = lambda: subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'report', c2, '--final'], capture_output=True, text=True)
 assert review.report_todo(c2) and review.report_todo(c2)[0]['id'] == 'f1.r1' and 'thay f1) -> retracted' in review.report_todo(c2)[0]['line'], review.report_todo(c2)
 assert review.next_step(c2, 'C1=x,C2=x,C3=x,C4=x,C5=x,C6=x,C7=x,C8=x,C9=x,C10=x,C11=x') == 1
-r = final(); assert r.returncode != 0 and 'README' in r.stderr and 'thay f1) -> retracted' in r.stderr, r.stdout + r.stderr
-os.utime(c2 + '/report/README.md', (2 ** 32, 2 ** 32)); assert review.report_todo(c2), 'touch không được coi là đã cập nhật'
-open(c2 + '/report/README.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'
-os.rename(c2 + '/report/README.md', c2 + '/report/x'); assert review.report_todo(c2), 'thiếu README vẫn chặn'; os.rename(c2 + '/report/x', c2 + '/report/README.md')
-open(c2 + '/report/README.md', 'a').write('Xem f1.r10 và xf1.r1.\n'); assert review.report_todo(c2), 'id khác có cùng tiền tố không được tính'
-open(c2 + '/report/README.md', 'a').write('Đính chính: đã rút f1.r1.\n')
+C.report(c2); h = open(C.report_html(c2), encoding='utf-8').read()
+assert 'BẢN NHÁP' in h and 'f1.r1' in h and 'Cổng phản biện: đạt' not in h, 'HTML: cổng mở nhưng report_todo còn thì vẫn là bản nháp'
+r = final(); assert r.returncode != 0 and 'report-2026-01-01.md' in r.stderr and 'thay f1) -> retracted' in r.stderr, r.stdout + r.stderr
+os.utime(c2 + '/report/report-2026-01-01.md', (2 ** 32, 2 ** 32)); assert review.report_todo(c2), 'touch không được coi là đã cập nhật'
+open(c2 + '/report/report-2026-01-01.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'
+os.rename(c2 + '/report/report-2026-01-01.md', c2 + '/report/x'); assert review.report_todo(c2), 'thiếu báo cáo vẫn chặn'; os.rename(c2 + '/report/x', c2 + '/report/report-2026-01-01.md')
+open(c2 + '/report/report-2026-01-01.md', 'a').write('Xem f1.r10 và xf1.r1.\n'); assert review.report_todo(c2), 'id khác có cùng tiền tố không được tính'
+open(c2 + '/report/report-2026-01-01.md', 'a').write('Đính chính: đã rút f1.r1.\n')
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr
+assert 'Cổng phản biện: đạt' in open(C.report_html(c2), encoding='utf-8').read(), 'bản HTML theo review.gate'
 
 # thất bại không được cache: chạy lại phải gọi model lần nữa
 c3 = mkcase(); json.dump(dict(items=[dict(item)]), open(c3 + '/work/review/r1/review.json', 'w'))

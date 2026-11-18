@@ -41,7 +41,7 @@ def fx_sample(w):
 def mk_case(w, name, facts):
     c = os.path.join(w, name); os.makedirs(os.path.join(c, 'report', 'evidence')); os.makedirs(os.path.join(c, 'work', 'runs'))
     open(os.path.join(c, 'report', 'evidence', 'strings.txt'), 'w').write('\n'.join(v for _, _, v in facts) + '\n')
-    open(os.path.join(c, 'report', 'README.md'), 'w').write(f'# {name}\n\n## 8. Hạn chế và OPSEC\n\n## 9. Evidence (`report/evidence/`)\n\n| File | Nội dung |\n|---|---|\n| `strings.txt` | chuỗi |\n')
+    open(os.path.join(c, 'report', 'report-2026-01-01.md'), 'w').write(f'# {name}\n\n## 8. Hạn chế và OPSEC\n\n## 9. Evidence (`report/evidence/`)\n\n| File | Nội dung |\n|---|---|\n| `strings.txt` | chuỗi |\n')
     for i, (fid, kind, v) in enumerate(facts, 1):
         C.add(c, id=fid, kind=kind, value=v, src='S', evidence=f'report/evidence/strings.txt#L{i}')
     return c

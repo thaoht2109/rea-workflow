@@ -4,6 +4,7 @@
 #   recompute: phép đếm lại con số trong value, máy chạy lại mỗi lần lint/review: '<count|distinct> <regex> report/evidence/F[#La-Lb] = <N>',
 #   nhiều phép nối bằng ' && '. count = số dòng khớp; distinct = số giá trị khác nhau (nhóm 1 nếu có). N phải có trong value.
 #   case.py show CASE [kind] | show CASE --id ID | search CASE TỪ... [--src S] [--all]     case.py check CASE     case.py report CASE     case.py audit CASE     case.py --selftest
+#   Báo cáo viết tay: report/report-<ngày phân tích>.md (report_md); report sinh GENERATED.md và report-<ngày>.html (bản gộp để xem).
 #   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
 #   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
@@ -195,7 +196,7 @@ def review_status(case):
     if not last or last['facts_sha256'] != cur: return 'missing'     # review đã cũ: facts đổi sau lần review cuối
     return ('partial' if last.get('weak') else 'ok') if last['verdict'] == 'PASS' else 'partial'
 
-def check(case):
+def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợi ý (HTML dùng tên case để không lộ đường dẫn máy)
     F = [f for f in load(case).values() if f['status'] != 'retracted']
     act = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'active']
     hyp = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'hypothesis']
@@ -238,11 +239,36 @@ def check(case):
     FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' (có hàm giải mã) hoặc 'n/a: lý do' (chỉ khi mọi str_algo cũng 'n/a: lý do')",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
             'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)"}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
-    q = shlex.quote(case)
+    q = shlex.quote(case if shown is None else shown)
     hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
     return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+
+RPT = re.compile(r'^report-(\d{4}-\d{2}-\d{2})\.md$')
+
+def report_md(case):
+    """Báo cáo viết tay: report/report-<ngày phân tích>.md (nhiều bản thì lấy ngày mới nhất). Case tạo trước khi đổi tên: report/README.md."""
+    d = os.path.join(case, 'report')
+    L = sorted(n for n in (os.listdir(d) if os.path.isdir(d) else []) if RPT.match(n))
+    return os.path.join(d, L[-1] if L else 'README.md')
+
+def analysis_date(case, txt=''):
+    """Ngày phân tích: dòng 'Ngày bắt đầu:' của báo cáo, không có thì ngày của fact đầu tiên, không có nữa thì hôm nay."""
+    m = re.search(r'Ngày bắt đầu:\s*(\d{4}-\d{2}-\d{2})', txt)
+    ts = [h['ts'][:10] for h in history(case) if re.match(r'\d{4}-\d{2}-\d{2}', str(h.get('ts', '')))]
+    return m.group(1) if m else min(ts) if ts else datetime.date.today().isoformat()
+
+def migrate_report(case):
+    """Đổi report/README.md của case cũ thành report/report-<ngày phân tích>.md (một lần). Trả đường dẫn mới, hoặc None nếu không cần."""
+    old = os.path.join(case, 'report', 'README.md')
+    if not os.path.isfile(old) or report_md(case) != old: return None
+    new = os.path.join(case, 'report', f"report-{analysis_date(case, open(old, encoding='utf-8', errors='replace').read())}.md")
+    os.rename(old, new); return new
+
+def report_html(case):
+    m = RPT.match(os.path.basename(report_md(case)))
+    return os.path.join(case, 'report', f"report-{m.group(1) if m else analysis_date(case)}.html")
 
 def ev_files(case):
     root = os.path.join(case, EV)
@@ -272,21 +298,31 @@ def report(case):
     L += [f"| `{r}` | {os.path.getsize(os.path.join(case, EV, r))} | `{sha(os.path.join(case, EV, r))[:16]}…` | {'có' if r in refs else '—'} |"
           for r in ev_files(case)]
     open(os.path.join(case, 'report', 'GENERATED.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
+    import htmlreport, review   # bản HTML gộp báo cáo viết tay + bảng sinh từ fact + checklist: chỉ để xem, nguồn vẫn là .md và facts.jsonl
+    rm, name = report_md(case), os.path.basename(os.path.abspath(case)); body = open(rm, encoding='utf-8', errors='replace').read() if os.path.isfile(rm) else ''
+    F = list(cur.values()); n = {s: sum(f['status'] == s for f in F) for s in ('active', 'hypothesis', 'retracted')}
+    m = RPT.match(os.path.basename(rm)); gate = review.gate(case); todo = review.report_todo(case) if gate[0] else []
+    if todo: gate = (False, 'báo cáo viết tay chưa nhắc fact đã sửa: ' + ', '.join(x['id'] for x in todo))   # cùng điều kiện chặn report --final
+    open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(   # ngày và tên nguồn theo đúng file báo cáo đang dùng
+        name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), check(case, shown=name),   # file HTML để chia sẻ: không lộ đường dẫn máy
+        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm)))
     return L
 
 def audit(case):
-    """README §Evidence phải khớp đĩa; fact không được trỏ tới file mất."""
+    """Mục Evidence của báo cáo (report_md) phải khớp đĩa; fact không được trỏ tới file mất."""
     problems, disk = [], ev_files(case)
-    txt = open(os.path.join(case, 'report', 'README.md'), encoding='utf-8').read()
+    rm = report_md(case)
+    if not os.path.isfile(rm): return [f'thiếu báo cáo {os.path.relpath(rm, case)} (report/report-<ngày phân tích>.md)']
+    txt = open(rm, encoding='utf-8').read()
     m = re.search(r'^## [^\n]*Evidence[^\n]*\n(.*?)(?=^## |\Z)', txt, re.M | re.S)
     toks = {t for row in (m.group(1).splitlines() if m else []) if row.startswith('|')
             for t in re.findall(r'`([^`]+)`', row.split('|')[1])}
     names = {os.path.basename(t) for t in toks} | toks
     miss = [r for r in disk if r not in names and os.path.basename(r) not in names]
     if miss and m and any(re.search(r'(?<![\w.-])' + re.escape(os.path.basename(r)) + r'(?![\w-])', m.group(1)) for r in miss):      # tên có trong mục nhưng không ở dòng bảng: nói thẳng định dạng
-        problems.append('README §Evidence chỉ nhận bảng Markdown: mỗi file một dòng `| `tên` | nội dung |` (tên trong cột đầu); danh sách văn xuôi không được tính')
-    problems += [f'README thiếu: {r}' for r in miss]
-    problems += [f'README có mà đĩa không có: {t}' for t in toks
+        problems.append('báo cáo §Evidence chỉ nhận bảng Markdown: mỗi file một dòng `| `tên` | nội dung |` (tên trong cột đầu); danh sách văn xuôi không được tính')
+    problems += [f'báo cáo thiếu: {r}' for r in miss]
+    problems += [f'báo cáo có mà đĩa không có: {t}' for t in toks
                  if not any(r == t or os.path.basename(r) == os.path.basename(t) for r in disk)]
     problems += [f'fact {f["id"]} trỏ tới file mất: {f["evidence"]}' for f in load(case).values()
                  if not os.path.isfile(ev_path(case, f['evidence'])[1])]
@@ -364,6 +400,9 @@ if __name__ == '__main__':
         print(f'{len(hit)} fact khớp' + (' (in 20 đầu)' if len(hit) > 20 else ''))
     elif cmd == 'check':
         for k, v, n in check(case): print(f'{k:<34} {v:<10} {"next: " + n if n else ""}')
-    elif cmd == 'report': print(f'{len(report(case))} dòng -> {case}/report/GENERATED.md')
+    elif cmd == 'report':
+        m = migrate_report(case)
+        if m: print(f'đổi tên report/README.md -> {os.path.relpath(m, case)}')
+        print(f'{len(report(case))} dòng -> {case}/report/GENERATED.md, {os.path.relpath(report_html(case), case)}')
     elif cmd == 'audit':
         p = audit(case); print('\n'.join(p) if p else 'OK audit'); sys.exit(1 if p else 0)

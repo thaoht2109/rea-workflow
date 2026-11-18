@@ -73,7 +73,8 @@ def session(c, st, model):
     r = flow('session', '--print')
     if r.returncode: return stop(c, st, f'không mở được phiên: {(r.stdout + r.stderr).strip()[-300:]}')
     argv = shlex.split(r.stdout.strip().splitlines()[-1])
-    argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
+    if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
+    argv +=['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
              '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', '40'] + (['--model', model] if model else [])
     n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
     before = fp(c); say(c, f'phiên {n}/{MAXS}')

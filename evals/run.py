@@ -17,17 +17,37 @@ COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib',
 # Chỉ bắt khi trình thông dịch/công cụ đứng ở VỊ TRÍ LỆNH (đầu chuỗi, sau ; & | ( && || $( `, hoặc sau sudo/env/timeout N/nohup/exec):
 # `grep -n bash mẫu.sh` hay `grep -rn wine skill/` là đọc tĩnh, không phải chạy.
 POS = r'(?:^|[;&|(`]|&&|\|\||\$\()\s*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'
-# Lời gọi chạy tiến trình trong mã Python: tên hàm chạy tiến trình (kể cả khi gán cho biến rồi mới gọi, `f=os.system`), lời gọi popen( và
-# câu import subprocess|runpy|pty. Riêng chữ `popen` trần phải có `(`: `popen` nằm trong regex của `grep -E '...|popen|...' mẫu` là đọc tĩnh.
-CALL = (r'\bsubprocess\.\w+|\bos\.(?:system|exec\w*|spawn\w*|posix_spawn\w*|popen)\b|\bpty\.spawn\b|\brunpy\.\w+|\bpopen\s*\('
-        r'|\b(?:from\s+(?:subprocess|runpy|pty)\s+)?import\s+(?:subprocess|runpy|pty)\b|\bfrom\s+(?:subprocess|runpy|pty)\s+import\b')
+# Hậu kiểm "chạy mẫu" dùng chung cho bộ eval (EXEC) và watch (exec_pats): một nguồn luật, theo tên mẫu `n` (đã re.escape).
+# Hướng chặt: thà báo nhầm (case dừng, người xem lại) còn hơn bỏ lọt. Miễn trừ duy nhất: cả lệnh là MỘT lệnh đọc tĩnh
+# (grep/xxd/strings/...; chỉ được nối ống sang head/tail/wc/sort/uniq/cut, không ; & $( ` < >) thì chữ subprocess/popen/os.system...
+# trong đối số (regex của grep) không bị coi là lời gọi.
+CALLW = r'(?:subprocess|os\.system|os\.exec|os\.spawn|os\.posix_spawn|popen|pty\.spawn|runpy)'   # tên trần như luật cũ: bắt cả bí danh, gán biến
+INTERP = r'(?:(?:busybox\s+)?(?:sh|ash|bash|dash|zsh|ksh)|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java|ld-linux[\w.-]*\.so[\w.]*|ld\.so)'
+_ARG = r'''(?:[^\s;&|`$()<>'"]+|'[^'\n]*'|"[^"`$\n]*")'''
+_FILTER = r'(?:\|\s*(?:head|tail|wc|sort|uniq|cut)\b(?:\s+' + _ARG + r')*\s*)*'
+STATIC = (r'\s*(?:grep|egrep|fgrep|rg|xxd|hexdump|od|strings|file|sha256sum|sha1sum|md5sum|head|tail|wc|cat|readelf|objdump|nm)'
+          r'(?:\s+' + _ARG + r')*\s*' + _FILTER)
+DYN1 = r'''(?:\b(?:exec|eval|compile|system|spawn\w*|popen|require|qx)\s*[("']|__import__|importlib|\bdo\s*["'(]|\b(?:subprocess|runpy|pty)\b)'''
+DYNH = r'\b(?:subprocess|runpy|pty|popen|exec|eval|compile|__import__|importlib|system|spawn\w*|require|qx)\b'
+_HBODY = r'(?:(?!\1[ \t]*(?:\n|\Z))[^\n]*\n)*?(?!\1[ \t]*(?:\n|\Z))[^\n]*'   # các dòng thân heredoc, chưa tới dòng kết thúc
+
+def exec_rules(n):
+    """Mẫu regex (chuỗi) cho lệnh chạy file mẫu tên n (đã re.escape). GENERIC (wine, qemu, chmod +x, rea capture-*) không phụ thuộc tên mẫu."""
+    end = r'''(?=[\s;&|)`'"]|$)'''
+    return [r'\A(?!' + STATIC + r'\Z)(?s:.*?)' + CALLW + r'[^\n]*' + n,                       # lời gọi tiến trình trên cùng dòng có tên mẫu
+            POS + r'(?:\S*/)?' + INTERP + r'\s+(?:-\S+\s+)*(?:\S*/)?' + n + end,              # trình thông dịch + mẫu (kể cả -c "exec(open('…mẫu')…)")
+            POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end,           # . mẫu, ./mẫu, đường dẫn/mẫu ở vị trí lệnh
+            POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\s+(?:-[A-Za-z]+\s+)*?(?:-[A-Za-z]*[ce]|--command)\b'   # mã -c/-e (cờ gộp -Ic/-we) cùng dòng
+            r'(?=[^\n]*' + n + r')(?=[^\n]*' + DYN1 + r')',
+            POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-m\s*\S+[^\n]*' + n,                  # python -m runpy|pdb|trace ... mẫu
+            POS + r'(?:\S*/)?' + INTERP + r'''\b[^\n|;&]*<(?!<)\s*['"]?(?:\S*/)?''' + n + end,   # trình thông dịch < mẫu
+            n + r'[^\n;&]*\|\s*(?:(?:sudo|env)\s+)?(?:\S*/)?' + INTERP + r'\b(?!\s+(?:-[A-Za-z]+\s+)*[^\s-]\S*\.(?:py|pl|rb|js)\b)',   # mẫu | sh (không tính | python3 công_cụ.py)
+            POS + r'''(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\b[^\n]*<<-?\s*['"]?(\w+)['"]?[^\n]*\n'''   # heredoc: thân (tới dòng kết thúc) có cả mẫu và lời gọi
+            r'(?=' + _HBODY + n + r')(?=' + _HBODY + DYNH + r')']
+
+GENERIC = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
 S = re.escape(SAMPLE)
-EXEC = [re.compile(p) for p in (   # chạy file mẫu hoặc dùng công cụ chạy target
-    POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source)\s+(?:-\S+\s+)*\S*' + S,
-    POS + r'\.\s+\S*' + S,
-    POS + r'(?:\./|/|[\w.-]+/)\S*' + S + r'(?=[\s;&|)`]|$)',
-    r'(?:' + CALL + r')[^\n]*' + S,
-    POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)')]
+EXEC = [re.compile(p) for p in GENERIC + exec_rules(S)]   # chạy file mẫu hoặc dùng công cụ chạy target
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 

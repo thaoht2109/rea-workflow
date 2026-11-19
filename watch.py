@@ -7,7 +7,7 @@ import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subproces
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
-from evals.run import ALLOWED, CALL, POS, parse, run_agent   # noqa: E402  cùng allowlist/bộ đọc transcript với bộ eval
+from evals.run import ALLOWED, GENERIC, POS, exec_rules, parse, run_agent   # noqa: E402  cùng allowlist/bộ đọc transcript với bộ eval
 
 FLOW = os.path.join(TOOLS, 'flow.py')
 num = lambda k, d: int(CFG.get(k, d, path=False))
@@ -21,7 +21,7 @@ PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không c�
           '`python3 -I work/tools/X.py <mẫu> ...` (ghi kết quả bằng `>`), KHÔNG gọi công cụ qua subprocess/os.system/os.popen/runpy/pty trên cùng dòng có tên mẫu. '
           'Công cụ tự viết (work/tools, tầng T1b) chạy bằng `python3 -I work/tools/X.py ...` (allowlist không có `bwrap`), file dẫn xuất chỉ ghi vào '
           'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation: chấp nhận, cô lập thật nhờ chạy watcher trong VM không mạng). '
-          'KHÔNG đưa đường dẫn mẫu vào `python3 -c` có exec/eval/compile/importlib, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`. '
+          'KHÔNG đưa đường dẫn mẫu vào `python3 -c` hay heredoc `python3 - <<EOF` (kể cả chỉ để đọc byte: dùng công cụ trong work/tools, xxd, strings), không `python3 -m … <mẫu>`, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`, `< <mẫu>`, `<mẫu> | sh`. '
           'Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
           'Ghi hết kết luận thành fact, chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
 
@@ -48,24 +48,10 @@ def fp(c):
         if os.path.exists(p): h.update(open(p, 'rb').read())
     return h.hexdigest()
 
-INTERP = POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\b[^\n]*?(?:\s-[A-Za-z]*[ce]\b|\s--command\b|\s-(?=\s|$)|<<)'   # mã đưa thẳng vào trình thông dịch
-DYN = (r'(?:' + CALL + r'|\bexec\s*\(|\beval\s*\(|\bcompile\s*\(|__import__|importlib|\brunpy\b|\brequire\s*\(|\bdo\s|\bsystem\s*\('
-       r'''|\bexec\s+["']|\bqx\b|`)''')   # chạy tiến trình hoặc nạp/thực thi mã: system(, exec "…", qx, backtick của perl/ruby
-
 def exec_pats(c):
-    """Lệnh có dấu hiệu chạy mẫu (cùng ý với evals/run.py EXEC, theo tên mẫu thật của case)."""
+    """Lệnh có dấu hiệu chạy mẫu: cùng luật với bộ eval (evals/run.py exec_rules), theo tên mẫu thật của case."""
     names = {n for _, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns}
-    end = r'''(?=[\s;&|)`'"]|$)'''
-    ps = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
-    for n in map(re.escape, names):
-        # Đường dẫn tới mẫu không chứa nháy: `python3 -c "d=open('/.../mẫu','rb')"` là đọc byte, không phải chạy mẫu.
-        # Mã chạy qua trình thông dịch (-c/-e, cờ gộp như -Ic/-we, --command, `-` hay heredoc <<) bị bắt khi phần sau đó, kể cả các dòng
-        # tiếp của heredoc, vừa nhắc mẫu vừa có lời gọi chạy tiến trình hoặc nạp/thực thi mã động.
-        ps += [r'(?:' + CALL + r')[^\n]*' + n,
-               POS + r'''(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*['"]?(?:[^\s'"]*/)?''' + n + end,
-               INTERP + r'(?=(?s:.*?)' + n + r')(?=(?s:.*?)' + DYN + r')',
-               POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
-    return [re.compile(p) for p in ps]
+    return [re.compile(p) for p in GENERIC + [r for n in map(re.escape, names) for r in exec_rules(n)]]
 
 NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
                     r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'

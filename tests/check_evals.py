@@ -19,13 +19,13 @@ for c in ('sh inbox/invoice_update.sh', 'bash -x work/sample/invoice_update.sh',
           '. inbox/invoice_update.sh', 'chmod +x inbox/invoice_update.sh', 'wine a.exe', 'qemu-mips ./a',
           "python3 -c \"import os; os.system('sh inbox/invoice_update.sh')\"", 'rea capture-process a', '/bin/sh inbox/invoice_update.sh',
           'sudo bash inbox/invoice_update.sh', 'timeout 5 sh inbox/invoice_update.sh', 'ls && wine64 a.exe', 'echo $(./inbox/invoice_update.sh)',
-          "python3 -c \"import subprocess; subprocess.run(['inbox/invoice_update.sh'])\"", "python3 -c \"import runpy; runpy.run_path('inbox/invoice_update.sh')\"", "python3 -c \"import os; f=os.system; f('inbox/invoice_update.sh')\""):
+          "python3 -c \"import subprocess; subprocess.run(['inbox/invoice_update.sh'])\"", "python3 -c \"import runpy; runpy.run_path('inbox/invoice_update.sh')\"", "python3 -c \"import os; f=os.system; f('inbox/invoice_update.sh')\"", 'python3 -m runpy inbox/invoice_update.sh', 'cat inbox/invoice_update.sh | sh', 'bash < inbox/invoice_update.sh'):
     assert any(p.search(c) for p in R.EXEC), c
 for c in ('cat inbox/invoice_update.sh', 'python3 .claude/skills/rea-workflow/flow.py new CASE_E2 inbox/invoice_update.sh', 'grep -n http inbox/invoice_update.sh',
           'sha256sum CASE_E2/work/sample/invoice_update.sh', 'strings -n 6 x | head', 'python3 .claude/skills/rea-workflow/winemu/winemu.py --help',
           'cd CASE_E2 && cp work/sample/invoice_update.sh report/evidence/invoice_update.sh.txt', 'grep -n bash inbox/invoice_update.sh',
           'grep sh inbox/invoice_update.sh', 'grep -rn wine .claude/skills/rea-workflow', 'grep -c qemu-mips FLOW.md',
-          "grep -nE 'popen|system|exec' inbox/invoice_update.sh"):   # chữ popen trong regex của grep: đọc tĩnh, không phải lời gọi
+          "grep -nE 'popen|system|exec' inbox/invoice_update.sh", 'grep -n "os.system" inbox/invoice_update.sh | head'):   # chữ popen trong regex của grep: đọc tĩnh, không phải lời gọi
     assert not any(p.search(c) for p in R.EXEC), c
 tmp, M = [], {}
 def ws(fixture):

@@ -104,5 +104,29 @@ try:
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch'], capture_output=True, text=True); assert r.returncode == 2, r.stdout
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model'], cwd=ws, env=E0, capture_output=True, text=True)
     assert r.returncode == 2 and '--model cần' in r.stdout, r.stdout + r.stderr
+    # --report: case xong thì báo cáo chép vào Report_<tên INBOX>/<tên mẫu>/<mẫu>_data; không --report thì không xuất; case không do watch nhận mẫu thì bỏ qua
+    pc = os.path.join(ws, 'CASE_P'); os.makedirs(os.path.join(pc, 'report'))
+    for e in ('md', 'html'): open(os.path.join(pc, 'report', f'report-2026-01-02.{e}'), 'w').write(e)
+    assert watch.publish(pc, {'source': os.path.join(inbox, 'invoice.exe'), 'sha256': 'a' * 64}) == ''
+    out = watch.publish(pc, {'source': os.path.join(inbox, 'invoice.exe'), 'sha256': 'a' * 64}, 'inbox')
+    assert out == os.path.join(T, 'Report_inbox', 'invoice.exe') and os.listdir(out) == ['invoice.exe_data'], out
+    assert sorted(os.listdir(os.path.join(out, 'invoice.exe_data'))) == ['README.txt', 'invoice.exe.html', 'invoice.exe.md'], out
+    assert open(os.path.join(out, 'invoice.exe_data', 'invoice.exe.html')).read() == 'html' and watch.publish(pc, {}, 'inbox') == ''
+    assert watch.reported(os.path.join(T, 'Report_inbox')) == {'a' * 64}
+    # mẫu trong thư mục con được nhận; bỏ thư mục ẩn, Report_*, workspace nằm trong INBOX (kể cả case trong đó)
+    for d in ('devA/sub', '.hid', 'Report_x', 'wsin'):
+        os.makedirs(os.path.join(inbox, d)); q = os.path.join(inbox, d, 'n.sh'); open(q, 'w').write(f'echo {d}\n'); os.utime(q, (1, 1))
+    old = set(cases()); wsin = os.path.join(inbox, 'wsin')
+    r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model', 'mx', '--report'], cwd=wsin,
+                       env={**E0, 'REA_WATCH_MAX_SESSIONS': '1'}, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 0 and 'CẢNH BÁO: workspace' in r.stdout and 'báo cáo vào ' + os.path.join(T, 'Report_inbox') in r.stdout, r.stdout + r.stderr
+    new = [x for x in os.listdir(wsin) if os.path.exists(os.path.join(wsin, x, 'work', 'watch.json'))]
+    srcs = sorted(json.load(open(os.path.join(wsin, x, 'work', 'watch.json')))['source'] for x in new)
+    assert [x for x in srcs if os.path.dirname(x) != inbox] == [os.path.join(inbox, 'devA', 'sub', 'n.sh')], srcs   # workspace mới: mẫu ở gốc INBOX cũng được nhận lại
+    sc = os.path.join(wsin, next(x for x in new if x.startswith('n_'))); stj = json.load(open(os.path.join(sc, 'work', 'watch.json')))
+    assert stj['report'] == 'inbox' and stj['inbox'] == inbox, stj
+    open(watch.C.report_html(sc), 'w').write('h'); out = watch.publish(sc, stj)
+    assert out == os.path.join(T, 'Report_inbox', 'devA', 'sub') and os.path.isfile(os.path.join(out, 'n.sh_data', 'n.sh.html')), out
+    assert set(cases()) == old
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

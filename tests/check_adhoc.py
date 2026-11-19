@@ -4,7 +4,7 @@
 # luật cổng tool_selfcheck / tool_stale / tool_coverage ở cả lint và review.mech, probe của triage, kb tools.
 # Dữ liệu tổng hợp: định dạng giả "len32 + crc32 + payload xor 0x5a". Test tự chạy script (như agent sẽ làm), không cần mẫu.
 #   python3 tests/check_adhoc.py
-import json, os, shutil, struct, subprocess, sys, tempfile, time, zlib
+import importlib.util, json, os, re, shutil, struct, subprocess, sys, tempfile, time, zlib
 T = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [T, os.path.join(T, 'static')]
 import adhoc, case, review
@@ -83,15 +83,22 @@ try:
     A(id='ok', kind='config', value='h.test port=8443', src='S', evidence=f'{rel}#L{ln}'); A(id='cov', kind='dec_coverage', value='2/2', src='S', evidence=rel)
     A(id='badcov', kind='dec_coverage', value='9/9', src='S', evidence=rel); A(id='nosc', kind='config', value='h.test', src='S', evidence='report/evidence/tool_blob_2.txt')
     open(os.path.join(ev, 'tool_fake_1.txt'), 'w').write('SELFCHECK: ĐẠT (1 phép)\nh.test\n'); A(id='fake', kind='config', value='h.test', src='S', evidence='report/evidence/tool_fake_1.txt')
-    F = case.load(c); lint = {i: sorted(x['check'] for x in case.lint_fact(c, F[i]) if x['check'].startswith('tool_')) for i in F}
-    mech = {i: sorted(x['check'] for x in review.mech(c) if x['id'] == i and x['check'].startswith('tool_')) for i in F}
+    F = case.load(c); LF = {i: case.lint_fact(c, F[i]) for i in F}; MX = review.mech(c)
+    # tool_isolation: cảnh báo (lint warn, mech weak), không chặn; tách riêng khỏi các luật fail
+    iso = {i: [x['level'] for x in LF[i] if x['check'] == 'tool_isolation'] + [x['verdict'] for x in MX if x['id'] == i and x['check'] == 'tool_isolation'] for i in F}
+    net = {i: case.adhoc.header(open(case.ev_path(c, F[i]['evidence'])[1], encoding='utf-8').read()) for i in F}
+    for i in F:
+        has = bool(net[i]) and str(net[i].get('net') or '').startswith('có')
+        assert iso[i] == (['warn', 'weak'] if has else []), (i, iso[i], net[i] and net[i].get('net'))
+    lint = {i: sorted(x['check'] for x in LF[i] if x['check'].startswith('tool_') and x['check'] != 'tool_isolation') for i in F}
+    mech = {i: sorted(x['check'] for x in MX if x['id'] == i and x['check'].startswith('tool_') and x['check'] != 'tool_isolation') for i in F}
     want = {'ok': [], 'cov': [], 'badcov': ['tool_coverage'], 'nosc': ['tool_selfcheck', 'tool_stale'], 'fake': []}   # 'fake': tên trùng mẫu nhưng không mang phần đầu của seal -> không áp luật (evidence cũ của người phân tích)
     assert lint == want and mech == want, (lint, mech)
-    assert all(x['severity'] == 'high' for x in review.mech(c) if x['check'].startswith('tool_'))
+    assert all(x['severity'] == 'high' for x in review.mech(c) if x['check'].startswith('tool_') and x['check'] != 'tool_isolation')
     open(os.path.join(ev, 'tool_output.txt'), 'w').write('h.test có sẵn\n'); A(id='old', kind='config', value='h.test', src='S', evidence='report/evidence/tool_output.txt')   # tên tool_ có từ trước, không theo mẫu của seal: không áp luật T1b
-    assert not [x for x in case.lint_fact(c, case.load(c)['old']) if x['check'].startswith('tool_')]
+    assert not [x for x in case.lint_fact(c, case.load(c)['old']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')]
     # một tiêu chí nhận diện cho lint/mech/gate: tên tool_<TÊN>_<n>.txt của công cụ có trong case thì xóa dòng đầu không thoát luật; sửa phần output sau khi seal -> tool_stale
-    tk = lambda i: sorted(x['check'] for x in case.lint_fact(c, case.load(c)[i]) if x['check'].startswith('tool_'))
+    tk = lambda i: sorted(x['check'] for x in case.lint_fact(c, case.load(c)[i]) if x['check'].startswith('tool_') and x['check'] != 'tool_isolation')
     good = open(os.path.join(c, rel), encoding='utf-8').read(); assert adhoc.header(good)['out'] == adhoc.body_sha(good) == adhoc.body_sha(good.rstrip('\n'))
     open(os.path.join(c, rel), 'w', encoding='utf-8').write(good.split('\n', 1)[1]); assert tk('ok') == ['tool_selfcheck'] and any(x['id'] == 'ok' and x['check'] == 'tool_selfcheck' for x in review.mech(c))
     open(os.path.join(c, rel), 'w', encoding='utf-8').write(good + 'config: host=evil.test port=1\n'); assert tk('ok') == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
@@ -106,16 +113,21 @@ try:
     write(GOOD.replace('def parse(path):', 'import helper_mod\ndef parse(path):', 1)); assert runtool().returncode == 0
     r = flow('seal', 'blob'); t4 = open(os.path.join(ev, 'tool_blob_4.txt'), encoding='utf-8').read(); H4 = adhoc.header(t4)
     assert r.returncode == 0 and H4['mods'] == ['blob', 'helper_mod'] and H4['ok'] and 'MUTATION 8/8' in t4 and 'KAT 2/2' in t4 and 'ISOLATION net=' in t4 and adhoc.header(t4)['mut'] == (8, 8) and adhoc.header(t4)['kat'] == (2, 2), r.stdout
-    assert [x['check'] for x in case.lint_fact(c, F['ok']) if x['check'].startswith('tool_')] == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
+    # tool_isolation có ca tổng hợp cố định cho cả hai nhánh, không phụ thuộc mạng của máy chạy test
+    iso = lambda v: [x[0] for x in adhoc.notes(c, {}, 'report/evidence/tool_blob_4.txt', re.sub(r'(?m)^ISOLATION net=.*$', lambda m: 'ISOLATION net=' + v, t4))]
+    assert iso('có (eth0)') == ['tool_isolation'] and iso('không') == [], (iso('có (eth0)'), iso('không'))
+    spec = importlib.util.spec_from_file_location('blob_outdir', p); tm = importlib.util.module_from_spec(spec); spec.loader.exec_module(tm)   # OUT_DIR theo vị trí công cụ, không theo cwd
+    assert tm.OUT_DIR == os.path.join(c, 'work', 'runs', 'tool', 'blob'), tm.OUT_DIR
+    assert [x['check'] for x in case.lint_fact(c, F['ok']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')] == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
     A(id='ok2', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/tool_blob_4.txt#L{1 + t4.splitlines().index("config: host=h.test port=8443")}', supersedes='ok')
-    assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
+    assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')]
     time.sleep(0.02); open(os.path.join(ev, 'tools', 'helper_mod.py'), 'a').write('# đổi\n')       # sửa bản lưu của module phụ: evidence cũng thành stale
-    assert [x['check'] for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')] == ['tool_stale']
+    assert [x['check'] for x in case.lint_fact(c, case.load(c)['ok2']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')] == ['tool_stale']
     # lần seal không đạt không ghi đè bản lưu công cụ: evidence đạt trước đó không vì thế mà thành stale; output không cùng lần chạy với trạng thái -> từ chối
     shutil.copy(p, os.path.join(ev, 'tools', 'blob.py')); shutil.copy(os.path.join(c, 'work', 'tools', 'helper_mod.py'), os.path.join(ev, 'tools', 'helper_mod.py'))
-    assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
+    assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')]
     good_now = open(p, encoding='utf-8').read(); write(good_now.replace("def CRC(r): return r['crc']", "def CRC(r): return r['crc'] + 2")); assert runtool().returncode == 0
-    assert flow('seal', 'blob').returncode == 1 and not [x for x in case.lint_fact(c, case.load(c)['ok2']) if x['check'].startswith('tool_')]
+    assert flow('seal', 'blob').returncode == 1 and not [x for x in case.lint_fact(c, case.load(c)['ok2']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')]
     time.sleep(0.02); open(os.path.join(ev, 'tools', 'helper_mod.py'), 'a').write('# đổi\n')
     # cổng: review PASS rồi mà evidence công cụ thành stale (facts.jsonl không đổi) thì gate đóng lại
     c3 = os.path.join(ws, 'CASE3'); shutil.copytree(c, c3); os.makedirs(os.path.join(c3, 'work', 'review'), exist_ok=True)

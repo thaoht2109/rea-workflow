@@ -75,6 +75,7 @@ def lint_fact(case, f):
     sv = src_evidence_issue(f['src'], base)
     if sv: bad('fail', 'src_vs_evidence', *sv)
     for ck, pb, rd in adhoc.issues(case, f, rel, '\n'.join(lines)): bad('fail', ck, pb, rd)   # evidence của công cụ tự viết: phải tự kiểm đạt, công cụ chưa đổi
+    for ck, pb, rd in adhoc.notes(case, f, rel, '\n'.join(lines)): bad('warn', ck, pb, rd)    # chạy không trong vỏ không mạng: cảnh báo
     scope, anchor = whole, None
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m:

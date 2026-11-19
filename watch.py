@@ -13,10 +13,16 @@ FLOW = os.path.join(TOOLS, 'flow.py')
 num = lambda k, d: int(CFG.get(k, d, path=False))
 MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), num('REA_WATCH_STALL', '3'), num('REA_WATCH_INTERVAL', '60'),
                                           num('REA_WATCH_TIMEOUT', '1800'), num('REA_WATCH_SETTLE', '10'))
+MAXT = num('REA_WATCH_MAX_TURNS', '80')   # số lượt tối đa của một phiên claude -p (một mốc phân tích)
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
           'và làm MỘT mốc theo kết quả (NEED_MORE: phân tích tiếp; NEED_FIX: sửa fact theo where/redo; NEED_REPORT: cập nhật báo cáo viết tay). '
-          'Không thực thi mẫu. Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
+          'Không thực thi mẫu. Hậu kiểm tự động sẽ DỪNG case nếu thấy lệnh có dạng chạy mẫu, kể cả khi chỉ đọc: chạy công cụ phân tích trực tiếp '
+          '`python3 -I work/tools/X.py <mẫu> ...` (ghi kết quả bằng `>`), KHÔNG gọi công cụ qua subprocess/os.system/os.popen/runpy/pty trên cùng dòng có tên mẫu. '
+          'Công cụ tự viết (work/tools, tầng T1b) chạy bằng `python3 -I work/tools/X.py ...` (allowlist không có `bwrap`), file dẫn xuất chỉ ghi vào '
+          'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation: chấp nhận, cô lập thật nhờ chạy watcher trong VM không mạng). '
+          'KHÔNG đưa đường dẫn mẫu vào `python3 -c` có exec/eval/compile/importlib, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`. '
+          'Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
           'Ghi hết kết luận thành fact, chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
 
 def say(c, m): print(f'{datetime.datetime.now():%F %T} [{c or "watch"}] {m}', flush=True)
@@ -91,7 +97,7 @@ def session(c, st, model):
     argv = shlex.split(r.stdout.strip().splitlines()[-1])
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
     argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
-             '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', '40'] + (['--model', model] if model else [])
+             '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', str(MAXT)] + (['--model', model] if model else [])
     n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
     before = fp(c); say(c, f'phiên {n}/{MAXS}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)
@@ -146,7 +152,7 @@ def main(a):
         print('dùng: flow.py watch INBOX [--once] [--model M]   (chạy ở workspace; case tạo trong thư mục hiện tại)'); return 2
     model = pick_model(a)
     if model is None: print('--model cần tên model'); return 2
-    say('', f"theo dõi {a[0]}, workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên / {STALL} lần không đổi")
+    say('', f"theo dõi {a[0]}, workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên x {MAXT} lượt / {STALL} lần không đổi")
     while True:
         ingest(a[0])   # ponytail: các case chạy tuần tự trong một watcher; song song thì mở thêm watcher (khóa theo case)
         for w in sorted(glob.glob('*/work/watch.json')): step(os.path.dirname(os.path.dirname(w)), model)

@@ -57,4 +57,6 @@ assert S(R['imported_funcs']) == {'C5 IOC mạng': ['connect'], 'C6 tiêm mã': 
 # 7. mẫu trong SENS phải là chữ thường (so sau khi lower), '*' chỉ ở cuối
 for mục, pats in triage.SENS.items():
     for p in pats: assert p == p.lower() and '*' not in p[:-1], (mục, p)
+# 8. công cụ phụ (vd. go) không có trên máy: run() trả rỗng, không làm hỏng triage
+assert triage.run('rea-khong-co-lenh-nay-xyz', 'version') == ''
 print('ok')

@@ -45,11 +45,12 @@ try:
     cs = cases(); assert len(cs) == 1 and cs[0].startswith('s_'), (cs, out)
     c = cs[0]; a = calls()[-1]
     os.remove(os.path.join(inbox, 'fresh.bin'))   # đã kiểm: chưa nhận; xóa để vòng sau (đã quá SETTLE) không nhận
-    assert len(calls()) == 1 and a[a.index('--model') + 1] == 'mx' and a[a.index('--permission-mode') + 1] == 'default', a
+    assert len(calls()) == 1 and a[a.index('--model') + 1] == 'mx' and a[a.index('--permission-mode') + 1] == 'default' and a[a.index('--max-turns') + 1] == '80', a
     assert 'Bash(python3:*)' in a[a.index('--allowedTools') + 1] and 'mcp__' not in a[a.index('--allowedTools') + 1] and json.loads(a[a.index('--mcp-config') + 1]) == {'mcpServers': {}} and 'WebFetch' in a[a.index('--disallowedTools') + 1], a
     assert st(c)['sessions'] == 1 and st(c)['stall'] == 1 and os.path.exists(os.path.join(ws, c, 'work', 'runs', 'watch', 's01.jsonl')), st(c)
     # trùng nội dung, tên khác: không tạo case mới; phiên đổi báo cáo -> stall về 0
-    drop('copy.sh', '#!/bin/sh\necho hi\n'); W('--model', 'mx', FAKE_TOUCH='1')
+    drop('copy.sh', '#!/bin/sh\necho hi\n'); W('--model', 'mx', FAKE_TOUCH='1', REA_WATCH_MAX_TURNS='7')   # trần lượt cấu hình được
+    assert calls()[-1][calls()[-1].index('--max-turns') + 1] == '7', calls()[-1]
     assert cases() == [c] and st(c)['sessions'] == 2 and st(c)['stall'] == 0, (cases(), st(c))
     # case đang bị giữ khóa: không mở phiên
     with open(os.path.join(ws, c, 'work', '.watch.lock'), 'a') as f:

@@ -114,7 +114,7 @@ def doctor():
         if d == os.path.dirname(d): break
         d = os.path.dirname(d)
     row(not up, 'cô lập lớp 2', f'có {up}' if up else ws, 'REVIEW_WS_DIR phải nằm ngoài thư mục có file hướng dẫn agent')
-    for k, b, use, req in (('SEVENZ_BIN', SEVENZ, 'giải nén mẫu', True), ('CLAUDE_BIN', CLAUDE, 'review-loop tự động; lớp 2 nếu chọn claude', False),
+    for k, b, use, req in (('SEVENZ_BIN', SEVENZ, 'giải nén mẫu; flow.py export gói mẫu/payload', True), ('CLAUDE_BIN', CLAUDE, 'review-loop tự động; lớp 2 nếu chọn claude', False),
                            ('REA_BIN', REA_BIN, 'flow.py dec (decompile)', True), ('UPX_BIN', UPX, 'bóc UPX', False)):
         row(bool(shutil.which(b)), k, shutil.which(b) or b, use, req)
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,

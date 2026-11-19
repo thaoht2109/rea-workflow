@@ -3,7 +3,7 @@
 # mỗi phiên làm một mốc theo `flow.py next` rồi thoát. Không bao giờ thực thi mẫu.
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
-import os, re, sys, glob, json, time, fcntl, shlex, shutil, hashlib, datetime, subprocess
+import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -217,7 +217,8 @@ def reported_sha(d):
     return m.group(1) if m else ''
 
 def publish(c, st, report=None):
-    """Case DONE và watch chạy với --report: chép báo cáo vào <thư mục báo cáo>/<đường dẫn tương đối của mẫu trong INBOX>/<tên mẫu>_data/.
+    """Case DONE và watch chạy với --report: xuất case (export.py: báo cáo, facts, evidence, work, 7z mẫu) vào <thư mục báo cáo>/<đường dẫn
+    tương đối của mẫu trong INBOX>/<tên mẫu>_data/.
     Mẫu nằm thẳng trong INBOX hoặc trong thư mục cấp một (INBOX/U/x.tar.gz) thì thêm thư mục riêng theo tên mẫu bỏ đuôi nén (U/x/).
     Có REA_WATCH_ALIAS_SUFFIX thì X<hậu tố>/a ra X/a, chung chỗ với file nén gốc X/. Trả thư mục chứa <mẫu>_data, hoặc '' nếu không xuất."""
     src, name_ = st.get('source'), st.get('report') or report
@@ -231,12 +232,9 @@ def publish(c, st, report=None):
     h = st.get('sha256') or sha(src)
     old = reported_sha(d)
     if old and old != h: d = os.path.join(out, f'{name}_{h[:8]}_data')   # mẫu khác cùng tên (bản thay thế): không ghi đè báo cáo cũ
-    os.makedirs(d, exist_ok=True)
-    for f, x in ((C.report_md(c), '.md'), (C.report_html(c), '.html')):
-        if os.path.isfile(f): shutil.copyfile(f, os.path.join(d, name + x))
-    open(os.path.join(d, 'README.txt'), 'w', encoding='utf-8').write(   # dòng đầu: reported() đọc sha256 ở đây
-        f'Dữ liệu phân tích của mẫu {name} (sha256 {h}), chép từ case {os.path.basename(os.path.abspath(c))}.\n\n'
-        f'{name}.md, {name}.html  báo cáo của mẫu (bản HTML để xem)\n')
+    os.makedirs(out, exist_ok=True)
+    import export   # dữ liệu case + 7z mẫu/payload + báo cáo có thông tin mẫu; README.txt dòng đầu có sha256 (reported() đọc)
+    export.write(c, dict(st, source=src, inbox=inbox, sha256=h), d)
     return out
 
 def _noted_load():

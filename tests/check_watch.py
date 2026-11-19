@@ -111,8 +111,9 @@ try:
     assert watch.publish(pc, {'source': os.path.join(inbox, 'invoice.exe'), 'sha256': 'a' * 64}) == ''
     out = watch.publish(pc, {'source': os.path.join(inbox, 'invoice.exe'), 'sha256': 'a' * 64}, 'inbox')
     assert out == os.path.join(T, 'Report_inbox', 'invoice.exe') and os.listdir(out) == ['invoice.exe_data'], out
-    assert sorted(os.listdir(os.path.join(out, 'invoice.exe_data'))) == ['README.txt', 'invoice.exe.html', 'invoice.exe.md'], out
-    assert open(os.path.join(out, 'invoice.exe_data', 'invoice.exe.html')).read() == 'html' and watch.publish(pc, {}, 'inbox') == ''
+    assert sorted(os.listdir(os.path.join(out, 'invoice.exe_data'))) == ['MANIFEST.sha256', 'README.txt', 'invoice.exe.html', 'invoice.exe.md', 'report'], out   # export.py
+    h = open(os.path.join(out, 'invoice.exe_data', 'invoice.exe.html')).read()
+    assert h.startswith('html') and 'id="thong-tin-mau"' in h and watch.publish(pc, {}, 'inbox') == '', h
     assert watch.reported(os.path.join(T, 'Report_inbox')) == {'a' * 64}
     # mẫu trong thư mục con được nhận; bỏ thư mục ẩn, Report_*, workspace nằm trong INBOX (kể cả case trong đó)
     for d in ('devA/sub', '.hid', 'Report_x', 'wsin'):

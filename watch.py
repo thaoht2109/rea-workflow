@@ -135,9 +135,7 @@ def step(c, model, report=None):
         elif k: session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
-SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
-SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b|CreateObject|WScript|Add-Type|FromBase64String|<script|\bfunction\b|\bimport\s+\w|\brequire\s*\(', re.I)
+from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng

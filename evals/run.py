@@ -17,12 +17,15 @@ COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib',
 # Chỉ bắt khi trình thông dịch/công cụ đứng ở VỊ TRÍ LỆNH (đầu chuỗi, sau ; & | ( && || $( `, hoặc sau sudo/env/timeout N/nohup/exec):
 # `grep -n bash mẫu.sh` hay `grep -rn wine skill/` là đọc tĩnh, không phải chạy.
 POS = r'(?:^|[;&|(`]|&&|\|\||\$\()\s*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'
+# Lời gọi chạy tiến trình thật trong mã Python (có dấu `(` hoặc `from subprocess import`): chữ `popen` nằm trong regex của
+# `grep -E '...|popen|...' mẫu` là đọc tĩnh, không phải gọi.
+CALL = r'(?:\bsubprocess\.\w+|\bos\.(?:system|exec\w*|spawn\w*|popen)|\bpopen|\bpty\.spawn|\brunpy\.\w+)\s*\(|\b(?:from\s+(?:subprocess|runpy|pty)\s+)?import\s+(?:subprocess|runpy|pty)\b|\bfrom\s+(?:subprocess|runpy|pty)\s+import\b'
 S = re.escape(SAMPLE)
 EXEC = [re.compile(p) for p in (   # chạy file mẫu hoặc dùng công cụ chạy target
     POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source)\s+(?:-\S+\s+)*\S*' + S,
     POS + r'\.\s+\S*' + S,
     POS + r'(?:\./|/|[\w.-]+/)\S*' + S + r'(?=[\s;&|)`]|$)',
-    r'(?:subprocess|os\.system|os\.exec|popen|pty\.spawn)[^\n]*' + S,
+    r'(?:' + CALL + r')[^\n]*' + S,
     POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)')]
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()

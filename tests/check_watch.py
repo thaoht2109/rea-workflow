@@ -64,6 +64,17 @@ try:
     for k in ('sh', 'py', 'mcp', 'watch', 'pyw', 'fromw', 'subw', 'grepw', 'grepm', 'grepsub'):   # shell, os.system trong python3 -c, tool MCP chạy target, watcher lồng; grep chỉ là đọc
         old = set(cases()); drop(f'e{k}.sh', f'echo {k}\n'); W('--model', 'mx', FAKE_EXEC=k)
         e = sorted(set(cases()) - old); assert len(e) == 1 and ('hậu kiểm' in st(e[0]).get('stop', '')) == (not k.startswith('grep')), (k, st(e[0]))
+    # luật hậu kiểm theo tên mẫu thật: lệnh chạy mẫu bị bắt; đọc byte, grep, công cụ gọi trực tiếp thì không
+    xp = os.path.join(T, 'XP'); os.makedirs(os.path.join(xp, 'work', 'sample')); open(os.path.join(xp, 'work', 'sample', 'mal.bin'), 'w').close()
+    P = watch.exec_pats(xp); S = 'work/sample/mal.bin'; hit = lambda x: any(p.search(x) for p in P)
+    for x in (f"sh -c './{S}'", f'bash -c "{S}"', f'bash {S}', f'bash "{S}"', f'env {S}', f"perl -e 'do \"{S}\"'",
+              f"python3 -c \"exec(open('{S}').read())\"", f"python3 -c \"import os; os.execv('{S}', ['x'])\"",
+              f"python3 -c \"import runpy, sys; sys.argv = ['t', '{S}']; runpy.run_path('work/tools/t.py')\"",
+              f"node -e \"require('child_process').execSync('{S}')\"", f"python3 -c \"import subprocess; subprocess.run(['{S}'])\""):
+        assert hit(x), x
+    for x in (f"grep -nE 'popen|system' {S}", f"python3 -I -c \"d=open('{S}','rb').read(); print(len(d))\"",
+              f'python3 -I work/tools/t.py {S} > work/runs/tool/t.out', f'xxd {S} | head', f'sha256sum {S}'):
+        assert not hit(x), x
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)
     drop('m.sh', 'echo m\n'); W(REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')
     m = [x for x in cases() if x.startswith('m_')][0]

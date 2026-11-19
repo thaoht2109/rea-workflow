@@ -115,7 +115,18 @@ os.utime(c2 + '/report/report-2026-01-01.md', (2 ** 32, 2 ** 32)); assert review
 open(c2 + '/report/report-2026-01-01.md', 'a').write('Đã rút một fact.\n'); assert review.report_todo(c2), 'sửa dòng không liên quan chưa đủ'
 os.rename(c2 + '/report/report-2026-01-01.md', c2 + '/report/x'); assert review.report_todo(c2), 'thiếu báo cáo vẫn chặn'; os.rename(c2 + '/report/x', c2 + '/report/report-2026-01-01.md')
 open(c2 + '/report/report-2026-01-01.md', 'a').write('Xem f1.r10 và xf1.r1.\n'); assert review.report_todo(c2), 'id khác có cùng tiền tố không được tính'
-open(c2 + '/report/report-2026-01-01.md', 'a').write('Đính chính: đã rút f1.r1.\n')
+open(c2 + '/report/report-2026-01-01.md', 'a', encoding='utf-8').write('Đính chính: đã rút f1.r1.\n')
+# báo cáo còn dòng giữ chỗ của template (phần chữ chưa viết): next, report --final và HTML cùng chặn; dòng đã viết lại (dù một phần) thì không tính
+rp = c2 + '/report/report-2026-01-01.md'; good = open(rp, encoding='utf-8').read()
+open(rp, 'a', encoding='utf-8').write('| IOC mạng | | |\n>  Trạng thái: _(đang phân tích / hoàn tất tới …)_.  Xem `flow.py status` để biết mục nào còn thiếu.\n')
+assert not review.report_todo(c2) and len(review.report_blank(c2)) == 2 and review.next_step(c2) == 1, review.report_blank(c2)
+C.report(c2); assert 'BẢN NHÁP' in open(C.report_html(c2), encoding='utf-8').read(), 'HTML: còn dòng giữ chỗ thì vẫn là bản nháp'
+r = final(); assert r.returncode != 0 and 'giữ chỗ' in r.stderr and '| IOC mạng | | |' in r.stderr, r.stdout + r.stderr
+open(rp, 'w', encoding='utf-8').write(good + '| IOC mạng | không còn (đã rút) | S |\n> Trạng thái: hoàn tất.\n'); assert review.report_blank(c2) == []
+B = review.blank_lines(); tpl = open(os.path.join(SKILL, 'templates', 'report.md'), encoding='utf-8').read().replace('{CASE}', 'X').replace('{DATE}', '2026-01-01')
+assert len(B) >= 6 and any(b.startswith('| IOC mạng |') for b in B) and any(b.startswith('_(') for b in B), B   # suy từ template, không ghi cứng
+os.rename(rp, rp + '.bak'); open(rp, 'w', encoding='utf-8').write(tpl); assert review.report_blank(c2) == B, 'báo cáo mới tạo từ template: mọi dòng giữ chỗ đều bị nhận ra'
+os.replace(rp + '.bak', rp)
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr
 assert 'Cổng phản biện: đạt' in open(C.report_html(c2), encoding='utf-8').read(), 'bản HTML theo review.gate'

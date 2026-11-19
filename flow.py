@@ -444,6 +444,8 @@ if __name__ == '__main__':
         if '--final' in a:   # báo cáo cuối chỉ khi cổng phản biện đạt (review.py)
             import review; ok, why = review.gate(c)
             if not ok: raise SystemExit(f'CHẶN report --final: {why}')
+            rb = review.report_blank(c)
+            if rb: raise SystemExit(f'CHẶN report --final: {case.report_md(c)} còn phần giữ chỗ của template: ' + '; '.join(rb))
             rt = review.report_todo(c)
             if rt: raise SystemExit(f'CHẶN report --final: cập nhật {case.report_md(c)} và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md; bản HTML để xem: {case.report_html(c)}')

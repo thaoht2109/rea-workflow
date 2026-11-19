@@ -304,6 +304,8 @@ def report(case):
     F = list(cur.values()); n = {s: sum(f['status'] == s for f in F) for s in ('active', 'hypothesis', 'retracted')}
     m = RPT.match(os.path.basename(rm)); gate = review.gate(case); todo = review.report_todo(case) if gate[0] else []
     if todo: gate = (False, 'báo cáo viết tay chưa nhắc fact đã sửa: ' + ', '.join(x['id'] for x in todo))   # cùng điều kiện chặn report --final
+    blank = review.report_blank(case) if gate[0] else []
+    if blank: gate = (False, f'báo cáo viết tay còn {len(blank)} dòng giữ chỗ của template')   # cùng điều kiện chặn report --final
     acc = review.accepted(case)   # mục chưa đạt nhưng đã chấp nhận là hạn chế (next --accept): hiện lý do thay cho việc còn lại
     rows = [(k, f'chấp nhận: {v}', 'Hạn chế đã chấp nhận: ' + acc[k.split()[0]]) if k.split()[0] in acc and k.split()[0] != 'C0'
             and not (v == 'ok' or v.startswith('n/a')) else (k, v, h) for k, v, h in check(case, shown=name)]

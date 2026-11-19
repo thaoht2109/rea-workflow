@@ -133,8 +133,9 @@ def step(c, model, report=None):
 
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
+SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b', re.I)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
-NOTES_LOG = 'watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
+NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
 
 def stem(name): return ARCH.sub('', name) or name   # tên thư mục báo cáo của mẫu: bỏ đuôi nén (x.tar.gz -> x)
@@ -181,7 +182,7 @@ def note_of(p):
     if SUMS.search(n): return 'tên dạng SHA256SUMS'
     if not n.lower().endswith(NOTE_EXT): return ''
     t = _text(p)
-    if t is None: return ''
+    if t is None or SCRIPT.search(t): return ''   # nội dung trông như script (shebang, | sh, curl, base64 -d...): coi là mẫu
     sib = [os.path.join(d, x) for x in os.listdir(d) if x != n and not x.startswith('.') and not x.lower().endswith(NOTE_EXT)
            and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
     for q in sib:
@@ -262,6 +263,8 @@ def main(a):
     if '--report' in a:   # không có TÊN: Report_<tên INBOX>
         i = a.index('--report'); report = a[i + 1] if i + 1 < len(a) and not a[i + 1].startswith('-') else os.path.basename(os.path.abspath(a[0]))
     root = report_root(a[0], report)
+    if os.path.realpath(os.getcwd()) == os.path.realpath(a[0]):
+        print('workspace không được trùng INBOX (file do watcher sinh và case sẽ bị nhận làm mẫu): chạy từ một thư mục khác' + (f', ví dụ {root}/.cases' if root else '')); return 2
     if (os.path.abspath(os.getcwd()) + os.sep).startswith(os.path.abspath(a[0]) + os.sep):
         say('', f'CẢNH BÁO: workspace {os.getcwd()} nằm trong INBOX: case và file tạm ghi vào cây mẫu gốc; nên chạy từ một thư mục ngoài INBOX'
                 + (f', ví dụ {root}/.cases' if root else ''))

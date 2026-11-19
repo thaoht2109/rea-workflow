@@ -128,5 +128,7 @@ try:
     open(watch.C.report_html(sc), 'w').write('h'); out = watch.publish(sc, stj)
     assert out == os.path.join(T, 'Report_inbox', 'devA', 'sub') and os.path.isfile(os.path.join(out, 'n.sh_data', 'n.sh.html')), out
     assert set(cases()) == old
+    r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model', 'mx'], cwd=inbox, env=E0, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 2 and 'không được trùng INBOX' in r.stdout, r.stdout + r.stderr   # workspace trùng INBOX: từ chối
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

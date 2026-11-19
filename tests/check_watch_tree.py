@@ -46,6 +46,7 @@ try:
     watch.MAXN = 2; watch.ingest(inbox, 'IN'); assert len(made()) == 2, made()
     watch.MAXN = 20; watch.ingest(inbox, 'IN'); m = made()
     assert len(m) == 6 and sorted(x.split('_')[0] for x in m) == ['install', 'k', 'k', 'r', 's', 'tool'], m   # s.bin đã có báo cáo: không làm lại
+    watch._NOTED.clear(); watch.ingest(inbox, 'IN')   # khởi động lại watcher: không ghi lặp vào log
     L = open(os.path.join(ws, watch.NOTES_LOG), encoding='utf-8').read().splitlines()   # ghi chú bị bỏ qua được ghi lại, mỗi file một lần
     assert sorted(x.split('\t')[1] for x in L) == sorted([n1, n2, n3]) and 'nhắc sha256 của s.bin' in '\n'.join(L), L
     # chép báo cáo lỗi: case chưa đóng, vòng sau chép lại; report --final chỉ chạy một lần
@@ -57,6 +58,9 @@ try:
     watch.publish = lambda *x: '/x'; watch.step(cc, None, 'IN'); st = watch.load(cc)
     assert st['stop'].startswith('DONE') and st['published'] == '/x' and 'publish_error' not in st, st
     assert [x[0] for x in calls].count('report') == 1, calls
+    st = watch.load(cc); st.pop('stop'); watch.save(cc, st)   # case mở lại (vd. người xóa stop sau khi sửa fact): bỏ cờ final
+    watch.flow = lambda *x: type('R', (), {'returncode': 0, 'stdout': 'NEED_REVIEW\n', 'stderr': ''})(); watch.step(cc, None, 'IN')
+    assert 'final' not in watch.load(cc), watch.load(cc)
 finally:
     os.chdir(old); shutil.rmtree(T, ignore_errors=True)
 print('OK check_watch_tree')

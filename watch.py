@@ -115,6 +115,7 @@ def step(c, model, report=None):
         st = load(c)
         if st.get('stop'): return
         r = flow('next', c); k = (re.search(STATES, r.stdout, re.M) or [None, None])[1]
+        if k != 'DONE' and st.pop('final', None): save(c, st)   # case mở lại (facts/báo cáo đổi): report --final phải chạy lại
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
         elif k == 'DONE':
             if not st.get('final'):
@@ -238,7 +239,13 @@ def publish(c, st, report=None):
         f'{name}.md, {name}.html  báo cáo của mẫu (bản HTML để xem)\n')
     return out
 
+def _noted_load():
+    """Nạp đường dẫn đã ghi trong .watch_notes.tsv: khởi động lại watcher không ghi lặp."""
+    try: _NOTED.update(ln.split('\t')[1].rstrip('/') for ln in open(NOTES_LOG, encoding='utf-8') if ln.count('\t') >= 2)
+    except OSError: pass
+
 def ingest(inbox, report=None):
+    if not _NOTED: _noted_load()
     root = report_root(inbox, report)
     known = {load(os.path.dirname(os.path.dirname(p))).get('sha256') for p in glob.glob('*/work/watch.json')} | (reported(root) if root else set())
     new = 0

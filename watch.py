@@ -3,7 +3,7 @@
 # mỗi phiên làm một mốc theo `flow.py next` rồi thoát. Không bao giờ thực thi mẫu.
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
-import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subprocess
+import os, re, sys, glob, json, time, fcntl, shlex, shutil, hashlib, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -14,6 +14,8 @@ num = lambda k, d: int(CFG.get(k, d, path=False))
 MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), num('REA_WATCH_STALL', '3'), num('REA_WATCH_INTERVAL', '60'),
                                           num('REA_WATCH_TIMEOUT', '1800'), num('REA_WATCH_SETTLE', '10'))
 MAXT = num('REA_WATCH_MAX_TURNS', '80')   # số lượt tối đa của một phiên claude -p (một mốc phân tích)
+MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòng quét: thư mục giải nén nhiều file không đẻ hàng trăm case một lúc
+ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
           'và làm MỘT mốc theo kết quả (NEED_MORE: phân tích tiếp; NEED_FIX: sửa fact theo where/redo; NEED_REPORT: cập nhật báo cáo viết tay). '
@@ -106,7 +108,7 @@ def session(c, st, model):
            else f'đủ {MAXS} phiên' if n >= MAXS else '')
     stop(c, st, why) if why else save(c, st)
 
-def step(c, model):
+def step(c, model, report=None):
     f = lock(c)
     if not f: return
     with f:
@@ -115,7 +117,13 @@ def step(c, model):
         r = flow('next', c); k = (re.search(STATES, r.stdout, re.M) or [None, None])[1]
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
         elif k == 'DONE':
-            r = flow('report', c, '--final'); stop(c, st, 'DONE: đã report --final' if r.returncode == 0 else f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
+            r = flow('report', c, '--final')
+            if r.returncode: return stop(c, st, f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
+            try:
+                out = publish(c, st, report)
+                if out: st['published'] = out
+                stop(c, st, 'DONE: đã report --final' + (f', báo cáo chép vào {out}' if out else ''))
+            except OSError as e: stop(c, st, f'DONE: đã report --final nhưng chép báo cáo lỗi: {e}')
         elif k == 'NEED_REVIEW':   # review nền tự chống chạy trùng; gọi lại mỗi vòng để lấy kết quả (mã 6 = đang chạy)
             r = flow('review', c, '--llm', '--detach')
             if r.returncode in (4, 7): stop(c, st, f'review lớp 2 cần người (mã {r.returncode}): {r.stdout.strip()[-300:]}')
@@ -123,32 +131,147 @@ def step(c, model):
         elif k: session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-def ingest(inbox):
-    known = {load(os.path.dirname(os.path.dirname(p))).get('sha256') for p in glob.glob('*/work/watch.json')}
-    for n in sorted(os.listdir(inbox)):
-        p = os.path.abspath(os.path.join(inbox, n))
-        if n.startswith('.') or not os.path.isfile(p) or time.time() - os.path.getmtime(p) < SETTLE: continue   # còn đang chép
-        h = hashlib.sha256(open(p, 'rb').read()).hexdigest()   # ponytail: băm lại cả inbox mỗi vòng; cache theo (tên, mtime) nếu inbox lớn
+NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
+SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
+SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b', re.I)
+ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
+NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
+_HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
+
+def stem(name): return ARCH.sub('', name) or name   # tên thư mục báo cáo của mẫu: bỏ đuôi nén (x.tar.gz -> x)
+
+def sha(p):
+    s = os.stat(p); k = (s.st_mtime_ns, s.st_size)
+    if _HASH.get(p, (None,))[:2] != k:
+        h = hashlib.sha256()
+        with open(p, 'rb') as f:
+            for b in iter(lambda: f.read(1 << 20), b''): h.update(b)
+        _HASH[p] = k + (h.hexdigest(),)
+    return _HASH[p][2]
+
+def report_root(inbox, name):
+    """Thư mục nhận báo cáo khi watch chạy với --report: Report_<TÊN> cạnh INBOX (cùng thư mục cha), hoặc đúng đường dẫn TÊN nếu có dấu /."""
+    if not name: return None
+    return os.path.abspath(name) if os.sep in name else os.path.join(os.path.dirname(os.path.abspath(inbox)), 'Report_' + name)
+
+def samples(inbox, skip=()):
+    """Mọi file mẫu trong INBOX và thư mục con. Bỏ file/thư mục ẩn, symlink, thư mục Report_*, các thư mục trong skip (workspace, thư mục báo cáo)
+    và thư mục case nếu chúng nằm trong INBOX. Có REA_WATCH_ALIAS_SUFFIX thì X/ bị bỏ khi cùng cấp có X<hậu tố>/ (bản giải nén của X)."""
+    skip = {os.path.abspath(x) for x in skip if x}
+    for d, ds, fs in os.walk(os.path.abspath(inbox)):
+        ds[:] = sorted(x for x in ds if not x.startswith('.') and not x.startswith('Report_') and os.path.join(d, x) not in skip
+                       and not os.path.exists(os.path.join(d, x, 'work', 'watch.json')) and not (ALIAS and x + ALIAS in ds))
+        for n in sorted(fs):
+            p = os.path.join(d, n)
+            if not n.startswith('.') and os.path.isfile(p) and not os.path.islink(p): yield p
+
+def _text(p):
+    try:
+        if os.path.getsize(p) > NOTE_MAX: return None
+        b = open(p, 'rb').read()
+    except OSError: return None
+    if b'\0' in b[:8192]: return None
+    try: return b.decode('utf-8')
+    except UnicodeDecodeError: return None
+
+def note_of(p):
+    """Lý do (chuỗi khác rỗng) nếu p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
+    tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
+    phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
+    n, d = os.path.basename(p), os.path.dirname(p)
+    if SUMS.search(n): return 'tên dạng SHA256SUMS'
+    if not n.lower().endswith(NOTE_EXT): return ''
+    t = _text(p)
+    if t is None or SCRIPT.search(t): return ''   # nội dung trông như script (shebang, | sh, curl, base64 -d...): coi là mẫu
+    sib = [os.path.join(d, x) for x in os.listdir(d) if x != n and not x.startswith('.') and not x.lower().endswith(NOTE_EXT)
+           and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
+    for q in sib:
+        if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
+    if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
+    for q in sib:
+        try:
+            if sha(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
+        except OSError: pass
+    return ''
+
+def reported(root):
+    """sha256 các mẫu đã có báo cáo trong thư mục báo cáo (dòng đầu README.txt của <mẫu>_data/): mẫu đã xong không bị phân tích lại,
+    kể cả khi thư mục case đã xóa sau khi xuất."""
+    out = set()
+    for r in glob.glob(os.path.join(glob.escape(root), '**', '*_data', 'README.txt'), recursive=True):
+        try: m = re.search(r'\(sha256 ([0-9a-f]{64})\)', open(r, encoding='utf-8', errors='replace').readline())
+        except OSError: continue
+        if m: out.add(m.group(1))
+    return out
+
+def publish(c, st, report=None):
+    """Case DONE và watch chạy với --report: chép báo cáo vào <thư mục báo cáo>/<đường dẫn tương đối của mẫu trong INBOX>/<tên mẫu>_data/.
+    Mẫu nằm thẳng trong INBOX hoặc trong thư mục cấp một (INBOX/U/x.tar.gz) thì thêm thư mục riêng theo tên mẫu bỏ đuôi nén (U/x/).
+    Có REA_WATCH_ALIAS_SUFFIX thì X<hậu tố>/a ra X/a, chung chỗ với file nén gốc X/. Trả thư mục chứa <mẫu>_data, hoặc '' nếu không xuất."""
+    src, name_ = st.get('source'), st.get('report') or report
+    if not src or not name_: return ''
+    src = os.path.abspath(src); inbox = os.path.abspath(st.get('inbox') or os.path.dirname(src))
+    rel = os.path.relpath(os.path.dirname(src), inbox)
+    parts = [] if rel == '.' or rel.startswith('..') else rel.split(os.sep)
+    if parts and ALIAS and parts[0].endswith(ALIAS) and len(parts[0]) > len(ALIAS): parts[0] = parts[0][:-len(ALIAS)]
+    if len(parts) < 2: parts.append(stem(os.path.basename(src)))
+    out = os.path.join(report_root(inbox, name_), *parts); name = os.path.basename(src); d = os.path.join(out, name + '_data')
+    os.makedirs(d, exist_ok=True)
+    for f, x in ((C.report_md(c), '.md'), (C.report_html(c), '.html')):
+        if os.path.isfile(f): shutil.copyfile(f, os.path.join(d, name + x))
+    h = st.get('sha256') or sha(src)
+    open(os.path.join(d, 'README.txt'), 'w', encoding='utf-8').write(   # dòng đầu: reported() đọc sha256 ở đây
+        f'Dữ liệu phân tích của mẫu {name} (sha256 {h}), chép từ case {os.path.basename(os.path.abspath(c))}.\n\n'
+        f'{name}.md, {name}.html  báo cáo của mẫu (bản HTML để xem)\n')
+    return out
+
+def ingest(inbox, report=None):
+    root = report_root(inbox, report)
+    known = {load(os.path.dirname(os.path.dirname(p))).get('sha256') for p in glob.glob('*/work/watch.json')} | (reported(root) if root else set())
+    new = 0
+    for p in samples(inbox, (os.getcwd(), root)):
+        try:
+            if time.time() - os.stat(p).st_mtime < SETTLE: continue   # còn đang chép
+            why = note_of(p)
+            if why:
+                if p not in _NOTED:   # ghi lại để người kiểm: một mẫu dạng text bị nhận nhầm là ghi chú thì thấy được ở đây
+                    _NOTED.add(p); say('', f'bỏ qua {p}: ghi chú thu mẫu đi kèm ({why}), không phải mẫu')
+                    with open(NOTES_LOG, 'a', encoding='utf-8') as f: f.write(f'{datetime.datetime.now():%F %T}\t{p}\t{why}\n')
+                continue
+            h = sha(p)
+        except OSError: continue
         if h in known: continue
-        c = (re.sub(r'\W+', '_', os.path.splitext(n)[0]).strip('_')[:40] or 'sample') + '_' + h[:8]
+        if new >= MAXN: say('', f'đã nhận {MAXN} mẫu mới trong vòng này (REA_WATCH_MAX_NEW), phần còn lại để vòng sau'); return
+        n = os.path.basename(p); c = (re.sub(r'\W+', '_', os.path.splitext(n)[0]).strip('_')[:40] or 'sample') + '_' + h[:8]
         try: os.mkdir(c)
         except FileExistsError:   # watcher khác vừa nhận mẫu này, hoặc thư mục trùng tên không do watch tạo / watcher chết giữa chừng
             if not os.path.exists(wj(c)) and time.time() - os.path.getmtime(c) > 60: say(c, f'bỏ qua {p}: thư mục {c} đã có nhưng không có {wj(c)}; xem rồi xóa hoặc đổi tên')
             continue
-        os.makedirs(os.path.join(c, 'work')); known.add(h)
+        os.makedirs(os.path.join(c, 'work')); known.add(h); new += 1
         with lock(c):
-            st = {'sha256': h, 'source': p, 'sessions': 0}; save(c, st); say(c, f'mẫu mới {p}')
+            st = {'sha256': h, 'source': p, 'inbox': os.path.abspath(inbox), 'sessions': 0, **({'report': report} if report else {})}
+            save(c, st); say(c, f'mẫu mới {p}')
             r = flow('new', c, p)
             if r.returncode: stop(c, st, f'flow.py new lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
 
 def main(a):
     if not a or a[0].startswith('-') or not os.path.isdir(a[0]):
-        print('dùng: flow.py watch INBOX [--once] [--model M]   (chạy ở workspace; case tạo trong thư mục hiện tại)'); return 2
+        print('dùng: flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   (chạy ở workspace; case tạo trong thư mục hiện tại; quét cả thư mục con)'); return 2
     model = pick_model(a)
     if model is None: print('--model cần tên model'); return 2
-    say('', f"theo dõi {a[0]}, workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên x {MAXT} lượt / {STALL} lần không đổi")
+    report = None
+    if '--report' in a:   # không có TÊN: Report_<tên INBOX>
+        i = a.index('--report'); report = a[i + 1] if i + 1 < len(a) and not a[i + 1].startswith('-') else os.path.basename(os.path.abspath(a[0]))
+    root = report_root(a[0], report)
+    if os.path.realpath(os.getcwd()) == os.path.realpath(a[0]):
+        print('workspace không được trùng INBOX (file do watcher sinh và case sẽ bị nhận làm mẫu): chạy từ một thư mục khác' + (f', ví dụ {root}/.cases' if root else '')); return 2
+    if (os.path.abspath(os.getcwd()) + os.sep).startswith(os.path.abspath(a[0]) + os.sep):
+        say('', f'CẢNH BÁO: workspace {os.getcwd()} nằm trong INBOX: case và file tạm ghi vào cây mẫu gốc; nên chạy từ một thư mục ngoài INBOX'
+                + (f', ví dụ {root}/.cases' if root else ''))
+    say('', f"theo dõi {a[0]} (cả thư mục con), workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên x {MAXT} lượt / {STALL} lần không đổi, "
+            + (f'báo cáo vào {root}' if root else 'không xuất báo cáo (--report)'))
     while True:
-        ingest(a[0])   # ponytail: các case chạy tuần tự trong một watcher; song song thì mở thêm watcher (khóa theo case)
-        for w in sorted(glob.glob('*/work/watch.json')): step(os.path.dirname(os.path.dirname(w)), model)
+        ingest(a[0], report)   # ponytail: các case chạy tuần tự trong một watcher; song song thì mở thêm watcher (khóa theo case)
+        for w in sorted(glob.glob('*/work/watch.json')): step(os.path.dirname(os.path.dirname(w)), model, report)
         if '--once' in a: return 0
         time.sleep(INTERVAL)

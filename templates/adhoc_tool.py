@@ -4,11 +4,15 @@
 #   python3 -I work/tools/{NAME}.py FILE [tham số...] > work/runs/tool/{NAME}.out
 #   flow.py tool CASE seal {NAME}
 # Quy tắc không chạy mẫu vẫn nguyên: chỉ ĐỌC file mẫu, không mạng, không tiến trình con, không nạp mẫu vào trình thông dịch/runtime nào.
-# Chạy từ thư mục case (case không nằm dưới /tmp). `seal` từ chối công cụ import socket/subprocess/ctypes/pickle/importlib... hoặc gọi exec/eval/os.system. Nên chạy trong vỏ không mạng:
+# Chạy từ thư mục case (case không nằm dưới /tmp). `seal` từ chối công cụ import socket/subprocess/ctypes/pickle/importlib... hoặc gọi exec/eval/os.system.
+# Chạy trong vỏ không mạng (evidence ghi ISOLATION net=có thì lint/phản biện cảnh báo tool_isolation). Vỏ chỉ cho ghi work/runs/tool/,
+# nên file dẫn xuất (ảnh giải nén, payload bóc ra...) ghi vào OUT_DIR, không ghi chỗ khác trong case:
 #   bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind "$PWD/work/runs/tool" "$PWD/work/runs/tool" python3 -I work/tools/{NAME}.py FILE > work/runs/tool/{NAME}.out
 # Viết selfcheck() TRƯỚC khi tin kết quả: công cụ sai thường vẫn cho ra kết quả trông hợp lý.
 import hashlib, json, os, signal, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này: `import tên` (cũng vào dấu băm của công cụ)
+
+OUT_DIR = os.path.join(os.getcwd(), 'work', 'runs', 'tool', '{NAME}')   # file dẫn xuất ghi ở đây (os.makedirs(OUT_DIR, exist_ok=True) trước khi ghi)
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
 SCOPE = ''    # BẮT BUỘC: phạm vi hỗ trợ (phiên bản, biến thể). Ngoài phạm vi thì dừng với lỗi, không đoán.

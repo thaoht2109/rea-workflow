@@ -116,8 +116,10 @@ def sens_hits(names):
         if hit: out[mục] = hit[:24]
     return out
 
-def run(*a):
-    r = subprocess.run(a, capture_output=True, text=True, errors='replace'); return r.stdout if r.returncode == 0 else ''
+def run(*a):   # công cụ phụ (vd. go) không có trên máy thì bỏ qua, không làm hỏng triage
+    try: r = subprocess.run(a, capture_output=True, text=True, errors='replace')
+    except OSError: return ''
+    return r.stdout if r.returncode == 0 else ''
 
 # Đặc trưng tra chéo giữa các case (flow.py kb match): chỉ để gợi ý mẫu tương tự, không tự thành fact. Tên lấy từ mẫu (PDB,
 # chủ thể chứng thư) giữ nguyên trong triage.json, khi in thì qua show(). tlsh, cryptography không bắt buộc: thiếu thì bỏ trường đó.

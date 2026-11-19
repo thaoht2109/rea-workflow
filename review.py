@@ -55,6 +55,7 @@ def mech(c):
         sv = C.src_evidence_issue(f['src'], base)   # cùng một luật với lint khi ghi (case.py)
         if sv: bad('fail', 'src_vs_evidence', *sv)
         for ck, pb, rd in C.adhoc.issues(c, f, rel, txt): bad('fail', ck, pb, rd)   # cùng luật với lint khi ghi
+        for ck, pb, rd in C.adhoc.notes(c, f, rel, txt): bad('weak', ck, pb, rd)    # công cụ chạy ngoài vỏ không mạng: nhắc, không chặn
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])

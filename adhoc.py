@@ -104,6 +104,16 @@ def sealed(case, rel, text):
     m = re.fullmatch(r'tool_(\w+)_\d+\.txt', os.path.basename(rel))
     return bool(m) and any(os.path.isfile(os.path.join(d, m.group(1) + '.py')) for d in (os.path.join(edir(case), 'tools'), tdir(case)))
 
+def notes(case, f, rel, text):
+    """Cảnh báo (không chặn cổng) cho fact dẫn evidence tool_*: công cụ chạy khi còn thấy giao diện mạng (không trong vỏ bwrap).
+    Trả [(check, vấn đề, cách sửa)]; lint ghi mức warn, lớp 1 phản biện ghi weak."""
+    if not sealed(case, rel, text): return []
+    H = header(text)
+    if H is None or not str(H.get('net', '')).startswith('có'): return []
+    return [('tool_isolation', f"công cụ {H['tool']} chạy khi còn thấy giao diện mạng (ISOLATION net={H['net']}): không trong vỏ không mạng",
+             'chạy lại bằng lệnh bwrap mà `tool new` in ra (file dẫn xuất ghi vào OUT_DIR = work/runs/tool/TÊN/), seal lại, ghi fact mới (supersedes); '
+             'không chạy lại được thì nêu ở mục hạn chế của báo cáo')]
+
 def issues(case, f, rel, text):
     """Luật cổng cho fact dẫn evidence tool_*, dùng chung cho lint khi ghi (case.lint_fact) và lớp 1 phản biện (review.mech).
     Trả [(check, vấn đề, cách sửa)]."""
@@ -140,7 +150,8 @@ def new(c, name):
     os.makedirs(os.path.join(c, 'work', 'runs', 'tool'), exist_ok=True)   # để lệnh chuyển hướng stdout trong hướng dẫn chạy được ngay
     print(f'đã tạo {os.path.relpath(p, c)}. Khai FORMAT/SCOPE, viết parse() và selfcheck() (phép kiểm phải có thể sai khi công cụ sai).\n'
           f'Tự chạy (skill không chạy công cụ; quy tắc không chạy mẫu vẫn nguyên): python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
-          f'Nên chạy trong vỏ không mạng, từ thư mục case (agent tự chạy; case không nằm dưới /tmp): bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind "$PWD/work/runs/tool" "$PWD/work/runs/tool" python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
+          f'File dẫn xuất chỉ ghi vào OUT_DIR = work/runs/tool/{name}/ (vỏ chỉ cho ghi work/runs/tool/).\n'
+          f'Chạy trong vỏ không mạng (net=có thì bị cảnh báo tool_isolation), từ thư mục case (agent tự chạy; case không nằm dưới /tmp): bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind "$PWD/work/runs/tool" "$PWD/work/runs/tool" python3 -I {os.path.relpath(p, c)} FILE > work/runs/tool/{name}.out\n'
           f'Khuôn tự thử đột biến (lật byte của file, selfcheck phải báo hỏng) và chạy known_answers() (dữ liệu tổng hợp có đáp án biết trước, dựng bằng thư viện chuẩn): viết known_answers() hoặc khai KAT_WAIVER.\n'
           f'Rồi niêm phong: flow.py tool {c} seal {name}')
     return 0

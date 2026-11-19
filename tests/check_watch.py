@@ -76,7 +76,8 @@ try:
             f"python3 -m runpy {S}", f"python3 -c \"import os,subprocess as s; s.call(['{S}'])\"", f"python3 < {S}", f"bash < {S}", f"cat {S} | sh",
             f"busybox sh {S}", f"/lib64/ld-linux-x86-64.so.2 {S}", f"cat {S} | python3 -", f"xxd -r {S} | bash", f"grep -n x {S}; python3 -c \"import os; os.system('{S}')\"",
             f"grep -n x {S}\npython3 -c \"import subprocess; subprocess.run(['{S}'])\"", f"xxd {S} | head\npython3 -c \"import os; os.system('{S}')\"",
-            f"cat {S}\nbash {S}", f"ls\nsh {S}"]   # nhiều dòng: miễn trừ đọc tĩnh chỉ áp cho lệnh một dòng; đầu dòng là vị trí lệnh
+            f"cat {S}\nbash {S}", f"ls\nsh {S}",
+            'cd work/sample && bash "mal.bin"', f"sh {S}>/tmp/o", f'grep -n \\"x ; python3 -c os.system {S} \\"']   # nhiều dòng, dấu thoát \" (shell thấy ; ngoài nháy): không được miễn trừ đọc tĩnh
     NOT = [f"grep -nE 'popen|system' {S}", f"grep -n \"os.system\" {S}", f"grep -c 'subprocess.Popen' {S} | head", f"python3 -I work/tools/t.py {S} > work/runs/tool/t.out",
            f"python3 -I work/tools/strings.py -e utf16 {S} > o.txt; for f in o.txt; do wc -l $f; done", f"xxd {S} | head", f"sha256sum {S}", f"perl -ne 'print if /http/' {S}",
            f"python3 - <<'EOF'\nprint(open('{S}', 'rb').read()[:4])\nEOF", f"strings {S} | python3 work/tools/x.py", f"grep -n 'popen(' {S}", f"cp {S} report/evidence/x.txt",

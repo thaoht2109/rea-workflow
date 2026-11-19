@@ -12,7 +12,7 @@
 import hashlib, json, os, signal, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # module phụ đặt cạnh file này: `import tên` (cũng vào dấu băm của công cụ)
 
-OUT_DIR = os.path.join(os.getcwd(), 'work', 'runs', 'tool', '{NAME}')   # file dẫn xuất ghi ở đây (os.makedirs(OUT_DIR, exist_ok=True) trước khi ghi)
+OUT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'runs', 'tool', '{NAME}'))   # file dẫn xuất ghi ở đây, tính theo vị trí công cụ như status_path() (không theo cwd); os.makedirs(OUT_DIR, exist_ok=True) trước khi ghi
 
 FORMAT = ''   # BẮT BUỘC: tên định dạng, một dòng (vd 'code cache V8 10.2 bọc brotli'). Dùng để gom công cụ cùng loại giữa các case.
 SCOPE = ''    # BẮT BUỘC: phạm vi hỗ trợ (phiên bản, biến thể). Ngoài phạm vi thì dừng với lỗi, không đoán.

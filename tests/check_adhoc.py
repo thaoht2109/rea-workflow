@@ -4,7 +4,7 @@
 # luật cổng tool_selfcheck / tool_stale / tool_coverage ở cả lint và review.mech, probe của triage, kb tools.
 # Dữ liệu tổng hợp: định dạng giả "len32 + crc32 + payload xor 0x5a". Test tự chạy script (như agent sẽ làm), không cần mẫu.
 #   python3 tests/check_adhoc.py
-import json, os, shutil, struct, subprocess, sys, tempfile, time, zlib
+import json, os, re, shutil, struct, subprocess, sys, tempfile, time, zlib
 T = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [T, os.path.join(T, 'static')]
 import adhoc, case, review
@@ -113,6 +113,11 @@ try:
     write(GOOD.replace('def parse(path):', 'import helper_mod\ndef parse(path):', 1)); assert runtool().returncode == 0
     r = flow('seal', 'blob'); t4 = open(os.path.join(ev, 'tool_blob_4.txt'), encoding='utf-8').read(); H4 = adhoc.header(t4)
     assert r.returncode == 0 and H4['mods'] == ['blob', 'helper_mod'] and H4['ok'] and 'MUTATION 8/8' in t4 and 'KAT 2/2' in t4 and 'ISOLATION net=' in t4 and adhoc.header(t4)['mut'] == (8, 8) and adhoc.header(t4)['kat'] == (2, 2), r.stdout
+    # tool_isolation có ca tổng hợp cố định cho cả hai nhánh, không phụ thuộc mạng của máy chạy test
+    iso = lambda v: [x[0] for x in adhoc.notes(c, {}, 'report/evidence/tool_blob_4.txt', re.sub(r'(?m)^ISOLATION net=.*$', lambda m: 'ISOLATION net=' + v, t4))]
+    assert iso('có (eth0)') == ['tool_isolation'] and iso('không') == [], (iso('có (eth0)'), iso('không'))
+    ns = {'__file__': p, 'os': os}; exec(re.search(r'^OUT_DIR = .*?(?=   #)', open(p, encoding='utf-8').read(), re.M)[0], ns)   # OUT_DIR theo vị trí công cụ, không theo cwd
+    assert ns['OUT_DIR'] == os.path.join(c, 'work', 'runs', 'tool', 'blob'), ns['OUT_DIR']
     assert [x['check'] for x in case.lint_fact(c, F['ok']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')] == ['tool_stale'] and any(x['id'] == 'ok' and x['check'] == 'tool_stale' for x in review.mech(c))
     A(id='ok2', kind='config', value='h.test port=8443', src='S', evidence=f'report/evidence/tool_blob_4.txt#L{1 + t4.splitlines().index("config: host=h.test port=8443")}', supersedes='ok')
     assert not [x for x in case.lint_fact(c, case.load(c)['ok2']) if (x['check'].startswith('tool_') and x['check'] != 'tool_isolation')]

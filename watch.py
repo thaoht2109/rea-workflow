@@ -137,7 +137,7 @@ def step(c, model, report=None):
 
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
-SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b', re.I)
+SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b|CreateObject|WScript|Add-Type|FromBase64String|<script|\bfunction\b|\bimport\s+\w|\brequire\s*\(', re.I)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -161,14 +161,14 @@ def report_root(inbox, name):
 def samples(inbox, skip=()):
     """Mọi file mẫu trong INBOX và thư mục con. Bỏ file/thư mục ẩn, symlink, thư mục Report_*, các thư mục trong skip (workspace, thư mục báo cáo)
     và thư mục case nếu chúng nằm trong INBOX. Có REA_WATCH_ALIAS_SUFFIX thì X/ bị bỏ khi cùng cấp có X<hậu tố>/ (bản giải nén của X)."""
-    skip = {os.path.abspath(x) for x in skip if x}
+    skip = {os.path.realpath(x) for x in skip if x}   # realpath như kiểm workspace trùng INBOX: symlink không làm lọt workspace
     for d, ds, fs in os.walk(os.path.abspath(inbox)):
         for x in ds:   # thư mục Report_* (báo cáo của lần chạy khác) bị bỏ: ghi lại một lần để người vận hành thấy
             q = os.path.join(d, x)
-            if x.startswith('Report_') and q not in skip and q not in _NOTED:
+            if x.startswith('Report_') and os.path.realpath(q) not in skip and q not in _NOTED:
                 _NOTED.add(q); say('', f'bỏ qua thư mục {q}: tên Report_* là thư mục báo cáo')
                 with open(NOTES_LOG, 'a', encoding='utf-8') as f: f.write(f'{datetime.datetime.now():%F %T}\t{q}/\tthư mục Report_*\n')
-        ds[:] = sorted(x for x in ds if not x.startswith('.') and not x.startswith('Report_') and os.path.join(d, x) not in skip
+        ds[:] = sorted(x for x in ds if not x.startswith('.') and not x.startswith('Report_') and os.path.realpath(os.path.join(d, x)) not in skip
                        and not os.path.exists(os.path.join(d, x, 'work', 'watch.json')) and not (ALIAS and x + ALIAS in ds))
         for n in sorted(fs):
             p = os.path.join(d, n)

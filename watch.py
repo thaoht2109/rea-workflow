@@ -19,8 +19,8 @@ PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không c�
           'và làm MỘT mốc theo kết quả (NEED_MORE: phân tích tiếp; NEED_FIX: sửa fact theo where/redo; NEED_REPORT: cập nhật báo cáo viết tay). '
           'Không thực thi mẫu. Hậu kiểm tự động sẽ DỪNG case nếu thấy lệnh có dạng chạy mẫu, kể cả khi chỉ đọc: chạy công cụ phân tích trực tiếp '
           '`python3 -I work/tools/X.py <mẫu> ...` (ghi kết quả bằng `>`), KHÔNG gọi công cụ qua subprocess/os.system/os.popen/runpy/pty trên cùng dòng có tên mẫu. '
-          'Công cụ tự viết (work/tools, tầng T1b) chạy trong vỏ không mạng bằng đúng lệnh `bwrap ...` mà `flow.py tool new` in ra, file dẫn xuất chỉ ghi vào '
-          'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation). '
+          'Công cụ tự viết (work/tools, tầng T1b) chạy bằng `python3 -I work/tools/X.py ...` (allowlist không có `bwrap`), file dẫn xuất chỉ ghi vào '
+          'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation: chấp nhận, cô lập thật nhờ chạy watcher trong VM không mạng). '
           'KHÔNG đưa đường dẫn mẫu vào `python3 -c` có exec/eval/compile/importlib, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`. '
           'Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
           'Ghi hết kết luận thành fact, chạy `python3 {F} checkpoint {c}` rồi kết thúc.')

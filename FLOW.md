@@ -108,7 +108,7 @@ python3 $SKILL/case.py add <CASE> id=<duy-nhất> kind=<loại> value='<giá tr�
 - **Tối đa 2 lần review.** Lần 1 FAIL thì sửa đúng các fact bị chỉ ra (fact mới có `supersedes`). Lần 2 FAIL thì `STOPPED`: in thông báo, sinh `work/review/STOP_REPORT.md`, chặn `report --final`. Chỉ người dùng mở lại (sửa tay, hoặc `work/review/OVERRIDE` có `facts_sha256=<hash>`).
 - **`facts.jsonl` đổi thì review hết hiệu lực** (mục C0 về `missing`). Review lặp lại với facts không đổi thì không tính thêm lần.
 - **Mã thoát `review`:** 0 = PASS, 1 = FAIL, 2 = STOPPED, 4 = chờ manual.
-- **`flow.py next`:** checklist đủ (hoặc `--accept Cx=lý do[,Cy=lý do]` ghi vào `work/accepted.json` để đưa vào mục hạn chế) và phản biện đạt thì in `DONE`: báo cáo và đóng case, **không cần VM**. Phiên sửa không có công cụ đổi fact thì `next` in `NEED_REPORT` tới khi báo cáo `report/report-<ngày>.md` nhắc đúng id các fact đó (`work/review/report_todo.json`). VM (T5) chỉ cân nhắc khi mục còn thiếu mà T2/T3 không lấy được.
+- **`flow.py next`:** checklist đủ (hoặc `--accept Cx=lý do[,Cy=lý do]` ghi vào `work/accepted.json` để đưa vào mục hạn chế) và phản biện đạt thì in `DONE`: báo cáo và đóng case, **không cần VM**. Phiên sửa không có công cụ đổi fact thì `next` in `NEED_REPORT` tới khi báo cáo `report/report-<ngày>.md` nhắc đúng id các fact đó (`work/review/report_todo.json`). Báo cáo còn nguyên dòng giữ chỗ của `templates/report.md` (hàng tóm tắt chỉ có nhãn, gợi ý `_(…)_`, `(sơ đồ …)`) cũng cho `NEED_REPORT`, và `report --final` từ chối, bản HTML ghi BẢN NHÁP: viết lại các dòng đó bằng nội dung thật. VM (T5) chỉ cân nhắc khi mục còn thiếu mà T2/T3 không lấy được.
 
 ## 4. Định tuyến theo loại file
 

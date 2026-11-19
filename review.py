@@ -230,6 +230,21 @@ def report_todo(c):
     items = [x if isinstance(x, dict) else dict(id=x.split(' ')[0], line=x) for x in json.load(open(p, encoding='utf-8'))]   # chuỗi: định dạng cũ
     return [x for x in items if not re.search(r'(?<![\w.])' + re.escape(x['id']) + r'(?![\w]|\.\w)', txt)]   # theo ranh giới: f1.r10 không tính cho f1.r1
 
+def _norm(ln): return re.sub(r'\s+', ' ', ln.strip().lstrip('>').strip())
+
+def blank_lines():
+    """Dòng giữ chỗ của templates/report.md, suy từ chính template (đổi template không phải sửa ở đây): hàng bảng chỉ có nhãn
+    (`| Mục | | |`), gợi ý `_(…)_`, dòng `(…)` đứng riêng. Bỏ dòng có {CASE}/{DATE} (đã điền khi tạo case)."""
+    t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'report.md'), encoding='utf-8').read()
+    return [s for s in map(_norm, t.splitlines()) if '{' not in s and (re.fullmatch(r'\|[^|]+\|(?: ?\|)+', s) or re.search(r'_\([^)]*\)_', s) or re.fullmatch(r'\([^)]+\)', s))]
+
+def report_blank(c):
+    """Dòng giữ chỗ của template còn nguyên trong báo cáo viết tay (C.report_md): còn thì phần chữ chưa được viết, case không được DONE.
+    So nguyên dòng (bỏ khoảng trắng thừa và dấu > của blockquote): dòng đã viết lại, dù chỉ một phần, không bị tính."""
+    r = C.report_md(c)
+    L = {_norm(x) for x in open(r, encoding='utf-8', errors='replace')} if os.path.isfile(r) else set()
+    return [b for b in blank_lines() if b in L]
+
 def analyst(c, k):
     """Phiên phân tích sửa lại đúng các fact fail/weak của review k. Kiểm tra facts.jsonl chỉ được nối thêm, mẫu không đổi."""
     rj = json.load(open(os.path.join(DIR(c), f'r{k}', 'review.json')))
@@ -349,6 +364,12 @@ def next_step(c, accept=''):
         if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"); return 1
         print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
+    rb = report_blank(c)
+    if rb:
+        print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} vẫn còn phần giữ chỗ của template (phần chữ chưa viết); viết báo cáo tiếng Việt từ facts: '
+              'tóm tắt, chuỗi thực thi, phân tích chi tiết (nguồn S/E/V + evidence#L), bảng đính chính, IOC, hạn chế/OPSEC, bảng evidence, rồi chạy lại next. Dòng giữ chỗ còn lại:')
+        for x in rb: print(f'  {x}')
+        return 1
     rt = report_todo(c)
     if rt:
         print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} chưa nhắc các fact đã sửa; cập nhật phần chữ, ghi id vào bảng đính chính, rồi chạy lại next:')

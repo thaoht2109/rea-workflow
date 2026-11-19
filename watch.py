@@ -117,13 +117,16 @@ def step(c, model, report=None):
         r = flow('next', c); k = (re.search(STATES, r.stdout, re.M) or [None, None])[1]
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
         elif k == 'DONE':
-            r = flow('report', c, '--final')
-            if r.returncode: return stop(c, st, f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
-            try:
-                out = publish(c, st, report)
-                if out: st['published'] = out
-                stop(c, st, 'DONE: đã report --final' + (f', báo cáo chép vào {out}' if out else ''))
-            except OSError as e: stop(c, st, f'DONE: đã report --final nhưng chép báo cáo lỗi: {e}')
+            if not st.get('final'):
+                r = flow('report', c, '--final')
+                if r.returncode: return stop(c, st, f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
+                st['final'] = True; save(c, st)
+            try: out = publish(c, st, report)
+            except OSError as e:   # chép lỗi (đĩa đầy, quyền...): chưa đóng case, vòng sau chép lại
+                st['publish_error'] = str(e); save(c, st); return say(c, f'report --final xong nhưng chép báo cáo lỗi, vòng sau thử lại: {e}')
+            st.pop('publish_error', None)
+            if out: st['published'] = out
+            stop(c, st, 'DONE: đã report --final' + (f', báo cáo chép vào {out}' if out else ''))
         elif k == 'NEED_REVIEW':   # review nền tự chống chạy trùng; gọi lại mỗi vòng để lấy kết quả (mã 6 = đang chạy)
             r = flow('review', c, '--llm', '--detach')
             if r.returncode in (4, 7): stop(c, st, f'review lớp 2 cần người (mã {r.returncode}): {r.stdout.strip()[-300:]}')
@@ -159,6 +162,11 @@ def samples(inbox, skip=()):
     và thư mục case nếu chúng nằm trong INBOX. Có REA_WATCH_ALIAS_SUFFIX thì X/ bị bỏ khi cùng cấp có X<hậu tố>/ (bản giải nén của X)."""
     skip = {os.path.abspath(x) for x in skip if x}
     for d, ds, fs in os.walk(os.path.abspath(inbox)):
+        for x in ds:   # thư mục Report_* (báo cáo của lần chạy khác) bị bỏ: ghi lại một lần để người vận hành thấy
+            q = os.path.join(d, x)
+            if x.startswith('Report_') and q not in skip and q not in _NOTED:
+                _NOTED.add(q); say('', f'bỏ qua thư mục {q}: tên Report_* là thư mục báo cáo')
+                with open(NOTES_LOG, 'a', encoding='utf-8') as f: f.write(f'{datetime.datetime.now():%F %T}\t{q}/\tthư mục Report_*\n')
         ds[:] = sorted(x for x in ds if not x.startswith('.') and not x.startswith('Report_') and os.path.join(d, x) not in skip
                        and not os.path.exists(os.path.join(d, x, 'work', 'watch.json')) and not (ALIAS and x + ALIAS in ds))
         for n in sorted(fs):
@@ -179,7 +187,9 @@ def note_of(p):
     tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
     phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
     n, d = os.path.basename(p), os.path.dirname(p)
-    if SUMS.search(n): return 'tên dạng SHA256SUMS'
+    if SUMS.search(n):   # tên dạng SHA256SUMS: chỉ là ghi chú khi nội dung đúng là danh sách `<sha256>  tên`
+        t = _text(p)
+        return 'danh sách sha256' if t is not None and re.search(r'(?m)^[0-9a-fA-F]{64}[ \t]+\*?\S', t) else ''
     if not n.lower().endswith(NOTE_EXT): return ''
     t = _text(p)
     if t is None or SCRIPT.search(t): return ''   # nội dung trông như script (shebang, | sh, curl, base64 -d...): coi là mẫu
@@ -197,12 +207,13 @@ def note_of(p):
 def reported(root):
     """sha256 các mẫu đã có báo cáo trong thư mục báo cáo (dòng đầu README.txt của <mẫu>_data/): mẫu đã xong không bị phân tích lại,
     kể cả khi thư mục case đã xóa sau khi xuất."""
-    out = set()
-    for r in glob.glob(os.path.join(glob.escape(root), '**', '*_data', 'README.txt'), recursive=True):
-        try: m = re.search(r'\(sha256 ([0-9a-f]{64})\)', open(r, encoding='utf-8', errors='replace').readline())
-        except OSError: continue
-        if m: out.add(m.group(1))
-    return out
+    return {h for h in map(reported_sha, glob.glob(os.path.join(glob.escape(root), '**', '*_data'), recursive=True)) if h}
+
+def reported_sha(d):
+    """sha256 ghi ở dòng đầu <d>/README.txt (do publish ghi), hoặc ''."""
+    try: m = re.search(r'\(sha256 ([0-9a-f]{64})\)', open(os.path.join(d, 'README.txt'), encoding='utf-8', errors='replace').readline())
+    except OSError: return ''
+    return m.group(1) if m else ''
 
 def publish(c, st, report=None):
     """Case DONE và watch chạy với --report: chép báo cáo vào <thư mục báo cáo>/<đường dẫn tương đối của mẫu trong INBOX>/<tên mẫu>_data/.
@@ -216,10 +227,12 @@ def publish(c, st, report=None):
     if parts and ALIAS and parts[0].endswith(ALIAS) and len(parts[0]) > len(ALIAS): parts[0] = parts[0][:-len(ALIAS)]
     if len(parts) < 2: parts.append(stem(os.path.basename(src)))
     out = os.path.join(report_root(inbox, name_), *parts); name = os.path.basename(src); d = os.path.join(out, name + '_data')
+    h = st.get('sha256') or sha(src)
+    old = reported_sha(d)
+    if old and old != h: d = os.path.join(out, f'{name}_{h[:8]}_data')   # mẫu khác cùng tên (bản thay thế): không ghi đè báo cáo cũ
     os.makedirs(d, exist_ok=True)
     for f, x in ((C.report_md(c), '.md'), (C.report_html(c), '.html')):
         if os.path.isfile(f): shutil.copyfile(f, os.path.join(d, name + x))
-    h = st.get('sha256') or sha(src)
     open(os.path.join(d, 'README.txt'), 'w', encoding='utf-8').write(   # dòng đầu: reported() đọc sha256 ở đây
         f'Dữ liệu phân tích của mẫu {name} (sha256 {h}), chép từ case {os.path.basename(os.path.abspath(c))}.\n\n'
         f'{name}.md, {name}.html  báo cáo của mẫu (bản HTML để xem)\n')

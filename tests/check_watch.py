@@ -77,13 +77,14 @@ try:
             f"busybox sh {S}", f"/lib64/ld-linux-x86-64.so.2 {S}", f"cat {S} | python3 -", f"xxd -r {S} | bash", f"grep -n x {S}; python3 -c \"import os; os.system('{S}')\"",
             f"grep -n x {S}\npython3 -c \"import subprocess; subprocess.run(['{S}'])\"", f"xxd {S} | head\npython3 -c \"import os; os.system('{S}')\"",
             f"cat {S}\nbash {S}", f"ls\nsh {S}",
-            'cd work/sample && bash "mal.bin"', f"sh {S}>/tmp/o", f'grep -n \\"x ; python3 -c os.system {S} \\"']   # nhiều dòng, dấu thoát \" (shell thấy ; ngoài nháy): không được miễn trừ đọc tĩnh
+            'cd work/sample && bash "mal.bin"', f"sh {S}>/tmp/o", f"python3 -W ignore -c \"exec(open('{S}').read())\"", f"python3 -W ignore {S}", f"rg --pre ./x subprocess {S}", f'grep -n \\"x ; python3 -c os.system {S} \\"']   # nhiều dòng, dấu thoát \" (shell thấy ; ngoài nháy): không được miễn trừ đọc tĩnh
     NOT = [f"grep -nE 'popen|system' {S}", f"grep -n \"os.system\" {S}", f"grep -c 'subprocess.Popen' {S} | head", f"python3 -I work/tools/t.py {S} > work/runs/tool/t.out",
            f"python3 -I work/tools/strings.py -e utf16 {S} > o.txt; for f in o.txt; do wc -l $f; done", f"xxd {S} | head", f"sha256sum {S}", f"perl -ne 'print if /http/' {S}",
            f"python3 - <<'EOF'\nprint(open('{S}', 'rb').read()[:4])\nEOF", f"strings {S} | python3 work/tools/x.py", f"grep -n 'popen(' {S}", f"cp {S} report/evidence/x.txt",
            f"file {S}", f"strings -n 6 {S} | grep -i http | head -20", f"python3 flow.py resume c; grep -n bash {S}",
-           f"grep -n \"os.system\" {S} > report/evidence/g.txt", f"grep -n popen {S} 2>/dev/null", f"cd work && grep -n subprocess {S} | head -5 2>&1"]
+           f"grep -n \"os.system\" {S} > report/evidence/g.txt", f"grep -n popen {S} 2>/dev/null", f"cd work && grep -n subprocess {S} | head -5 2>&1", f"grep -n os.system {S}\n", f"python3 -W ignore work/tools/t.py {S} > o"]
     assert not [x for x in MUST if not hit(x)] and not [x for x in NOT if hit(x)], ([x for x in MUST if not hit(x)], [x for x in NOT if hit(x)])
+    big = 'grep ' + 'a1>' * 40 + 'subprocess ' + S; t0 = time.time(); hit(big); assert time.time() - t0 < 2, 'regex backtrack'   # không backtrack hàm mũ
     assert watch.NESTED.search("python3 -Ic \"import watch; watch.main(['inbox'])\"")   # cờ gộp cũng là watch lồng
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)
     drop('m.sh', 'echo m\n'); W(REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')

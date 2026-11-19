@@ -26,20 +26,22 @@ CALLW = r'(?:subprocess|os\.system|os\.exec|os\.spawn|os\.posix_spawn|popen|pty\
 INTERP = r'(?:(?:busybox\s+)?(?:sh|ash|bash|dash|zsh|ksh)|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java|ld-linux[\w.-]*\.so[\w.]*|ld\.so)'
 _ARG = r'''(?:[^\s;&|`$()<>'"\\]+|'[^'\n]*'|"[^"`$\\\n]*")'''   # không nhận \ ngoài nháy đơn: dấu thoát làm shell hiểu nháy khác regex này
 _FILTER = r'(?:\|[ \t]*(?:head|tail|wc|sort|uniq|cut)\b(?:[ \t]+' + _ARG + r')*[ \t]*)*'
-_REDIR = r'(?:[ \t]*\d?>>?[ \t]*(?:&\d|' + _ARG + r'))*[ \t]*'   # > file, 2>/dev/null, 2>&1 ở cuối lệnh
-STATIC = (r'[ \t]*(?:cd[ \t]+' + _ARG + r'[ \t]*&&[ \t]*)?(?:grep|egrep|fgrep|rg|xxd|hexdump|od|strings|file|sha256sum|sha1sum|md5sum|head|tail|wc|cat|readelf|objdump|nm)'
+_REDIR = r'(?:[ \t]*(?<!\S)\d?>>?[ \t]*(?:&\d|' + _ARG + r'))*[ \t]*'   # > file, 2>/dev/null, 2>&1 ở cuối; fd chỉ đứng sau khoảng trắng (không mơ hồ, không backtrack hàm mũ)
+STATIC = (r'[ \t]*(?:cd[ \t]+' + _ARG + r'[ \t]*&&[ \t]*)?(?:grep|egrep|fgrep|xxd|hexdump|od|strings|file|sha256sum|sha1sum|md5sum|head|tail|wc|cat|readelf)'   # không rg (--pre), objdump/nm (--plugin)
           r'(?:[ \t]+' + _ARG + r')*[ \t]*' + _FILTER + _REDIR)   # MỘT dòng: [ \t], không \s (không vượt dòng mới)
 DYN1 = r'''(?:\b(?:exec|eval|compile|system|spawn\w*|popen|require|qx)\s*[("']|__import__|importlib|\bdo\s*["'(]|\b(?:subprocess|runpy|pty)\b)'''
 DYNH = r'\b(?:subprocess|runpy|pty|popen|exec|eval|compile|__import__|importlib|system|spawn\w*|require|qx)\b'
 _HBODY = r'(?:(?!\1[ \t]*(?:\n|\Z))[^\n]*\n)*?(?!\1[ \t]*(?:\n|\Z))[^\n]*'   # các dòng thân heredoc, chưa tới dòng kết thúc
 
+FLAGARG = r'-[WXr][ \t]*[^\s-]\S*\s+'   # cờ có đối số tách rời: python3 -W ignore / -X dev, node -r mod (không -I: python3 -I không nhận đối số)
+
 def exec_rules(n):
     """Mẫu regex (chuỗi) cho lệnh chạy file mẫu tên n (đã re.escape). GENERIC (wine, qemu, chmod +x, rea capture-*) không phụ thuộc tên mẫu."""
     end = r'''(?=[\s;&|)`'"<>]|$)'''
-    return [r'\A(?!' + STATIC + r'\Z)(?s:.*?)' + CALLW + r'[^\n]*' + n,                       # lời gọi tiến trình trên cùng dòng có tên mẫu
-            POS + r'(?:\S*/)?' + INTERP + r'''\s+(?:-\S+\s+)*(?:\S*/|['"])?''' + n + end,             # trình thông dịch + mẫu (kể cả -c "exec(open('…mẫu')…)")
+    return [r'\A(?!' + STATIC + r'\s*\Z)(?s:.*?)' + CALLW + r'[^\n]*' + n,                    # lời gọi tiến trình trên cùng dòng có tên mẫu
+            POS + r'(?:\S*/)?' + INTERP + r'\s+(?:' + FLAGARG + r'''|-\S+\s+)*(?:\S*/|['"])?''' + n + end,            # trình thông dịch + mẫu (kể cả -c "exec(open('…mẫu')…)")
             POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end,           # . mẫu, ./mẫu, đường dẫn/mẫu ở vị trí lệnh
-            POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\s+(?:-[A-Za-z]+\s+)*?(?:-[A-Za-z]*[ce]|--command)\b'   # mã -c/-e (cờ gộp -Ic/-we) cùng dòng
+            POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\s+(?:' + FLAGARG + r'|-[A-Za-z]+\s+)*?(?:-[A-Za-z]*[ce]|--command)\b'   # mã -c/-e (cờ gộp -Ic/-we) cùng dòng
             r'(?=[^\n]*' + n + r')(?=[^\n]*' + DYN1 + r')',
             POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-m\s*\S+[^\n]*' + n,                  # python -m runpy|pdb|trace ... mẫu
             POS + r'(?:\S*/)?' + INTERP + r'''\b[^\n|;&]*<(?!<)\s*['"]?(?:\S*/)?''' + n + end,   # trình thông dịch < mẫu

@@ -48,6 +48,10 @@ def fp(c):
         if os.path.exists(p): h.update(open(p, 'rb').read())
     return h.hexdigest()
 
+INTERP = POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\b[^\n]*?(?:\s-[A-Za-z]*[ce]\b|\s--command\b|\s-(?=\s|$)|<<)'   # mã đưa thẳng vào trình thông dịch
+DYN = (r'(?:' + CALL + r'|\bexec\s*\(|\beval\s*\(|\bcompile\s*\(|__import__|importlib|\brunpy\b|\brequire\s*\(|\bdo\s|\bsystem\s*\('
+       r'''|\bexec\s+["']|\bqx\b|`)''')   # chạy tiến trình hoặc nạp/thực thi mã: system(, exec "…", qx, backtick của perl/ruby
+
 def exec_pats(c):
     """Lệnh có dấu hiệu chạy mẫu (cùng ý với evals/run.py EXEC, theo tên mẫu thật của case)."""
     names = {n for _, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns}
@@ -55,16 +59,16 @@ def exec_pats(c):
     ps = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
     for n in map(re.escape, names):
         # Đường dẫn tới mẫu không chứa nháy: `python3 -c "d=open('/.../mẫu','rb')"` là đọc byte, không phải chạy mẫu.
-        # Mã trong -c/-e chỉ bị bắt khi vừa nhắc mẫu vừa có exec/eval/compile/import động (lời gọi tiến trình do CALL bắt).
+        # Mã chạy qua trình thông dịch (-c/-e, cờ gộp như -Ic/-we, --command, `-` hay heredoc <<) bị bắt khi phần sau đó, kể cả các dòng
+        # tiếp của heredoc, vừa nhắc mẫu vừa có lời gọi chạy tiến trình hoặc nạp/thực thi mã động.
         ps += [r'(?:' + CALL + r')[^\n]*' + n,
                POS + r'''(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java)\s+(?:-\S+\s+)*['"]?(?:[^\s'"]*/)?''' + n + end,
-               POS + r'(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\s+(?:-\S+\s+)*-[ce]\b(?=[^\n]*' + n + r')'
-                     r'(?=[^\n]*(?:\bexec\s*\(|\beval\s*\(|\bcompile\s*\(|__import__|importlib|\brunpy\b|\brequire\s*\(|\bdo\s))',
+               INTERP + r'(?=(?s:.*?)' + n + r')(?=(?s:.*?)' + DYN + r')',
                POS + r'\.\s+\S*' + n + end, POS + r'(?:\./|/|[\w.-]+/)\S*' + n + end]
     return [re.compile(p) for p in ps]
 
 NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
-                    r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
+                    r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
                     r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?watch(?![\w.])''')
 RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
 

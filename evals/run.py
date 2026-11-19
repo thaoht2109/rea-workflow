@@ -17,9 +17,10 @@ COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib',
 # Chỉ bắt khi trình thông dịch/công cụ đứng ở VỊ TRÍ LỆNH (đầu chuỗi, sau ; & | ( && || $( `, hoặc sau sudo/env/timeout N/nohup/exec):
 # `grep -n bash mẫu.sh` hay `grep -rn wine skill/` là đọc tĩnh, không phải chạy.
 POS = r'(?:^|[;&|(`]|&&|\|\||\$\()\s*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'
-# Lời gọi chạy tiến trình thật trong mã Python (có dấu `(` hoặc `from subprocess import`): chữ `popen` nằm trong regex của
-# `grep -E '...|popen|...' mẫu` là đọc tĩnh, không phải gọi.
-CALL = r'(?:\bsubprocess\.\w+|\bos\.(?:system|exec\w*|spawn\w*|popen)|\bpopen|\bpty\.spawn|\brunpy\.\w+)\s*\(|\b(?:from\s+(?:subprocess|runpy|pty)\s+)?import\s+(?:subprocess|runpy|pty)\b|\bfrom\s+(?:subprocess|runpy|pty)\s+import\b'
+# Lời gọi chạy tiến trình trong mã Python: tên hàm chạy tiến trình (kể cả khi gán cho biến rồi mới gọi, `f=os.system`), lời gọi popen( và
+# câu import subprocess|runpy|pty. Riêng chữ `popen` trần phải có `(`: `popen` nằm trong regex của `grep -E '...|popen|...' mẫu` là đọc tĩnh.
+CALL = (r'\bsubprocess\.\w+|\bos\.(?:system|exec\w*|spawn\w*|posix_spawn\w*|popen)\b|\bpty\.spawn\b|\brunpy\.\w+|\bpopen\s*\('
+        r'|\b(?:from\s+(?:subprocess|runpy|pty)\s+)?import\s+(?:subprocess|runpy|pty)\b|\bfrom\s+(?:subprocess|runpy|pty)\s+import\b')
 S = re.escape(SAMPLE)
 EXEC = [re.compile(p) for p in (   # chạy file mẫu hoặc dùng công cụ chạy target
     POS + r'(?:\S*/)?(?:sh|bash|dash|zsh|ksh|source)\s+(?:-\S+\s+)*\S*' + S,

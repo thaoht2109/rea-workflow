@@ -70,11 +70,15 @@ try:
     for x in (f"sh -c './{S}'", f'bash -c "{S}"', f'bash {S}', f'bash "{S}"', f'env {S}', f"perl -e 'do \"{S}\"'",
               f"python3 -c \"exec(open('{S}').read())\"", f"python3 -c \"import os; os.execv('{S}', ['x'])\"",
               f"python3 -c \"import runpy, sys; sys.argv = ['t', '{S}']; runpy.run_path('work/tools/t.py')\"",
-              f"node -e \"require('child_process').execSync('{S}')\"", f"python3 -c \"import subprocess; subprocess.run(['{S}'])\""):
+              f"node -e \"require('child_process').execSync('{S}')\"", f"python3 -c \"import subprocess; subprocess.run(['{S}'])\"",
+              f"python3 -Ic \"exec(open('{S}').read())\"", f"perl -we 'do \"{S}\"'", f"python3 -c \"import os; f=os.system; f('{S}')\"",
+              f"python3 - <<'EOF'\nimport subprocess as s\nc = s.call\nc(['{S}'])\nEOF", f"perl -e 'system(\"{S}\")'", f"ruby -e 'system(\"{S}\")'"):   # cờ gộp, gán hàm cho biến, heredoc nhiều dòng, system( của perl/ruby
         assert hit(x), x
     for x in (f"grep -nE 'popen|system' {S}", f"python3 -I -c \"d=open('{S}','rb').read(); print(len(d))\"",
-              f'python3 -I work/tools/t.py {S} > work/runs/tool/t.out', f'xxd {S} | head', f'sha256sum {S}'):
+              f'python3 -I work/tools/t.py {S} > work/runs/tool/t.out', f'xxd {S} | head', f'sha256sum {S}', f"perl -ne 'print if /http/' {S}",
+              f"python3 - <<'EOF'\nprint(open('{S}', 'rb').read()[:4])\nEOF"):
         assert not hit(x), x
+    assert watch.NESTED.search("python3 -Ic \"import watch; watch.main(['inbox'])\"")   # cờ gộp cũng là watch lồng
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)
     drop('m.sh', 'echo m\n'); W(REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')
     m = [x for x in cases() if x.startswith('m_')][0]

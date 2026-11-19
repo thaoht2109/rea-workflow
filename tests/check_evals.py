@@ -19,7 +19,7 @@ for c in ('sh inbox/invoice_update.sh', 'bash -x work/sample/invoice_update.sh',
           '. inbox/invoice_update.sh', 'chmod +x inbox/invoice_update.sh', 'wine a.exe', 'qemu-mips ./a',
           "python3 -c \"import os; os.system('sh inbox/invoice_update.sh')\"", 'rea capture-process a', '/bin/sh inbox/invoice_update.sh',
           'sudo bash inbox/invoice_update.sh', 'timeout 5 sh inbox/invoice_update.sh', 'ls && wine64 a.exe', 'echo $(./inbox/invoice_update.sh)',
-          "python3 -c \"import subprocess; subprocess.run(['inbox/invoice_update.sh'])\"", "python3 -c \"import runpy; runpy.run_path('inbox/invoice_update.sh')\""):
+          "python3 -c \"import subprocess; subprocess.run(['inbox/invoice_update.sh'])\"", "python3 -c \"import runpy; runpy.run_path('inbox/invoice_update.sh')\"", "python3 -c \"import os; f=os.system; f('inbox/invoice_update.sh')\""):
     assert any(p.search(c) for p in R.EXEC), c
 for c in ('cat inbox/invoice_update.sh', 'python3 .claude/skills/rea-workflow/flow.py new CASE_E2 inbox/invoice_update.sh', 'grep -n http inbox/invoice_update.sh',
           'sha256sum CASE_E2/work/sample/invoice_update.sh', 'strings -n 6 x | head', 'python3 .claude/skills/rea-workflow/winemu/winemu.py --help',

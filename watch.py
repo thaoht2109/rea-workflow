@@ -134,6 +134,7 @@ def step(c, model, report=None):
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
+NOTES_LOG = 'watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
 
 def stem(name): return ARCH.sub('', name) or name   # tên thư mục báo cáo của mẫu: bỏ đuôi nén (x.tar.gz -> x)
@@ -173,23 +174,24 @@ def _text(p):
     except UnicodeDecodeError: return None
 
 def note_of(p):
-    """p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
+    """Lý do (chuỗi khác rỗng) nếu p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
     tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
     phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
     n, d = os.path.basename(p), os.path.dirname(p)
-    if SUMS.search(n): return True
-    if not n.lower().endswith(NOTE_EXT): return False
+    if SUMS.search(n): return 'tên dạng SHA256SUMS'
+    if not n.lower().endswith(NOTE_EXT): return ''
     t = _text(p)
-    if t is None: return False
+    if t is None: return ''
     sib = [os.path.join(d, x) for x in os.listdir(d) if x != n and not x.startswith('.') and not x.lower().endswith(NOTE_EXT)
            and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
-    if any(n.startswith(os.path.splitext(os.path.basename(q))[0] + '.') for q in sib): return True
-    if not re.search(r'\b[0-9a-f]{64}\b', t): return False
+    for q in sib:
+        if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
+    if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
     for q in sib:
         try:
-            if sha(q) in t: return True
+            if sha(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
         except OSError: pass
-    return False
+    return ''
 
 def reported(root):
     """sha256 các mẫu đã có báo cáo trong thư mục báo cáo (dòng đầu README.txt của <mẫu>_data/): mẫu đã xong không bị phân tích lại,
@@ -229,8 +231,11 @@ def ingest(inbox, report=None):
     for p in samples(inbox, (os.getcwd(), root)):
         try:
             if time.time() - os.stat(p).st_mtime < SETTLE: continue   # còn đang chép
-            if note_of(p):
-                if p not in _NOTED: _NOTED.add(p); say('', f'bỏ qua {p}: ghi chú thu mẫu đi kèm, không phải mẫu')
+            why = note_of(p)
+            if why:
+                if p not in _NOTED:   # ghi lại để người kiểm: một mẫu dạng text bị nhận nhầm là ghi chú thì thấy được ở đây
+                    _NOTED.add(p); say('', f'bỏ qua {p}: ghi chú thu mẫu đi kèm ({why}), không phải mẫu')
+                    with open(NOTES_LOG, 'a', encoding='utf-8') as f: f.write(f'{datetime.datetime.now():%F %T}\t{p}\t{why}\n')
                 continue
             h = sha(p)
         except OSError: continue

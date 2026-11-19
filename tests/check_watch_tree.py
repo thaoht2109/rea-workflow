@@ -40,6 +40,8 @@ try:
     watch.MAXN = 2; watch.ingest(inbox, 'IN'); assert len(made()) == 2, made()
     watch.MAXN = 20; watch.ingest(inbox, 'IN'); m = made()
     assert len(m) == 4 and sorted(x.split('_')[0] for x in m) == ['install', 'k', 'k', 'r'], m   # s.bin đã có báo cáo: không làm lại
+    L = open(os.path.join(ws, watch.NOTES_LOG), encoding='utf-8').read().splitlines()   # ghi chú bị bỏ qua được ghi lại, mỗi file một lần
+    assert sorted(x.split('\t')[1] for x in L) == sorted([n1, n2, n3]) and 'nhắc sha256 của s.bin' in '\n'.join(L), L
 finally:
     os.chdir(old); shutil.rmtree(T, ignore_errors=True)
 print('OK check_watch_tree')

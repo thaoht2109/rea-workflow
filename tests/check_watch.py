@@ -74,11 +74,14 @@ try:
             f"python3 -c \"import subprocess; subprocess.run(['{S}'])\"", f"python3 -c \"import os; f=os.system; f('{S}')\"",
             f"python3 - <<'EOF'\nimport subprocess as s\nc = s.call\nc(['{S}'])\nEOF", f"perl -e 'system(\"{S}\")'", f"ruby -e 'system(\"{S}\")'",
             f"python3 -m runpy {S}", f"python3 -c \"import os,subprocess as s; s.call(['{S}'])\"", f"python3 < {S}", f"bash < {S}", f"cat {S} | sh",
-            f"busybox sh {S}", f"/lib64/ld-linux-x86-64.so.2 {S}", f"cat {S} | python3 -", f"xxd -r {S} | bash", f"grep -n x {S}; python3 -c \"import os; os.system('{S}')\""]
+            f"busybox sh {S}", f"/lib64/ld-linux-x86-64.so.2 {S}", f"cat {S} | python3 -", f"xxd -r {S} | bash", f"grep -n x {S}; python3 -c \"import os; os.system('{S}')\"",
+            f"grep -n x {S}\npython3 -c \"import subprocess; subprocess.run(['{S}'])\"", f"xxd {S} | head\npython3 -c \"import os; os.system('{S}')\"",
+            f"cat {S}\nbash {S}", f"ls\nsh {S}"]   # nhiều dòng: miễn trừ đọc tĩnh chỉ áp cho lệnh một dòng; đầu dòng là vị trí lệnh
     NOT = [f"grep -nE 'popen|system' {S}", f"grep -n \"os.system\" {S}", f"grep -c 'subprocess.Popen' {S} | head", f"python3 -I work/tools/t.py {S} > work/runs/tool/t.out",
            f"python3 -I work/tools/strings.py -e utf16 {S} > o.txt; for f in o.txt; do wc -l $f; done", f"xxd {S} | head", f"sha256sum {S}", f"perl -ne 'print if /http/' {S}",
            f"python3 - <<'EOF'\nprint(open('{S}', 'rb').read()[:4])\nEOF", f"strings {S} | python3 work/tools/x.py", f"grep -n 'popen(' {S}", f"cp {S} report/evidence/x.txt",
-           f"file {S}", f"strings -n 6 {S} | grep -i http | head -20", f"python3 flow.py resume c; grep -n bash {S}"]
+           f"file {S}", f"strings -n 6 {S} | grep -i http | head -20", f"python3 flow.py resume c; grep -n bash {S}",
+           f"grep -n \"os.system\" {S} > report/evidence/g.txt", f"grep -n popen {S} 2>/dev/null", f"cd work && grep -n subprocess {S} | head -5 2>&1"]
     assert not [x for x in MUST if not hit(x)] and not [x for x in NOT if hit(x)], ([x for x in MUST if not hit(x)], [x for x in NOT if hit(x)])
     assert watch.NESTED.search("python3 -Ic \"import watch; watch.main(['inbox'])\"")   # cờ gộp cũng là watch lồng
     # trần số phiên; không --model và không có terminal -> không truyền --model (mặc định của claude)

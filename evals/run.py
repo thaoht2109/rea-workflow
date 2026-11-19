@@ -16,17 +16,19 @@ ALLOWED = ','.join(['Skill', 'Read', 'Grep', 'Glob', 'Edit', 'Write'] + [f'Bash(
 COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib', '__pycache__', '.claude', '.ruff_cache', '.tmp', 'rea.env')
 # Chỉ bắt khi trình thông dịch/công cụ đứng ở VỊ TRÍ LỆNH (đầu chuỗi, sau ; & | ( && || $( `, hoặc sau sudo/env/timeout N/nohup/exec):
 # `grep -n bash mẫu.sh` hay `grep -rn wine skill/` là đọc tĩnh, không phải chạy.
-POS = r'(?:^|[;&|(`]|&&|\|\||\$\()\s*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'
+POS = r'(?:^|[;&|(`\n]|&&|\|\||\$\()[ \t]*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'
 # Hậu kiểm "chạy mẫu" dùng chung cho bộ eval (EXEC) và watch (exec_pats): một nguồn luật, theo tên mẫu `n` (đã re.escape).
 # Hướng chặt: thà báo nhầm (case dừng, người xem lại) còn hơn bỏ lọt. Miễn trừ duy nhất: cả lệnh là MỘT lệnh đọc tĩnh
-# (grep/xxd/strings/...; chỉ được nối ống sang head/tail/wc/sort/uniq/cut, không ; & $( ` < >) thì chữ subprocess/popen/os.system...
-# trong đối số (regex của grep) không bị coi là lời gọi.
+# trên MỘT dòng (grep/xxd/strings/...; được có `cd DIR &&` phía trước, nối ống sang head/tail/wc/sort/uniq/cut, chuyển hướng ra > file,
+# 2>/dev/null ở cuối; không ; & $( ` <) thì chữ subprocess/popen/os.system... trong đối số (regex của grep) không bị coi là lời gọi.
+# POS nhận cả đầu mỗi dòng: lệnh nhiều dòng, dòng thứ hai trở đi cũng là vị trí lệnh.
 CALLW = r'(?:subprocess|os\.system|os\.exec|os\.spawn|os\.posix_spawn|popen|pty\.spawn|runpy)'   # tên trần như luật cũ: bắt cả bí danh, gán biến
 INTERP = r'(?:(?:busybox\s+)?(?:sh|ash|bash|dash|zsh|ksh)|source|python[\d.]*|node|perl|ruby|pwsh|powershell|mono|java|ld-linux[\w.-]*\.so[\w.]*|ld\.so)'
 _ARG = r'''(?:[^\s;&|`$()<>'"]+|'[^'\n]*'|"[^"`$\n]*")'''
-_FILTER = r'(?:\|\s*(?:head|tail|wc|sort|uniq|cut)\b(?:\s+' + _ARG + r')*\s*)*'
-STATIC = (r'\s*(?:grep|egrep|fgrep|rg|xxd|hexdump|od|strings|file|sha256sum|sha1sum|md5sum|head|tail|wc|cat|readelf|objdump|nm)'
-          r'(?:\s+' + _ARG + r')*\s*' + _FILTER)
+_FILTER = r'(?:\|[ \t]*(?:head|tail|wc|sort|uniq|cut)\b(?:[ \t]+' + _ARG + r')*[ \t]*)*'
+_REDIR = r'(?:[ \t]*\d?>>?[ \t]*(?:&\d|' + _ARG + r'))*[ \t]*'   # > file, 2>/dev/null, 2>&1 ở cuối lệnh
+STATIC = (r'[ \t]*(?:cd[ \t]+' + _ARG + r'[ \t]*&&[ \t]*)?(?:grep|egrep|fgrep|rg|xxd|hexdump|od|strings|file|sha256sum|sha1sum|md5sum|head|tail|wc|cat|readelf|objdump|nm)'
+          r'(?:[ \t]+' + _ARG + r')*[ \t]*' + _FILTER + _REDIR)   # MỘT dòng: [ \t], không \s (không vượt dòng mới)
 DYN1 = r'''(?:\b(?:exec|eval|compile|system|spawn\w*|popen|require|qx)\s*[("']|__import__|importlib|\bdo\s*["'(]|\b(?:subprocess|runpy|pty)\b)'''
 DYNH = r'\b(?:subprocess|runpy|pty|popen|exec|eval|compile|__import__|importlib|system|spawn\w*|require|qx)\b'
 _HBODY = r'(?:(?!\1[ \t]*(?:\n|\Z))[^\n]*\n)*?(?!\1[ \t]*(?:\n|\Z))[^\n]*'   # các dòng thân heredoc, chưa tới dòng kết thúc

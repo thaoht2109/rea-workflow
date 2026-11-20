@@ -119,11 +119,12 @@ def derived(cmds, names):
         if len(new) == n0: break
     return new
 
-def exec_patterns(names, cmds=()):
-    """Luật hậu kiểm cho các tên mẫu `names` (chưa escape) cộng mọi tên bản chép suy ra từ `cmds`."""
-    d = derived(cmds, names)   # tên bản chép có thể ngắn (x, a.out): bắt buộc đứng riêng, không khớp giữa một từ khác
-    return [re.compile(p) for p in GENERIC + [r for n in sorted(set(names)) for r in exec_rules(re.escape(n))]
-            + [r for n in sorted(d - set(names)) for r in exec_rules(r'(?<![\w.-])' + re.escape(n) + r'(?![\w.-])')]]
+def exec_patterns(names, cmds=(), copies=None):
+    """Luật hậu kiểm cho tên mẫu thật `names` (chưa escape) và tên bản chép: `copies` nếu người gọi đã tính sẵn (watch: cả phiên trước),
+    không thì suy từ `cmds`. Tên bản chép có thể ngắn (x, a.out) nên luôn bắt buộc đứng riêng, không khớp giữa một từ khác."""
+    names = set(names); extra = (derived(cmds, names) if copies is None else set(copies)) - names
+    return [re.compile(p) for p in GENERIC + [r for n in sorted(names) for r in exec_rules(re.escape(n))]
+            + [r for n in sorted(extra) for r in exec_rules(r'(?<![\w.-])' + re.escape(n) + r'(?![\w.-])')]]
 
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 

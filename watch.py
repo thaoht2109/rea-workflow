@@ -75,10 +75,10 @@ def fp(c):
     return h.hexdigest()
 
 def sample_names(c): return {n for _, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns}
-def exec_pats(c, cmds=(), known=()):
-    """Lệnh có dấu hiệu chạy mẫu: cùng luật với bộ eval (evals/run.py exec_rules), theo tên mẫu thật của case, tên bản chép
-    đã thấy ở phiên trước (`known`, watch.json "derived") và tên bản chép suy ra từ chính các lệnh `cmds` của phiên."""
-    return exec_patterns(sample_names(c) | set(known), cmds)
+def exec_pats(c, copies=None, cmds=()):
+    """Lệnh có dấu hiệu chạy mẫu: cùng luật với bộ eval (evals/run.py exec_rules), theo tên mẫu thật của case; tên bản chép
+    (`copies`: watch.json "derived" + suy từ phiên này) áp riêng, bắt buộc đứng riêng."""
+    return exec_patterns(sample_names(c), cmds, copies)
 
 NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
                     r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
@@ -127,9 +127,11 @@ def session(c, st, model):
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
-    known = set(st.get('derived') or ()); known |= derived(cmds, sample_names(c) | known)   # bản chép mẫu mang tên khác: nhớ sang phiên sau
+    prev = st.get('derived'); prev = {x for x in prev if isinstance(x, str) and x.strip()} if isinstance(prev, list) else set()   # sửa tay sai kiểu: bỏ
+    known = prev | derived(cmds, sample_names(c) | prev)   # bản chép mẫu mang tên khác: suy một lần, nhớ sang phiên sau
     if known: st['derived'] = sorted(known)
-    P = exec_pats(c, cmds, known)
+    else: st.pop('derived', None)
+    P = exec_pats(c, known)
     bad = ([x for x in cmds if any(p.search(x) for p in P) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)

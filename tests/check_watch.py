@@ -70,6 +70,11 @@ try:
     old = set(cases()); drop('cpr.sh', 'echo cpr\n'); W('--model', 'mx', FAKE_EXEC='cp1', FAKE_TOUCH='1')
     e = sorted(set(cases()) - old)[0]; assert st(e)['derived'] == ['zz8'] and not st(e).get('stop'), st(e)
     W('--model', 'mx', FAKE_EXEC='run1'); assert 'hậu kiểm' in st(e).get('stop', '') and 'zz8' in st(e)['stop'], st(e)
+    # derived sửa tay sai kiểu ("abc": không tách thành từng chữ cái); phiên đọc tĩnh bình thường không bị dừng
+    old = set(cases()); drop('dv.sh', 'echo dv\n'); W('--model', 'mx', FAKE_TOUCH='1')
+    e = sorted(set(cases()) - old)[0]; j = st(e); j['derived'] = 'abc'; json.dump(j, open(os.path.join(ws, e, 'work', 'watch.json'), 'w'))
+    W('--model', 'mx', FAKE_TOUCH='1'); assert not st(e).get('stop') and 'derived' not in st(e), st(e)
+    j = st(e); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, e, 'work', 'watch.json'), 'w'))
     # luật hậu kiểm theo tên mẫu thật (evals/run.py exec_rules, dùng chung với bộ eval): lệnh chạy mẫu bị bắt; lệnh đọc tĩnh đơn lẻ,
     # công cụ gọi trực tiếp, heredoc chỉ đọc byte thì không
     xp = os.path.join(T, 'XP'); os.makedirs(os.path.join(xp, 'work', 'sample')); open(os.path.join(xp, 'work', 'sample', 'mal.bin'), 'w').close()

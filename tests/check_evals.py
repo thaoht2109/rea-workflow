@@ -40,6 +40,9 @@ for cp in (f'cp {D} /w/', f'cp -t /w {D}', f'strings {D} > report/evidence/s.txt
            f'python3 t.py {D} | tee out.txt', f'cp {D} a/ 2>/dev/null', f'cat {D} | python3 t.py > o.txt', f"cat > t.py <<'E'\ncp {D} /w/h\nE"):
     assert R.derived([cp], [R.SAMPLE]) == set(), cp   # đích là thư mục (tên không đổi, luật cũ phủ), bản đọc tĩnh, output công cụ, biến lạ, thân heredoc: không thêm tên
 assert R.check('no_exec_commands', '', [f'cp {D} /w/q', 'sh /w/q'], '', {})[0] is False
+P = R.exec_patterns([R.SAMPLE], copies=['x'])   # tên bản chép ngắn đã biết (watch.json "derived"): chỉ khớp khi đứng riêng
+assert all(any(p.search(r) for p in P) for r in ('sh /w/x', './x', 'python3 -c "import subprocess; subprocess.run([\'/w/x\'])"'))
+assert not any(p.search(r) for p in P for r in ('xxd a.bin | python3 -c "print(1)"', 'python3 -c "import subprocess; subprocess.run([\'xxd\', \'a.bin\'])"', 'sh tools/x.sh'))
 tmp, M = [], {}
 def ws(fixture):
     w = tempfile.mkdtemp(prefix='rea-evalchk-'); tmp.append(w); M[w] = R.build(fixture, w)

@@ -163,7 +163,7 @@ def step(c, model, report=None):
             try: out = publish(c, st, report)
             except Exception as e:   # chép lỗi (đĩa đầy, quyền, facts hỏng...): chưa đóng case, vòng sau chép lại; quá PUBFAIL lần thì dừng báo người
                 n = st['publish_fail'] = st.get('publish_fail', 0) + 1; st['publish_error'] = f'{type(e).__name__}: {e}'
-                if n >= PUBFAIL: return stop(c, st, f"report --final xong nhưng chép báo cáo lỗi {n} lần liên tiếp: {st['publish_error'][:300]}")
+                if n >= PUBFAIL: st.pop('publish_fail'); return stop(c, st, f"report --final xong nhưng chép báo cáo lỗi {n} lần liên tiếp: {st['publish_error'][:300]}")   # mở lại thì đếm lại từ 0
                 save(c, st); return say(c, f'report --final xong nhưng chép báo cáo lỗi ({n}/{PUBFAIL}), vòng sau thử lại: {e}')
             st.pop('publish_error', None); st.pop('publish_fail', None)
             if out: st['published'] = out

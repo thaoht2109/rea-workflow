@@ -2,9 +2,9 @@
 """flow.py export / export.py trên case tổng hợp: mẫu, file giải nén, payload, bản dump không header, snapshot giả lập vào 7z (không chép
 dạng rõ); bỏ .claude/, work/ghidra/; MANIFEST, README dòng đầu có sha256; không xóa thư mục lạ; thông tin mẫu, ghi chú thu mẫu (escape),
 bản trùng hash; liên kết báo cáo trỏ vào bản chép. 7z giả (ghi danh sách file) thay cho 7z thật. Chạy: python3 tests/check_export.py"""
-import os, sys, json, shutil, hashlib, tempfile, subprocess
+import os, sys, json, stat, shutil, hashlib, tempfile, subprocess
 SKILL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-T = tempfile.mkdtemp(prefix='rea-export-')
+T = tempfile.mkdtemp(prefix='rea-export-'); os.umask(0o022)
 FAKE7Z = os.path.join(T, 'fake7z'); LIST = os.path.join(T, 'packed.json')
 open(FAKE7Z, 'w').write('#!/usr/bin/env python3\nimport sys, json\na = sys.argv[1:]; assert "-spd" in a and a[-1][0] == "@"\n'   # danh sách qua @file
                         f'json.dump(open(a[-1][1:]).read().split(), open({LIST!r}, "w")); open(a[-2], "wb").write(b"7z\\xbc\\xaf\\x27\\x1c")\n')
@@ -55,7 +55,9 @@ try:
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first
     man = open(os.path.join(d, 'MANIFEST.sha256'), encoding='utf-8').read(); assert f'{h}  {export.ZIP}:work/sample/x.bin' in man, man
     assert '  x.bin.md\n' in man and '  x.bin.html\n' in man and f'  {export.ZIP}\n' in man, man   # báo cáo dựng trong .part, có trong MANIFEST
+    assert stat.S_IMODE(os.stat(d).st_mode) == 0o755, oct(os.stat(d).st_mode)   # không giữ 0700 của mkdtemp: báo cáo dùng chung được (umask 022)
     md = open(os.path.join(d, 'x.bin.md'), encoding='utf-8').read()
+    assert '(MANIFEST.sha256)' in md and 'href="MANIFEST.sha256"' in open(os.path.join(d, 'x.bin.html'), encoding='utf-8').read(), md   # MANIFEST ghi sau augment
     assert md.index('## Thông tin mẫu') < md.index('## 1. Tóm tắt') and '(report/evidence/e.txt#L1)' in md and f'({export.ZIP})' in md and '(https://x.test/a)' in md, md
     assert 'U2/y.bin' in md and 'host=m1\\|&lt;b&gt;x&lt;/b&gt;' in md and '<b>' not in md and '<img' not in md and 'bad.test' not in md, md
     ht = open(os.path.join(d, 'x.bin.html'), encoding='utf-8').read()
@@ -73,6 +75,11 @@ try:
     for p in (stale, live): os.makedirs(p)
     os.utime(stale, (1, 1)); export.write(c, st, d)
     assert not os.path.exists(stale) and os.path.isdir(live) and export.ours(d), os.listdir(out)
+    real = os.rename; os.rename = lambda *x: (_ for _ in ()).throw(OSError('đích bận'))   # thay đích lỗi: không bỏ lại .part
+    try: export.write(c, st, d); raise AssertionError('phải lỗi')
+    except OSError: pass
+    finally: os.rename = real
+    assert sorted(x for x in os.listdir(out) if x.endswith('.part')) == [os.path.basename(live)], os.listdir(out)
     # flow.py export CASE OUT (case không do watch nhận: lấy mẫu trong work/sample)
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'export', c, os.path.join(T, 'manual')], capture_output=True, text=True, env=dict(os.environ))
     assert r.returncode == 0 and os.path.isfile(os.path.join(T, 'manual', 'x.bin_data', 'x.bin.html')), r.stdout + r.stderr

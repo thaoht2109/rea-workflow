@@ -136,10 +136,11 @@ def export(info, d):
         except OSError: pass
     os.makedirs(parent, exist_ok=True); d = tempfile.mkdtemp(prefix='.' + os.path.basename(final) + '.', suffix='.part', dir=parent)
     um = os.umask(0); os.umask(um); os.chmod(d, 0o777 & ~um)   # mkdtemp tạo 0700: đặt lại như makedirs để báo cáo còn chia sẻ được
-    try: pack = _build(info, c, d)
-    except BaseException: shutil.rmtree(d, ignore_errors=True); raise
-    if os.path.lexists(final): shutil.rmtree(final)
-    os.rename(d, final)
+    try:
+        pack = _build(info, c, d)
+        if os.path.lexists(final): shutil.rmtree(final)
+        os.rename(d, final)
+    except BaseException: shutil.rmtree(d, ignore_errors=True); raise   # cả khi thay đích lỗi (lần xuất song song vừa ghi final, quyền)
     return pack
 
 def _build(info, c, d):

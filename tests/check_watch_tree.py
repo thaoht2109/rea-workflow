@@ -60,8 +60,9 @@ try:
     assert not st.get('stop') and st['final'] and 'đĩa đầy' in st['publish_error'], st
     def bad2(*x): raise ValueError('facts.jsonl:3: dòng hỏng')   # lỗi không phải OSError cũng không làm sập watcher; quá PUBFAIL lần thì dừng báo người
     watch.publish = bad2; watch.PUBFAIL = 2; watch.step(cc, None, 'IN'); st = watch.load(cc)
-    assert 'lỗi 2 lần liên tiếp' in st.get('stop', '') and 'ValueError' in st['stop'] and st['publish_fail'] == 2, st
-    st.pop('stop'); watch.save(cc, st)
+    assert 'lỗi 2 lần liên tiếp' in st.get('stop', '') and 'ValueError' in st['stop'] and 'publish_fail' not in st, st
+    st.pop('stop'); watch.save(cc, st); watch.step(cc, None, 'IN'); st = watch.load(cc)   # người mở lại case: đếm lại từ 0, lần lỗi kế chưa dừng
+    assert not st.get('stop') and st['publish_fail'] == 1, st
     watch.publish = lambda *x: '/x'; watch.step(cc, None, 'IN'); st = watch.load(cc)
     assert st['stop'].startswith('DONE') and st['published'] == '/x' and 'publish_error' not in st and 'publish_fail' not in st, st
     assert [x[0] for x in calls].count('report') == 1, calls

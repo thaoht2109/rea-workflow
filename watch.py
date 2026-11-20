@@ -4,7 +4,7 @@
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
 import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -357,7 +357,10 @@ def run_round(cases, model, report):
     if PARALLEL <= 1 or len(cases) <= 1:
         for c in cases: step(c, model, report)
         return
-    with ThreadPoolExecutor(max_workers=PARALLEL) as ex: fs = [ex.submit(step, c, model, report) for c in cases]
+    ex = ThreadPoolExecutor(max_workers=PARALLEL); fs = [ex.submit(step, c, model, report) for c in cases]
+    try: wait(fs)
+    except BaseException: ex.shutdown(wait=False, cancel_futures=True); raise   # Ctrl-C: case còn trong hàng đợi không bắt đầu phiên mới (khác `with`, vốn chạy hết hàng đợi)
+    ex.shutdown()
     for f in fs: f.result()
 
 def main(a):

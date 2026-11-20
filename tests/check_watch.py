@@ -179,6 +179,16 @@ try:
     for c2 in os.listdir(ws2):
         pj2 = os.path.join(ws2, c2, 'work', 'watch.json')
         if os.path.exists(pj2): assert json.load(open(pj2))['sessions'] == 2, c2   # mỗi case đúng một phiên mỗi vòng, không chạy trùng
+    # Ctrl-C khi song song: case còn trong hàng đợi không bắt đầu
+    import threading; started, gate = [], threading.Event(); real_step, real_wait, real_par = watch.step, watch.wait, watch.PARALLEL
+    def slow(c, *a): started.append(c); gate.wait(5)
+    def intr(fs): time.sleep(0.5); raise KeyboardInterrupt
+    watch.step, watch.wait, watch.PARALLEL = slow, intr, 2
+    try:
+        try: watch.run_round(['a', 'b', 'c', 'd'], 'mx', None); raise SystemExit('KeyboardInterrupt phải thoát run_round')
+        except KeyboardInterrupt: pass
+        gate.set(); time.sleep(0.5); assert sorted(started) == ['a', 'b'], started   # c, d bị huỷ trong hàng đợi
+    finally: watch.step, watch.wait, watch.PARALLEL = real_step, real_wait, real_par
     # case STOPPED (phản biện FAIL 2 lần): báo người, không mở phiên, không tự OVERRIDE
     n = len(calls()); fx_stopped_case(ws); json.dump({'sha256': 'x'}, open(os.path.join(ws, 'CASE_E3', 'work', 'watch.json'), 'w'))
     W('--model', 'mx'); assert st('CASE_E3')['stop'].startswith('STOPPED') and len(calls()) == n, st('CASE_E3')

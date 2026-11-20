@@ -13,4 +13,13 @@ export.collect(c)   # không crash với link treo
 assert hs not in C._work_hashes(c) and hashlib.sha256(b'echo real\n').hexdigest() in C._work_hashes(c)
 fl, _ = reviewer.files(c); assert [os.path.basename(p) for p in fl] == ['real.sh'], fl
 assert [os.path.basename(p) for p in kb.files_of(c)] == ['real.sh'], kb.files_of(c)
+# thư mục symlink trỏ ra ngoài: glob '**' đi vào đó, os.walk thì không; file bên trong không phải link nhưng vẫn không được tính
+ext = tempfile.mkdtemp(prefix='rea-ext-'); open(os.path.join(ext, 'passwd'), 'w').write('root:x:0:0\n')
+os.symlink(ext, os.path.join(sd, 'lib'))
+import review
+eh = hashlib.sha256(b'root:x:0:0\n').hexdigest()
+assert eh not in C._work_hashes(c) and eh not in review.work_hashes(c)
+assert [os.path.basename(p) for p in reviewer.files(c)[0]] == ['real.sh'] and [os.path.basename(p) for p in kb.files_of(c)] == ['real.sh']
+os.makedirs(os.path.join(c, 'work', 'extract')); open(os.path.join(c, 'work', 'extract', 'a.bin'), 'w').write('x')
+assert [os.path.basename(p) for p in C.work_files(c)] == ['real.sh', 'a.bin']   # sample trước extract
 print('OK check_symlink_readers')

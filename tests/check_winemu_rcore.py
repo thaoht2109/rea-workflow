@@ -2,14 +2,14 @@
 # winemu/rcore.py: lõi hook block (Rust) và bản Python phải cho cùng kết quả trên một chương trình x86 tổng hợp đặt cờ TF; nạp thư viện lỗi thì lùi về Python.
 # Không chạy mẫu. Cần unicorn; lõi Rust cần thư viện đã build (cargo build --release trong rust/rea_hook). Trong CI (biến CI) thiếu một trong hai là lỗi.
 #   python3 tests/check_winemu_rcore.py
-import os, sys, struct, tempfile
+import os, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'winemu')); sys.path.insert(0, ROOT)
 CI = bool(os.environ.get('CI'))
 try:
     import reacfg  # noqa: F401  (thêm REA_PYLIB vào sys.path)
     from unicorn import Uc, UC_ARCH_X86, UC_MODE_32
-    from unicorn.x86_const import UC_X86_REG_EFLAGS as EF, UC_X86_REG_EIP, UC_X86_REG_ESP
+    from unicorn.x86_const import UC_X86_REG_EFLAGS as EF, UC_X86_REG_ESP
 except ImportError:
     assert not CI, 'CI phải có unicorn (requirements-dev.txt)'
     print('OK check_winemu_rcore (không có unicorn: bỏ qua)'); sys.exit(0)

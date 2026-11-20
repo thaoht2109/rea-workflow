@@ -54,9 +54,14 @@ def is_text(p):
     except (OSError, UnicodeDecodeError): return False
 
 def packed(rel, p):
-    """File này phải nằm trong 7z, không chép dạng rõ."""
-    r = rel.replace(os.sep, '/')
-    return any(r == d or r.startswith(d) for d in PACK_DIRS) or not is_text(p)
+    """File này phải nằm trong 7z, không chép dạng rõ: theo vị trí (PACK_DIRS, OUT_DIR của công cụ T1b work/runs/tool/<TÊN>/),
+    file không phải văn bản, và file văn bản ngoài report/ và facts.jsonl có nội dung giống script (payload text bóc ra)."""
+    r = rel.replace(os.sep, '/'); parts = r.split('/')
+    if any(r == d or r.startswith(d) for d in PACK_DIRS) or (len(parts) >= 5 and parts[:3] == ['work', 'runs', 'tool']): return True
+    if not is_text(p): return True
+    if parts[0] in ('report', 'facts.jsonl'): return False
+    t = text_of(p, 0)
+    return t is None or bool(SCRIPT.search(t))
 
 def parse_note(t, h):
     lines = t.splitlines()
@@ -69,7 +74,7 @@ def parse_note(t, h):
 def _inbox_files(inbox, skip):
     for d, ds, fs in os.walk(inbox):
         ds[:] = sorted(x for x in ds if not x.startswith('.') and not x.startswith('Report_') and os.path.realpath(os.path.join(d, x)) not in skip
-                       and not os.path.exists(os.path.join(d, x, 'work', 'watch.json')))
+                       and not os.path.exists(os.path.join(d, x, 'work', 'watch.json')) and not ours(os.path.join(d, x)))   # bản xuất trong INBOX: không phải ghi chú
         for n in sorted(fs):
             p = os.path.join(d, n)
             if not n.startswith('.') and os.path.isfile(p) and not os.path.islink(p): yield p
@@ -139,8 +144,11 @@ def export(info, d):
     rows = [(sha(os.path.join(dp, n)), os.path.relpath(os.path.join(dp, n), d)) for dp, _, ns in os.walk(d) for n in ns]
     if pack:
         z = os.path.join(d, ZIP)
-        try: r = subprocess.run([CFG.SEVENZ, 'a', '-t7z', '-p' + ZIP_PW, '-mhe=on', '-y', z, '--'] + pack, cwd=c, capture_output=True, text=True)
+        lst = d + '.list'   # danh sách qua file (@list, -spd tắt wildcard): case nhiều file không vượt giới hạn argv
+        with open(lst, 'w', encoding='utf-8') as f: f.write(''.join(x + '\n' for x in pack))
+        try: r = subprocess.run([CFG.SEVENZ, 'a', '-t7z', '-p' + ZIP_PW, '-mhe=on', '-y', '-spd', '-scsUTF-8', z, '@' + lst], cwd=c, capture_output=True, text=True)
         except OSError as x: raise OSError(f'không chạy được 7z ({CFG.SEVENZ}): {x}; đặt SEVENZ_BIN trong rea.env')
+        finally: os.remove(lst)
         if r.returncode or not os.path.isfile(z): raise OSError(f'7z lỗi: {(r.stdout + r.stderr)[-300:]}')
         rows += [(sha(os.path.join(c, x)), f'{ZIP}:{x}') for x in pack] + [(sha(z), ZIP)]
     with open(os.path.join(d, 'MANIFEST.sha256'), 'w', encoding='utf-8') as f: f.write(''.join(f'{h}  {n}\n' for h, n in sorted(rows, key=lambda x: x[1])))

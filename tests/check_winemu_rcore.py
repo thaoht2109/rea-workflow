@@ -23,8 +23,13 @@ PLAIN = bytes([0x90] * 8)   # không đặt TF
 def run(core_mode, prog, lib_env=None):
     mu = Uc(UC_ARCH_X86, UC_MODE_32); mu.mem_map(CODE, 0x1000); mu.mem_map(STK, 0x1000)
     mu.mem_write(CODE, prog); mu.reg_write(UC_X86_REG_ESP, STK + 0x800); mu.reg_write(EF, 0x202)
+    old = os.environ.get('REA_CORE_LIB')
     if lib_env is not None: os.environ['REA_CORE_LIB'] = lib_env
-    core = rcore.attach(mu, CODE, CODE + 0x1000, EF, mode=core_mode)
+    try: core = rcore.attach(mu, CODE, CODE + 0x1000, EF, mode=core_mode)
+    finally:   # không để biến môi trường rò ra ngoài kể cả khi attach lỗi
+        if lib_env is not None:
+            if old is None: os.environ.pop('REA_CORE_LIB', None)
+            else: os.environ['REA_CORE_LIB'] = old
     core.reset_count()
     mu.emu_start(CODE, CODE + len(prog), count=100)
     return core, mu
@@ -53,9 +58,7 @@ else:
     print('OK check_winemu_rcore (Rust và Python khớp)')
 
 # 4. lùi về Python khi thư viện hỏng / sai đường dẫn; REA_CORE=rust thì báo lỗi rõ ràng
-good = os.environ.get('REA_CORE_LIB')
-try:
-    with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory() as d:
         bad = os.path.join(d, rcore.NAME); open(bad, 'wb').write(b'khong phai thu vien')
         c, mu = run('auto', PLAIN, lib_env=bad); assert c.kind == 'python', 'thư viện hỏng phải lùi về Python'
         try: run('rust', PLAIN, lib_env=bad); raise AssertionError('REA_CORE=rust với thư viện hỏng phải lỗi')
@@ -64,7 +67,14 @@ try:
         c, mu = run('py', PLAIN, lib_env=bad); assert c.kind == 'python'
         try: run('xyz', PLAIN)
         except SystemExit as e: assert 'không hợp lệ' in str(e)
+# 5. đường tìm thư viện tôn trọng XDG_DATA_HOME (cùng gốc với reacfg.SHARE_PYLIB) và REA_CORE_LIB
+saved = {k: os.environ.get(k) for k in ('XDG_DATA_HOME', 'REA_CORE_LIB')}
+try:
+    os.environ.pop('REA_CORE_LIB', None); os.environ['XDG_DATA_HOME'] = '/xdg/x'
+    assert os.path.join('/xdg/x', 'rea-flow', 'lib', rcore.NAME) in rcore.lib_candidates()
+    os.environ['REA_CORE_LIB'] = '/chi/dinh'; assert rcore.lib_candidates() == ['/chi/dinh']
 finally:
-    if good is None: os.environ.pop('REA_CORE_LIB', None)
-    else: os.environ['REA_CORE_LIB'] = good
-print('OK check_winemu_rcore (lùi về Python)')
+    for k, v in saved.items():
+        if v is None: os.environ.pop(k, None)
+        else: os.environ[k] = v
+print('OK check_winemu_rcore (lùi về Python, đường tìm thư viện)')

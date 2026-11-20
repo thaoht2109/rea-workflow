@@ -21,7 +21,7 @@ def lib_candidates():
     if env: return [env]
     root = os.path.dirname(HERE)
     return [os.path.join(root, 'rust', 'rea_hook', 'target', 'release', NAME),
-            os.path.join(os.path.expanduser('~'), '.local', 'share', 'rea-flow', 'lib', NAME)]
+            os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'lib', NAME)]   # cùng gốc với reacfg.SHARE_PYLIB
 
 
 def load_lib():

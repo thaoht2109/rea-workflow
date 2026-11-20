@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory() as d:
         except SystemExit as e: assert 'REA_CORE=rust' in str(e)
         c, mu = run('auto', PLAIN, lib_env=os.path.join(d, 'khong-co')); assert c.kind == 'python'
         c, mu = run('py', PLAIN, lib_env=bad); assert c.kind == 'python'
-        try: run('xyz', PLAIN)
+        try: run('xyz', PLAIN); raise AssertionError('REA_CORE không hợp lệ phải lỗi')
         except SystemExit as e: assert 'không hợp lệ' in str(e)
 # 5. đường tìm thư viện tôn trọng XDG_DATA_HOME (cùng gốc với reacfg.SHARE_PYLIB) và REA_CORE_LIB
 saved = {k: os.environ.get(k) for k in ('XDG_DATA_HOME', 'REA_CORE_LIB')}

@@ -33,9 +33,15 @@ PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không c�
 def say(c, m): print(f'{datetime.datetime.now():%F %T} [{c or "watch"}] {m}', flush=True)
 def flow(*a): return subprocess.run([sys.executable, FLOW, *a], capture_output=True, text=True)
 def wj(c): return os.path.join(c, 'work', 'watch.json')
+_BAD = set()
 def load(c):
-    try: return json.load(open(wj(c), encoding='utf-8'))
-    except (OSError, ValueError): return {}
+    """Trạng thái của case. Chưa có file: {}. File hỏng (sửa tay gõ sai): None, báo một lần, không ghi đè (mất khóa stop/sessions)."""
+    try: st = json.load(open(wj(c), encoding='utf-8'))
+    except FileNotFoundError: return {}
+    except (OSError, ValueError) as e: st = e
+    if isinstance(st, dict): _BAD.discard(c); return st
+    if c not in _BAD: _BAD.add(c); say(c, f'BỎ QUA case: {wj(c)} không đọc được ({str(st)[:120] if isinstance(st, Exception) else "không phải object JSON"}); sửa file thì vòng sau chạy tiếp')
+    return None
 def save(c, st): open(wj(c) + '.tmp', 'w', encoding='utf-8').write(json.dumps(st, ensure_ascii=False, indent=1)); os.replace(wj(c) + '.tmp', wj(c))
 def stop(c, st, why):
     st['stop'] = why; save(c, st)
@@ -48,14 +54,14 @@ def lock(c):
     except BlockingIOError: f.close(); return None   # phiên/watcher khác đang giữ case
 
 def soft_fp(c):
-    """Dấu vân tay tiến độ mềm: tên, kích thước, mtime của file trong work/ (hook, công cụ, snapshot, NOTES.md, kết quả giả lập),
-    trừ những thứ đổi ở mọi phiên (transcript watch, review, watch.json, checkpoint, khóa). Không đọc nội dung: snapshot lớn."""
+    """Dấu vân tay tiến độ mềm: tên, kích thước, mtime của file trong work/ (hook, công cụ, snapshot, kết quả giả lập),
+    trừ những thứ đổi ở mọi phiên (transcript watch, review, watch.json, checkpoint, khóa, NOTES.md mà prompt bắt cập nhật). Không đọc nội dung: snapshot lớn."""
     w = os.path.join(c, 'work'); h = hashlib.sha256()
     skip = {os.path.join(w, x) for x in ('runs/watch', 'review', 'sample')}
     for d, ds, fs in os.walk(w):
         ds[:] = sorted(x for x in ds if os.path.join(d, x) not in skip)
         for n in sorted(fs):
-            if n in ('watch.json', 'watch.json.tmp', '.watch.lock', 'checkpoint.json'): continue
+            if n in ('watch.json', 'watch.json.tmp', '.watch.lock', 'checkpoint.json') or (d == w and n == 'NOTES.md'): continue   # NOTES.md đổi ở mọi phiên
             try: s = os.stat(os.path.join(d, n))
             except OSError: continue
             h.update(f'{os.path.relpath(os.path.join(d, n), w)}\0{s.st_size}\0{s.st_mtime_ns}\n'.encode())
@@ -112,7 +118,9 @@ def session(c, st, model):
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
     argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
              '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', str(MAXT)] + (['--model', model] if model else [])
-    n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st); maxs = int(st.get('max_sessions') or MAXS)   # trần riêng của case (sửa tay watch.json)
+    maxs = st.get('max_sessions') or MAXS   # trần riêng của case (sửa tay watch.json): sai kiểu thì chỉ dừng case này, không làm sập watcher
+    if isinstance(maxs, bool) or not re.fullmatch(r'\s*[1-9]\d*\s*', str(maxs)): return stop(c, st, f'"max_sessions" phải là số nguyên dương, đang là {maxs!r}')
+    maxs = int(maxs); n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
     before, sbefore = fp(c), soft_fp(c); say(c, f'phiên {n}/{maxs}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
@@ -122,11 +130,11 @@ def session(c, st, model):
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
-    st['soft'] = 0 if hard else st.get('soft', 0) + 1 if soft else st.get('soft', 0)
-    say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else f"chỉ work/ đổi ({st['soft']}/{SOFT})" if soft else 'không đổi')
+    st['soft'] = 0 if hard else st.get('soft', 0) + 1   # mọi phiên chưa ra fact, kể cả phiên không đổi gì: xen kẽ hai loại vẫn chạm trần
+    say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else ('chỉ work/ đổi' if soft else 'không đổi') + f", {st['soft']}/{SOFT} phiên chưa ra fact")
         + (f", lỗi: {init['_error']}" if init['_error'] else ''))
     why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu hoặc watch lồng) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi gì" if st['stall'] >= STALL
-           else f"{st['soft']} phiên liên tiếp chỉ đổi work/ (hook, công cụ, snapshot) mà chưa ra fact" if st['soft'] >= SOFT
+           else f"{st['soft']} phiên liên tiếp chưa ra fact mới (chỉ đổi work/: hook, công cụ, snapshot; hoặc không đổi gì)" if st['soft'] >= SOFT
            else f'đủ {maxs} phiên' if n >= maxs else '')
     stop(c, st, why) if why else save(c, st)
 
@@ -135,7 +143,7 @@ def step(c, model, report=None):
     if not f: return
     with f:
         st = load(c)
-        if st.get('stop'): return
+        if st is None or st.get('stop'): return
         r = flow('next', c); k = (re.search(STATES, r.stdout, re.M) or [None, None])[1]
         if k != 'DONE' and st.pop('final', None): save(c, st)   # case mở lại (facts/báo cáo đổi): report --final phải chạy lại
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
@@ -265,7 +273,7 @@ def _noted_load():
 def ingest(inbox, report=None):
     if not _NOTED: _noted_load()
     root = report_root(inbox, report)
-    known = {load(os.path.dirname(os.path.dirname(p))).get('sha256') for p in glob.glob('*/work/watch.json')} | (reported(root) if root else set())
+    known = {(load(os.path.dirname(os.path.dirname(p))) or {}).get('sha256') for p in glob.glob('*/work/watch.json')} | (reported(root) if root else set())
     new = 0
     for p in samples(inbox, (os.getcwd(), root)):
         try:

@@ -20,7 +20,11 @@ try:
     assert sorted(C.load(c)) == ['s.u1', 's.u2', 's.u4'] and [f['id'] for f in C.history(c)] == ['s.u1', 's.u2', 's.u4']
     open(p, 'a').write('dòng sửa tay\n')   # dòng hỏng không phải do cụt: báo lỗi, không im lặng bỏ
     try: C.history(c); raise AssertionError('phải báo lỗi')
-    except ValueError as x: assert 'facts.jsonl:5' in str(x) and 'sửa tay' in str(x), x
+    except ValueError as x: assert 'facts.jsonl:5' in str(x) and 'sửa tay' in str(x) and 'dòng cụt' not in str(x), x
+    c2 = mk_case(T, 'K2', [('s.u1', 'url', 'http://a.invalid/x')]); p2 = os.path.join(c2, 'facts.jsonl')
+    open(p2, 'ab').write(b'{"id": "s.u9", "kind": "url", "value": "a}')   # cụt đúng sau một } trong chuỗi: không đoán, báo lỗi kèm gợi ý xử lý
+    try: C.history(c2); raise AssertionError('phải báo lỗi')
+    except ValueError as x: assert 'facts.jsonl:2' in str(x) and 'dòng cụt' in str(x), x
     json.loads(open(p).read().splitlines()[0])
 finally: shutil.rmtree(T, ignore_errors=True)
 print('OK check_facts_cut')

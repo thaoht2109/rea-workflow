@@ -118,9 +118,9 @@ def session(c, st, model):
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
     argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
              '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', str(MAXT)] + (['--model', model] if model else [])
-    maxs = st.get('max_sessions') or MAXS   # trần riêng của case (sửa tay watch.json): sai kiểu thì chỉ dừng case này, không làm sập watcher
-    if isinstance(maxs, bool) or not re.fullmatch(r'\s*[1-9]\d*\s*', str(maxs)): return stop(c, st, f'"max_sessions" phải là số nguyên dương, đang là {maxs!r}')
-    maxs = int(maxs); n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
+    v = st.get('max_sessions')   # trần riêng của case (sửa tay watch.json): sai kiểu thì chỉ dừng case này, không làm sập watcher
+    if v and (isinstance(v, bool) or not re.fullmatch(r'\s*[1-9]\d*\s*', str(v))): return stop(c, st, f'"max_sessions" trong watch.json phải là số nguyên dương, đang là {v!r}')
+    maxs = int(v) if v else max(1, MAXS); n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
     before, sbefore = fp(c), soft_fp(c); say(c, f'phiên {n}/{maxs}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)

@@ -112,6 +112,8 @@ try:
     bm = [x for x in cases() if x.startswith('bm_')][0]; j = st(bm); j['max_sessions'] = 'abc'; json.dump(j, open(os.path.join(ws, bm, 'work', 'watch.json'), 'w'))
     n = len(calls()); W('--model', 'mx', FAKE_TOUCH='1')
     assert 'max_sessions' in st(bm).get('stop', '') and st(bm)['sessions'] == 1 and len(calls()) == n, st(bm)
+    drop('z0.sh', 'echo z0\n'); W('--model', 'mx', REA_WATCH_MAX_SESSIONS='0', FAKE_TOUCH='1')   # trần env <= 0: coi như 1, không đổ lỗi cho watch.json
+    z0 = [x for x in cases() if x.startswith('z0_')][0]; assert st(z0)['stop'] == 'đủ 1 phiên' and st(z0)['sessions'] == 1, st(z0)
     # watch.json hỏng (sửa tay gõ sai): bỏ qua case, không ghi đè, không mở phiên, không nhận lại mẫu thành case mới
     drop('cj.sh', 'echo cj\n'); W('--model', 'mx', FAKE_TOUCH='1')
     cj = [x for x in cases() if x.startswith('cj_')][0]; pj = os.path.join(ws, cj, 'work', 'watch.json'); bad = '{"sessions": 1, "stop": "x",}'

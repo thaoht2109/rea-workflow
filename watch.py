@@ -7,7 +7,7 @@ import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subproces
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
-from evals.run import ALLOWED, GENERIC, POS, exec_rules, parse, run_agent   # noqa: E402  cùng allowlist/bộ đọc transcript với bộ eval
+from evals.run import ALLOWED, POS, derived, exec_patterns, parse, run_agent   # noqa: E402  cùng allowlist/bộ đọc transcript với bộ eval
 
 FLOW = os.path.join(TOOLS, 'flow.py')
 num = lambda k, d: int(CFG.get(k, d, path=False))
@@ -74,10 +74,11 @@ def fp(c):
         if os.path.exists(p): h.update(open(p, 'rb').read())
     return h.hexdigest()
 
-def exec_pats(c):
-    """Lệnh có dấu hiệu chạy mẫu: cùng luật với bộ eval (evals/run.py exec_rules), theo tên mẫu thật của case."""
-    names = {n for _, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns}
-    return [re.compile(p) for p in GENERIC + [r for n in map(re.escape, names) for r in exec_rules(n)]]
+def sample_names(c): return {n for _, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns}
+def exec_pats(c, cmds=(), known=()):
+    """Lệnh có dấu hiệu chạy mẫu: cùng luật với bộ eval (evals/run.py exec_rules), theo tên mẫu thật của case, tên bản chép
+    đã thấy ở phiên trước (`known`, watch.json "derived") và tên bản chép suy ra từ chính các lệnh `cmds` của phiên."""
+    return exec_patterns(sample_names(c) | set(known), cmds)
 
 NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
                     r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
@@ -126,7 +127,10 @@ def session(c, st, model):
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
-    bad = ([x for x in cmds if any(p.search(x) for p in exec_pats(c)) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
+    known = set(st.get('derived') or ()); known |= derived(cmds, sample_names(c) | known)   # bản chép mẫu mang tên khác: nhớ sang phiên sau
+    if known: st['derived'] = sorted(known)
+    P = exec_pats(c, cmds, known)
+    bad = ([x for x in cmds if any(p.search(x) for p in P) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1

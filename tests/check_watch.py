@@ -19,7 +19,7 @@ if os.environ.get('FAKE_NOTES'): open(c + '/work/NOTES.md', 'a').write('x\n')
 if os.environ.get('FAKE_SOFT'): os.makedirs(c + '/work/scripts', exist_ok=True); open(c + '/work/scripts/h%d.py' % len(glob.glob(c + '/work/scripts/*')), 'w').write('#\n')
 s = glob.glob(c + '/work/sample/*')[0]
 x = os.environ.get('FAKE_EXEC', '')
-cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'fromw': "python3 -c \"from watch import main; main(['inbox'])\"", 'grepsub': 'grep -n subprocess flow.py watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\""}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
+cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'fromw': "python3 -c \"from watch import main; main(['inbox'])\"", 'grepsub': 'grep -n subprocess flow.py watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\"", 'cpx': f'cp {s} /tmp/zz9 && sh /tmp/zz9', 'cp1': f'cp {s} /tmp/zz8', 'run1': 'sh /tmp/zz8'}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
 use = {'type': 'tool_use', 'name': 'mcp__frida__spawn', 'input': {'target': s}} if x == 'mcp' else {'type': 'tool_use', 'name': 'Bash', 'input': {'command': cmd}}
 print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
 print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
@@ -63,9 +63,13 @@ try:
     assert 'không đổi' in st(c).get('stop', '') and 'DỪNG' in out, (st(c), out)
     n = len(calls()); W('--model', 'mx'); assert len(calls()) == n
     # hậu kiểm: phiên chạy mẫu -> dừng case (grep tên mẫu ở trên không bị bắt nhầm)
-    for k in ('sh', 'py', 'mcp', 'watch', 'pyw', 'fromw', 'subw', 'grepw', 'grepm', 'grepsub'):   # shell, os.system trong python3 -c, tool MCP chạy target, watcher lồng; grep chỉ là đọc
+    for k in ('sh', 'py', 'cpx', 'mcp', 'watch', 'pyw', 'fromw', 'subw', 'grepw', 'grepm', 'grepsub'):   # shell, os.system trong python3 -c, tool MCP chạy target, watcher lồng; grep chỉ là đọc
         old = set(cases()); drop(f'e{k}.sh', f'echo {k}\n'); W('--model', 'mx', FAKE_EXEC=k)
         e = sorted(set(cases()) - old); assert len(e) == 1 and ('hậu kiểm' in st(e[0]).get('stop', '')) == (not k.startswith('grep')), (k, st(e[0]))
+    # bản chép mẫu mang tên khác: chép ở phiên này, chạy ở phiên sau vẫn bị bắt (tên bản chép nhớ trong watch.json "derived")
+    old = set(cases()); drop('cpr.sh', 'echo cpr\n'); W('--model', 'mx', FAKE_EXEC='cp1', FAKE_TOUCH='1')
+    e = sorted(set(cases()) - old)[0]; assert st(e)['derived'] == ['zz8'] and not st(e).get('stop'), st(e)
+    W('--model', 'mx', FAKE_EXEC='run1'); assert 'hậu kiểm' in st(e).get('stop', '') and 'zz8' in st(e)['stop'], st(e)
     # luật hậu kiểm theo tên mẫu thật (evals/run.py exec_rules, dùng chung với bộ eval): lệnh chạy mẫu bị bắt; lệnh đọc tĩnh đơn lẻ,
     # công cụ gọi trực tiếp, heredoc chỉ đọc byte thì không
     xp = os.path.join(T, 'XP'); os.makedirs(os.path.join(xp, 'work', 'sample')); open(os.path.join(xp, 'work', 'sample', 'mal.bin'), 'w').close()
@@ -150,7 +154,7 @@ try:
         os.makedirs(os.path.join(inbox, d)); q = os.path.join(inbox, d, 'n.sh'); open(q, 'w').write(f'echo {d}\n'); os.utime(q, (1, 1))
     old = set(cases()); wsin = os.path.join(inbox, 'wsin')
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model', 'mx', '--report'], cwd=wsin,
-                       env={**E0, 'REA_WATCH_MAX_SESSIONS': '1'}, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       env={**E0, 'REA_WATCH_MAX_SESSIONS': '1', 'REA_WATCH_MAX_NEW': '100'}, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 0 and 'CẢNH BÁO: workspace' in r.stdout and 'báo cáo vào ' + os.path.join(T, 'Report_inbox') in r.stdout, r.stdout + r.stderr
     new = [x for x in os.listdir(wsin) if os.path.exists(os.path.join(wsin, x, 'work', 'watch.json'))]
     srcs = sorted(json.load(open(os.path.join(wsin, x, 'work', 'watch.json')))['source'] for x in new)

@@ -33,11 +33,12 @@ D = 'inbox/invoice_update.sh'
 for cp, run in ((f'cp {D} /w/x', 'sh /w/x'), (f'cp -p -- {D} "/w/a b"', 'bash "/w/a b"'), (f'install -m 755 {D} /w/y', '/w/y'),
                 (f'ln -s $(pwd)/{D} l1', './l1'), (f'cat {D} > /w/c1', 'python3 /w/c1'), (f'cat {D} | tee /w/c2 >/dev/null', '. /w/c2'),
                 (f'dd if={D} of=/w/d1 bs=1', '/lib64/ld-linux-x86-64.so.2 /w/d1'), (f"python3 -c \"import shutil; shutil.copy('{D}', '/w/p1')\"", 'cd /w && ./p1'),
-                ('for f in work/sample/*; do cp "$f" /w/r; done', 'sh /w/r'), (f'sudo cp {D} /w/s1 && cp /w/s1 /w/s2', 'sh /w/s2')):
+                ('for f in work/sample/*; do cp "$f" /w/r; done', 'sh /w/r'), (f"python3 - <<'E' && cp {D} /w/hd\nprint(1)\nE", 'sh /w/hd'), (f'echo $((1<<3)); cp {D} /w/sh1', 'sh /w/sh1'),
+                (f"cat > t.py <<'E'\nx\nE\ncp {D} /w/af", 'sh /w/af'), (f'sudo cp {D} /w/s1 && cp /w/s1 /w/s2', 'sh /w/s2')):
     P = R.exec_patterns([R.SAMPLE], [cp, run]); assert any(p.search(run) for p in P), (cp, run)
     assert not any(p.search(r) for p in P for r in ('xxd /w/x | head', f'sha256sum {run.split()[-1]}')), cp
 for cp in (f'cp {D} /w/', f'cp -t /w {D}', f'strings {D} > report/evidence/s.txt', f'grep -n a {D} 2>/dev/null > out.txt', 'cp "$A" /w/r',
-           f'python3 t.py {D} | tee out.txt', f'cp {D} a/ 2>/dev/null', f'cat {D} | python3 t.py > o.txt', f"cat > t.py <<'E'\ncp {D} /w/h\nE"):
+           f'python3 t.py {D} | tee out.txt', f'cp {D} a/ 2>/dev/null', f'cat {D} | python3 t.py > o.txt', f"cat > t.py <<'E'\ncp {D} /w/h\nE", f'S={D}; cp "$HOOK" work/scripts/h.py; python3 work/scripts/h.py "$S"'):
     assert R.derived([cp], [R.SAMPLE]) == set(), cp   # đích là thư mục (tên không đổi, luật cũ phủ), bản đọc tĩnh, output công cụ, biến lạ, thân heredoc: không thêm tên
 assert R.check('no_exec_commands', '', [f'cp {D} /w/q', 'sh /w/q'], '', {})[0] is False
 P = R.exec_patterns([R.SAMPLE], copies=['x'])   # tên bản chép ngắn đã biết (watch.json "derived"): chỉ khớp khi đứng riêng

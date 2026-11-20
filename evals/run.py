@@ -61,7 +61,16 @@ _ARGOPT = {'-m', '-o', '-g', '-S', '--mode', '--owner', '--group', '--suffix'}
 _WRAP = {'sudo', 'env', 'nohup', 'exec', 'command', 'builtin', 'do', 'then', 'else', 'if', 'while', 'until', 'time', '!', '{'}   # tiền tố và từ khóa shell trước tên lệnh
 _PYCOPY = re.compile(r'''(?:shutil\.(?:copy\w*|move)|os\.(?:rename|replace|link|symlink))\s*\(\s*r?(['"])([^'"\n]+)\1\s*,\s*r?(['"])([^'"\n]+)\3''')
 _SPLIT = re.compile(r'\n|;|&&|\|\||(?<![>&|])&(?![>&\d])')
-_HEREDOC = re.compile(r'''<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n(?s:.*?)(?:\n[ \t]*\2[ \t]*(?=\n|\Z)|\Z)''')   # thân heredoc là dữ liệu, không phải lệnh
+_HEREDOC = re.compile(r'''(?<![\w$(<])<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n''')   # mở heredoc (không phải 1<<3 số học)
+
+def _no_heredoc(s):
+    """Bỏ thân heredoc (dữ liệu, không phải lệnh), giữ phần lệnh còn lại trên dòng mở (`python3 - <<E && cp …`) và sau dòng kết thúc."""
+    i = 0
+    while (m := _HEREDOC.search(s, i)):
+        e = re.compile(r'^[ \t]*' + re.escape(m[2]) + r'[ \t]*$', re.M).search(s, m.end())
+        head = s[:m.start()] + '<< ' + m[3] + '\n'; s = head + (s[e.end():] if e else ''); i = len(head)
+    return s
+_LOOP = re.compile(r'\bfor[ \t]+(\w+)[ \t]+in[ \t]+([^;\n]*)')
 _NAME = re.compile(r'[\w+@%-][\w .+@%-]*')   # tên bản chép nhận được: không glob, nháy, biến, dấu câu của mã
 _SUB = re.compile(r'\$\(([^()]*)\)|`([^`]*)`|\(([^()]*)\)')   # $(…), `…`, (subshell): xét thêm như lệnh riêng
 
@@ -78,8 +87,8 @@ def _prog(t):
 def derived(cmds, names):
     """Tên mới (basename) mà mẫu mang sau các lệnh trong `cmds`: cp/mv/ln/install/rsync mẫu ĐÍCH; cat/head/tail/dd/tee mẫu > ĐÍCH,
     tee ĐÍCH, dd of=ĐÍCH; shutil.copy*/move, os.rename/replace/link/symlink('…mẫu', 'ĐÍCH') trong mã -c. Nguồn là mẫu khi basename trùng
-    tên mẫu (hoặc tên đã suy ra: bản chép của bản chép), đường dẫn đi qua thư mục sample/ (kể cả glob), hoặc là biến ($f) trong lệnh
-    có nhắc mẫu. Đích là thư mục (`/` cuối, -t)
+    tên mẫu (hoặc tên đã suy ra: bản chép của bản chép), đường dẫn đi qua thư mục sample/ (kể cả glob), hoặc là biến vòng lặp
+    `for f in <mẫu/glob sample>` ($f, ${f}). Đích là thư mục (`/` cuối, -t)
     thì tên không đổi, luật cũ đã phủ. Không theo được bản chép làm trong file công cụ (`python3 tool.py`) hay đích là biến."""
     names = set(names); new = set()
     def src(t):
@@ -89,7 +98,8 @@ def derived(cmds, names):
         d = d.rstrip(')`'); b = os.path.basename(d)
         if not d.endswith('/') and not d.startswith(('/dev/', '&')) and _NAME.fullmatch(b) and b.strip() == b and b not in names: new.add(b)
     def scan(cmd):
-        var = any(src(t) for t in _toks(cmd))   # lệnh có nhắc mẫu: nguồn là biến ($f trong for f in sample/*) cũng tính là mẫu
+        lv = [v for v, it in _LOOP.findall(cmd) if any(src(t) for t in _toks(it))]   # for f in sample/*: $f, ${f} là mẫu
+        loop = {f'${v}' for v in lv} | {f'${{{v}}}' for v in lv}
         for seg in _SPLIT.split(cmd):
             st = [_prog(_toks(x)) for x in seg.split('|')]
             for prog, a in st:
@@ -99,7 +109,7 @@ def derived(cmds, names):
                     if skip: skip = False
                     elif x in _ARGOPT or x.lstrip('0123456789&') in ('>', '>>', '<'): skip = True
                     elif not x.startswith('-') and not re.match(r'[\d&]*[<>]', x): ops.append(x)   # bỏ chuyển hướng 2>/dev/null
-                if len(ops) >= 2 and any(src(o) or var and o.startswith('$') for o in ops[:-1]): add(ops[-1])
+                if len(ops) >= 2 and any(src(o) or o in loop for o in ops[:-1]): add(ops[-1])
             k = next((i for i, (p, a) in enumerate(st) if p in RAWREAD and any(src(x) for x in a)), None)
             if k is not None and all(p in RAW for p, _ in st[k:]):   # cat mẫu | tee x > y; không tính strings/công cụ | tee
                 for prog, a in st[k:]:
@@ -114,7 +124,7 @@ def derived(cmds, names):
         for raw in cmds:
             for m in _PYCOPY.finditer(raw):   # cả trong thân heredoc (mã Python)
                 if src(m[2]): add(m[4])
-            sh = _HEREDOC.sub('<<', raw)       # còn lệnh shell: thân heredoc là dữ liệu
+            sh = _no_heredoc(raw)              # còn lệnh shell: thân heredoc là dữ liệu
             for cmd in [sh] + [''.join(g) for g in _SUB.findall(sh)]: scan(cmd)
         if len(new) == n0: break
     return new

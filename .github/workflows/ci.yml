@@ -60,6 +60,13 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - name: lõi Rust của winemu (fmt, clippy, test, build)
+        working-directory: rust/rea_hook
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo build --release
       - run: mkdir -p reports
       - run: python -m pytest --import-mode=importlib -q -p no:cacheprovider --junitxml=reports/unit.xml tests
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

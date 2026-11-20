@@ -9,6 +9,13 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 # capstone: gói Python hệ thống (không có apt thì flow.py setup cài vào REA_PYLIB). DLL giả lấy tên export từ WINE_DLL_DIR (mặc định /usr/lib/x86_64-linux-gnu/wine)
 ```
 
+### Lõi Rust cho hook block (tùy chọn, nhanh hơn ~2,7 lần ở pha nhiều block)
+
+Hook kiểm cờ TF chạy mỗi basic block; viết bằng Python thì chuyển ngữ cảnh C→Python mỗi block chiếm gần nửa thời gian. `rust/rea_hook` là thư viện Rust
+không phụ thuộc crate ngoài, đăng ký callback thẳng vào unicorn (Python vẫn điều phối). Build một lần: `cd rust/rea_hook && cargo build --release`.
+`REA_CORE=auto` (mặc định) dùng Rust nếu có thư viện, không thì lùi về Python và cho cùng kết quả; `REA_CORE=rust` bắt buộc có Rust; `REA_CORE=py` ép Python;
+`REA_CORE_LIB` chỉ đường dẫn thư viện. `flow.py doctor` cho biết đã có thư viện chưa.
+
 ## OPSEC (bắt buộc)
 
 - **Cấm chạy mẫu bằng `wine`/`wine64`** (máy có cài wine chỉ để lấy tên export). `update-binfmts --display wine` phải báo

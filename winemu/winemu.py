@@ -601,15 +601,9 @@ JCC = {'jo': lambda f: f & 0x800, 'jno': lambda f: not f & 0x800, 'jb': lambda f
        'jl': lambda f: bool(f & 0x80) != bool(f & 0x800), 'jge': lambda f: bool(f & 0x80) == bool(f & 0x800),
        'jle': lambda f: f & 0x40 or bool(f & 0x80) != bool(f & 0x800), 'jg': lambda f: not f & 0x40 and bool(f & 0x80) == bool(f & 0x800),
        'jmp': lambda f: True}
-NBLK = [0]
-# on_block chạy mỗi basic block: reg_read của binding Python tốn ~1/3 thời gian (profile chế độ đủ); fastreg tự kiểm rồi mới dùng nhánh nhanh.
-import fastreg
-_eflags = fastreg.make_reader(mu, UC_X86_REG_EFLAGS)
-def on_block(uc, addr, size, _):
-    NBLK[0] += 1
-    if _eflags(uc) & 0x100 and not CTX.get('tf_pend'):
-        CTX['tf_pend'] = addr; uc.emu_stop()
-mu.hook_add(UC_HOOK_BLOCK, on_block, begin=BASE, end=BASE + SIZE)
+# Hook block kiểm TF thủ công: rcore.attach chọn lõi Rust (nhanh, không quay lại Python mỗi block) hoặc Python (REA_CORE=auto|rust|py).
+import rcore
+CORE = rcore.attach(mu, BASE, BASE + SIZE, UC_X86_REG_EFLAGS, log=log)
 
 def save_snapshot(path, eip):
     pages = []
@@ -694,7 +688,7 @@ def finish(reason):
 t0 = time.time()
 reason = 'max-steps'
 for i in range(A.max_steps):
-    NBLK[0] = 0
+    CORE.reset_count()
     try:
         mu.emu_start(pc, 0xdeadbeef, count=5_000_000)
     except UcError as e:
@@ -709,8 +703,7 @@ for i in range(A.max_steps):
         log(f'ERR {e} @ {pc:#x} {ins.mnemonic + " " + ins.op_str if ins else ""}'); dump_ring()
         reason = f'error {e} @ {pc:#x} (+{pc - BASE:#x})'; break
     npc = mu.reg_read(UC_X86_REG_EIP)
-    if CTX.get('tf_pend'):
-        CTX.pop('tf_pend')
+    if CORE.take_pending() is not None:
         mu.reg_write(UC_X86_REG_EFLAGS, mu.reg_read(UC_X86_REG_EFLAGS) & ~0x100)
         CTX['exc_in_step'] = False
         try:
@@ -730,7 +723,7 @@ for i in range(A.max_steps):
             CTX['exc_in_step'] = False; pc = mu.reg_read(UC_X86_REG_EIP); continue
         mu.reg_write(UC_X86_REG_EIP, n2)
         raise_exc(mu, 0x80000004, n2, n2); pc = mu.reg_read(UC_X86_REG_EIP); continue
-    if npc == pc and not CTX['stop'] and NBLK[0] <= 1:
+    if npc == pc and not CTX['stop'] and CORE.nblk <= 1:
         # unicorn dừng im lặng tại chỗ (không chạy khối nào): lệnh nhảy khi TF bật, hoặc lệnh không hợp lệ
         ins = next(md.disasm(bytes(mu.mem_read(pc, 8)) + bytes(8), pc), None)
         fl = mu.reg_read(UC_X86_REG_EFLAGS)

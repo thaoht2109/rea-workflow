@@ -125,6 +125,17 @@ def doctor():
     for m, req in (('pefile', True), ('unicorn', True), ('capstone', True)):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',
             f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
+    wd = os.path.join(TOOLS, 'winemu'); lib = rl = None
+    sys.path.insert(0, wd)   # rcore import fastreg cùng thư mục; gỡ ngay sau đó để module trong winemu/ không che module khác
+    try:
+        import rcore   # cùng hàm nạp với winemu: doctor và winemu không thể lệch nhau
+        lib, rl = rcore.load_lib()
+    except ImportError as e: rl = f'không import được winemu/rcore.py: {e}'
+    except Exception as e: rl = f'lỗi khi dò thư viện: {type(e).__name__}: {e}'
+    finally:
+        if wd in sys.path: sys.path.remove(wd)
+    row(lib is not None, 'winemu lõi Rust', rl if lib is not None else f'{rl} → dùng hook Python (chậm hơn ~2,7 lần)',
+        'tùy chọn: cd rust/rea_hook && cargo build --release; REA_CORE_LIB chỉ đường dẫn', False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

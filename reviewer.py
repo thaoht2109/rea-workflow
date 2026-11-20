@@ -165,7 +165,11 @@ def run_ops(c, reqs):
 
 def copy_nolinks(src, dst):
     """Chép cây thư mục sang workspace của phiên LLM, bỏ symlink: link trỏ ra file của máy phân tích không được kéo vào, link treo không làm copytree lỗi."""
-    shutil.copytree(src, dst, ignore=lambda d, names: [n for n in names if os.path.islink(os.path.join(d, n))])
+    skipped = []
+    def ign(d, names):
+        bad = [n for n in names if os.path.islink(os.path.join(d, n))]; skipped.extend(os.path.relpath(os.path.join(d, n), src) for n in bad); return bad
+    shutil.copytree(src, dst, ignore=ign)
+    if skipped: print(f'CẢNH BÁO: bỏ {len(skipped)} symlink khi chép {os.path.basename(src)} sang workspace phản biện: {", ".join(sorted(skipped)[:5])}', file=sys.stderr)
 
 # ---------- hồ sơ ----------
 def files(c):

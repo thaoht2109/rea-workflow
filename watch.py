@@ -33,6 +33,7 @@ PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không c�
           'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation: chấp nhận, cô lập thật nhờ chạy watcher trong VM không mạng). '
           'KHÔNG đưa đường dẫn mẫu vào `python3 -c` hay heredoc `python3 - <<EOF` (kể cả chỉ để đọc byte: dùng công cụ trong work/tools, xxd, strings), không `python3 -m … <mẫu>`, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`, `< <mẫu>`, `<mẫu> | sh`. '
           'Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
+          'NGÂN SÁCH PHIÊN: tối đa {T} lượt và {M} phút; hết là bị cắt ngang và mất phần chưa ghi. Khi đã dùng khoảng 3/4 (khoảng {T3} lượt hoặc {M3} phút) thì dừng mở rộng, ghi nốt fact/hypothesis, cập nhật NOTES.md rồi chạy checkpoint; việc dở để phiên sau. '
           'Ghi hết kết luận thành fact (ý còn nghi thì status=hypothesis). Trước khi kết thúc, cập nhật work/NOTES.md (ghi chú vận hành cho phiên sau: '
           'lệnh và tham số nạp lại snapshot/giả lập, công cụ đã viết, việc kế tiếp; không chép chuỗi lấy từ mẫu vào đó), '
           'chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
@@ -125,7 +126,7 @@ def session(c, st, model):
     if r.returncode: return stop(c, st, f'không mở được phiên: {(r.stdout + r.stderr).strip()[-300:]}')
     argv = shlex.split(r.stdout.strip().splitlines()[-1])
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
-    argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
+    argv += ['-p', PROMPT.format(c=c, F=FLOW, T=MAXT, T3=MAXT * 3 // 4, M=TIMEOUT // 60, M3=TIMEOUT // 80), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
              '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', str(MAXT)] + (['--model', model] if model else [])
     v = st.get('max_sessions')   # trần riêng của case (sửa tay watch.json): sai kiểu thì chỉ dừng case này, không làm sập watcher
     if v and (isinstance(v, bool) or not re.fullmatch(r'\s*[1-9]\d*\s*', str(v))): return stop(c, st, f'"max_sessions" trong watch.json phải là số nguyên dương, đang là {v!r}')
@@ -151,6 +152,7 @@ def session(c, st, model):
             os.replace(tp, os.path.join(d, f's{n:02d}-limit-{int(time.time())}.jsonl'))   # phiên sau dùng lại số n: giữ transcript lần bị từ chối
             return say(c, f"phiên {n} bị claude từ chối vì hạn mức ({init['_error'] or 'rate limit'}): không tính phiên, "
                           f"tạm nghỉ tới {datetime.datetime.fromtimestamp(st['wait_until']):%F %T}")
+    if init['_error'] and not bad and (not lim or hard or soft): cut_notes(c, n, init['_error'])   # phiên bị cắt (hết giờ/lượt/CLI lỗi): chốt phần dở cho phiên sau
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
     st['soft'] = 0 if hard else st.get('soft', 0) + 1   # mọi phiên chưa ra fact, kể cả phiên không đổi gì: xen kẽ hai loại vẫn chạm trần
     say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else ('chỉ work/ đổi' if soft else 'không đổi') + f", {st['soft']}/{SOFT} phiên chưa ra fact")
@@ -159,6 +161,20 @@ def session(c, st, model):
            else f"{st['soft']} phiên liên tiếp chưa ra fact mới (chỉ đổi work/: hook, công cụ, snapshot; hoặc không đổi gì)" if st['soft'] >= SOFT
            else f'đủ {maxs} phiên' if n >= maxs else '')
     stop(c, st, why) if why else save(c, st)
+
+def cut_notes(c, n, why):
+    """Phiên n kết thúc bất thường nên agent chưa kịp checkpoint/ghi NOTES: chạy checkpoint thay và ghi vào work/NOTES.md những gì phiên sau phải xử lý
+    trước (kết quả chạy mới hơn fact cuối, evidence chưa có fact, fact lỗi/lệch)."""
+    r = flow('checkpoint', c); L = [x.strip() for x in (r.stdout + r.stderr).splitlines() if re.match(r'\s*(CHƯA GHI\?|lưu ý:|FAIL|LỆCH)', x) and 'runs/watch' not in x]
+    np = os.path.join(c, 'work', 'NOTES.md')
+    try:
+        old = open(np, encoding='utf-8', errors='replace').read() if os.path.exists(np) else ''
+        with open(np + '.tmp', 'w', encoding='utf-8') as f:   # ghi lên ĐẦU file: resume chỉ in phần đầu NOTES.md
+            f.write(f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nXử lý trước khi làm tiếp (kết quả đã có trên đĩa nhưng chưa thành fact):\n' + ''.join(f'- {x[:300]}\n' for x in L[:12]) if L else
+                    f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nKhông thấy kết quả nào chưa ghi.\n')
+            f.write('\n' + old)
+        os.replace(np + '.tmp', np)
+    except (OSError, ValueError) as e: say(c, f'không ghi được NOTES.md: {e}')
 
 def limit_until(out):
     """Thời điểm (epoch) hết giới hạn dùng nếu phiên kết thúc lỗi vì hạn mức của claude (result cuối is_error, kèm lỗi API 429 hoặc
@@ -216,7 +232,7 @@ def step(c, model, report=None):
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
+from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, CMD   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -277,6 +293,10 @@ def note_of(p):
            and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
     for q in sib:
         if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
+    L = t.splitlines()
+    for ln in L:
+        m = CMD.match(ln)
+        if m and any(os.path.basename(m[1]) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(m[1])}'
     if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
     for q in sib:
         try:

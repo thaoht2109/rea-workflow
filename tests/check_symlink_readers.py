@@ -49,4 +49,9 @@ import io, contextlib
 err = io.StringIO()
 with contextlib.redirect_stderr(err): reviewer.copy_nolinks(os.path.join(c, 'work', 'sample'), os.path.join(tempfile.mkdtemp(prefix='rea-ws2-'), 's'))
 assert 'CẢNH BÁO' in err.getvalue() and 'symlink' in err.getvalue(), err.getvalue()
+# recompute trỏ tới evidence là link / nằm trong thư mục link: báo lỗi; trỏ file thật thì đếm bình thường
+fr = dict(f, evidence='report/evidence/real.txt', value='có 1 dòng abc')
+for ev in ('report/evidence/lnk.txt', 'report/evidence/sub/a.txt'):
+    r = C.recompute(c, dict(fr, recompute=f'count abc {ev} = 1')); assert r and 'symlink' in r[0][0], (ev, r)
+assert C.recompute(c, dict(fr, recompute='count abc report/evidence/real.txt = 1')) == []
 print('OK check_symlink_readers')

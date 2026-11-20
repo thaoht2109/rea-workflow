@@ -175,6 +175,7 @@ def recompute(case, f):
         op, rx, ev, n = m.groups()
         rel, full = ev_path(case, ev)
         if not rel.startswith(EV) or not os.path.isfile(full): out.append((f'recompute trỏ tới file không có trong {EV}: {rel}', 'chép output vào evidence')); continue
+        if ev_has_link(case, rel): out.append((f'recompute trỏ tới evidence là/nằm trong symlink: {rel}', 'chép nội dung thật vào report/evidence/ (phiên phản biện không thấy link)')); continue
         try: R = re.compile(rx)
         except re.error as e: out.append((f'regex lỗi trong recompute: {e}', 'sửa regex')); continue
         L = open(full, encoding='utf-8', errors='replace').read().splitlines()

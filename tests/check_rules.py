@@ -4,7 +4,7 @@
 import os, sys, shutil, subprocess, tempfile
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = tempfile.mkdtemp(dir='/var/tmp'); env = dict(os.environ, HOME=H)
-ign = shutil.ignore_patterns('.git', 'pylib', '__pycache__')
+ign = shutil.ignore_patterns('.git', 'pylib', '__pycache__', '.claude', '.mcp.json')
 run = lambda sk, *a, cwd=H: subprocess.run([sys.executable, os.path.join(sk, 'flow.py'), 'rules', *a], cwd=cwd, env=env, capture_output=True, text=True)
 R = lambda p: open(p, encoding='utf-8').read()
 # global: skill ở ~/.agents/skills/rea-workflow; chỉ agent có thư mục cấu hình mới được ghi

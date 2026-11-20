@@ -17,7 +17,8 @@ try:
                    ('loader không chứa mã độc nhúng sẵn, tải payload từ C2', 'malicious'), ('bộ cài hợp lệ, có chữ lành tính ở giữa', 'suspicious'),
                    ('không phải backdoor, chỉ là công cụ quản trị từ xa', 'suspicious'), ('not a trojan: signed updater', 'suspicious'),   # phủ định trong cùng vế: không suy MÃ ĐỘC
                    ('công cụ quản trị, không phải RAT; có module keylogger', 'malicious'), ('chưa thấy C2, không rõ họ', 'suspicious'),
-                   ('mẫu không đóng gói là trojan', 'malicious'), ('no packer, dropper tải C2', 'malicious'))):   # từ khóa mã độc xét trước; lành tính chỉ khi đứng đầu
+                   ('mẫu không đóng gói là trojan', 'malicious'), ('no packer, dropper tải C2', 'malicious'),
+                   ('không thấy kết nối C2', 'suspicious'), ('không phát hiện hoạt động keylogger', 'suspicious'), ('không có packer nhưng là trojan', 'malicious'))):   # từ khóa mã độc xét trước; lành tính chỉ khi đứng đầu
         c = mk_case(T, f'F{i}', [('s.fam', 'family', val)])
         v = C.verdict(c); assert v['key'] == k and v['inferred'] and v['id'] == 's.fam', (val, v)
     # có fact verdict: dùng nó, không suy từ family; fact bị supersedes và hypothesis không tính

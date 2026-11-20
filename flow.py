@@ -12,6 +12,7 @@
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md + report-<ngày>.html (--final: chỉ khi phản biện đạt) | đối chiếu evidence báo cáo với đĩa
+#   flow.py export CASE OUT            gói case vào OUT/<tên mẫu>_data/ (báo cáo + thông tin mẫu, facts, evidence, work; mẫu và payload trong 7z mật khẩu infected)
 #                                      báo cáo viết tay: report/report-<ngày phân tích>.md; case cũ còn report/README.md thì report tự đổi tên
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
@@ -438,6 +439,7 @@ if __name__ == '__main__':
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))
+    elif cmd == 'export': import export; sys.exit(export.main(c, a[2:]))
     elif cmd == 'report':
         m = case.migrate_report(c)
         if m: print(f'đổi tên report/README.md -> {os.path.relpath(m, c)} (tên báo cáo theo ngày phân tích)')

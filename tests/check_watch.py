@@ -165,7 +165,7 @@ try:
     assert 'NGÂN SÁCH PHIÊN: tối đa 80 lượt và 30 phút' in calls()[-1][calls()[-1].index('-p') + 1]
     drop('cu.sh', 'echo cu\n'); out = W('--model', 'mx', FAKE_CUT='1', FAKE_SOFT='1'); cu = [x for x in cases() if x.startswith('cu_')][0]
     nt2 = open(os.path.join(ws, cu, 'work', 'NOTES.md'), encoding='utf-8').read()
-    assert 'Reached maximum number of turns' in out and 'Phiên 1 bị cắt' in nt2 and 'orphan.txt' in nt2, (out, nt2)
+    assert 'Reached maximum number of turns' in out and 'Phiên 1 bị cắt' in nt2 and 'orphan.txt' in nt2 and 's01.jsonl' not in nt2 and nt2.lstrip().startswith('## Phiên 1'), (out, nt2)
     j = st(cu); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, cu, 'work', 'watch.json'), 'w'))
     # watch.json hỏng (sửa tay gõ sai): bỏ qua case, không ghi đè, không mở phiên, không nhận lại mẫu thành case mới
     drop('cj.sh', 'echo cj\n'); W('--model', 'mx', FAKE_TOUCH='1')

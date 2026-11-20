@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # winemu/fastreg.py: nhánh đọc nhanh phải khớp reg_read, không khớp hoặc lỗi thì lùi về reg_read. Dữ liệu tổng hợp, không chạy mẫu.
-# Phần giả không cần unicorn; nếu unicorn có sẵn thì thêm một lượt thật (EFLAGS có/không bit TF).   python3 tests/check_winemu_fastreg.py
+# Phần giả không cần unicorn; nếu unicorn có sẵn thì thêm một lượt thật (EFLAGS có/không bit TF); trong CI (biến CI) thiếu unicorn là lỗi.   python3 tests/check_winemu_fastreg.py
 import os, sys, types
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'winemu'))
 import fastreg
@@ -44,6 +44,7 @@ try:
     from unicorn import Uc, UC_ARCH_X86, UC_MODE_32
     from unicorn.x86_const import UC_X86_REG_EFLAGS as EF
 except ImportError:
+    assert not os.environ.get('CI'), 'CI phải có unicorn (requirements-dev.txt): không được bỏ lượt thật'
     print('OK check_winemu_fastreg (không có unicorn: bỏ lượt thật)'); sys.exit(0)
 real = Uc(UC_ARCH_X86, UC_MODE_32); real.reg_write(EF, 0x202)
 f = fastreg.make_reader(real, EF)

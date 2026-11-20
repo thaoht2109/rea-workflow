@@ -48,6 +48,9 @@ def new(c, srcs):
     sd = os.path.join(c, 'work', 'sample')
     for d in (sd, os.path.join(c, 'work', 'runs'), os.path.join(c, 'report', 'evidence')): os.makedirs(d, exist_ok=True)
     for s in srcs:
+        if os.path.isdir(s):   # mẫu dạng thư mục (app Electron…): chép nguyên cây vào work/sample/<tên thư mục>, không giải nén gì bên trong
+            shutil.copytree(s, os.path.join(sd, os.path.basename(os.path.abspath(s))), dirs_exist_ok=True, ignore_dangling_symlinks=True); continue
+        if not os.path.isfile(s): raise SystemExit(f'không thấy mẫu {s}')
         head = open(s, 'rb').read(8)
         kind = zip_kind(s) if head.startswith(b'PK\x03\x04') else None
         if kind: print(f'giữ nguyên {s}: {kind} (không giải nén)'); shutil.copy2(s, sd)

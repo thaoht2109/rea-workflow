@@ -3,7 +3,7 @@
 # mỗi phiên làm một mốc theo `flow.py next` rồi thoát. Không bao giờ thực thi mẫu.
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
-import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subprocess
+import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, threading, subprocess
 from concurrent.futures import ThreadPoolExecutor, wait
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +21,8 @@ PUBFAIL = 10           # số vòng liên tiếp chép báo cáo lỗi thì dừ
 REPORTED_TTL = 600     # giây giữa hai lần quét cả cây thư mục báo cáo (reported)
 LIMIT_WAIT = num('REA_WATCH_LIMIT_WAIT', '900')   # giây tạm nghỉ khi claude báo hết hạn mức (429) mà không kèm giờ hết hạn
 PARALLEL = max(1, num('REA_WATCH_PARALLEL', '1'))   # số case xử lý cùng lúc trong một watcher (mỗi case một phiên claude -p riêng; tốn hạn mức tỉ lệ thuận)
-_LIMIT = [0.0]         # hạn mức của tài khoản dùng chung mọi case: chạm ở một case thì case khác trong watcher này cũng nghỉ
+_QUIT = threading.Event()   # Ctrl-C ở luồng chính: worker đang chạy không ghi khóa stop giả (flow.py con chết vì SIGINT) và không mở phiên claude mới
+_LIMIT = [0.0]        # hạn mức của tài khoản dùng chung mọi case: chạm ở một case thì case khác trong watcher này cũng nghỉ
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
@@ -120,6 +121,7 @@ def pick_model(a):
 
 def session(c, st, model):
     r = flow('session', '--print')
+    if _QUIT.is_set(): return
     if r.returncode: return stop(c, st, f'không mở được phiên: {(r.stdout + r.stderr).strip()[-300:]}')
     argv = shlex.split(r.stdout.strip().splitlines()[-1])
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
@@ -183,12 +185,15 @@ def step(c, model, report=None):
     with f:
         st = load(c)
         if st is None or st.get('stop'): return
-        r = flow('next', c); k = (re.search(STATES, r.stdout, re.M) or [None, None])[1]
+        r = flow('next', c)
+        if _QUIT.is_set(): return
+        k =(re.search(STATES, r.stdout, re.M) or [None, None])[1]
         if k != 'DONE' and st.pop('final', None): save(c, st)   # case mở lại (facts/báo cáo đổi): report --final phải chạy lại
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
         elif k == 'DONE':
             if not st.get('final'):
                 r = flow('report', c, '--final')
+                if _QUIT.is_set(): return
                 if r.returncode: return stop(c, st, f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
                 st['final'] = True; save(c, st)
             try: out = publish(c, st, report)
@@ -207,6 +212,7 @@ def step(c, model, report=None):
             w = st.get('wait_until'); w = max(_LIMIT[0], w if isinstance(w, (int, float)) and not isinstance(w, bool) else 0)
             if w > time.time(): return   # đang chờ hết hạn mức (đã báo lúc chạm)
             if st.pop('wait_until', None) is not None: save(c, st)
+            if _QUIT.is_set(): return
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
@@ -359,7 +365,7 @@ def run_round(cases, model, report):
         return
     ex = ThreadPoolExecutor(max_workers=PARALLEL); fs = [ex.submit(step, c, model, report) for c in cases]
     try: wait(fs)
-    except BaseException: ex.shutdown(wait=False, cancel_futures=True); raise   # Ctrl-C: case còn trong hàng đợi không bắt đầu phiên mới (khác `with`, vốn chạy hết hàng đợi)
+    except BaseException: _QUIT.set(); ex.shutdown(wait=False, cancel_futures=True); raise   # Ctrl-C: case còn trong hàng đợi không bắt đầu phiên mới (khác `with`, vốn chạy hết hàng đợi)
     ex.shutdown()
     for f in fs: f.result()
 

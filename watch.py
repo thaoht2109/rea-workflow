@@ -18,6 +18,8 @@ SOFT = num('REA_WATCH_SOFT', '5')          # số phiên liên tiếp chưa ra f
 MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòng quét: thư mục giải nén nhiều file không đẻ hàng trăm case một lúc
 PUBFAIL = 10           # số vòng liên tiếp chép báo cáo lỗi thì dừng case, báo người (thay vì thử lại mãi)
 REPORTED_TTL = 600     # giây giữa hai lần quét cả cây thư mục báo cáo (reported)
+LIMIT_WAIT = num('REA_WATCH_LIMIT_WAIT', '900')   # giây tạm nghỉ khi claude báo hết hạn mức (429) mà không kèm giờ hết hạn
+_LIMIT = [0.0]         # hạn mức của tài khoản dùng chung mọi case: chạm ở một case thì case khác trong watcher này cũng nghỉ
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
@@ -137,6 +139,13 @@ def session(c, st, model):
     bad = ([x for x in cmds if any(p.search(x) for p in P) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)
+    lim = 0 if bad else limit_until(out)   # hết hạn mức của claude: không phải lỗi của case
+    if lim:
+        _LIMIT[0] = max(_LIMIT[0], lim); st['wait_until'] = int(lim) + 30
+        if not (hard or soft):   # bị từ chối trước khi làm được gì: không tính vào trần phiên, stall, soft (trước đây 3 phiên 5 giây là dừng case)
+            st['sessions'] = n - 1; save(c, st)
+            return say(c, f"phiên {n} bị claude từ chối vì hạn mức ({init['_error'] or 'rate limit'}): không tính phiên, "
+                          f"tạm nghỉ tới {datetime.datetime.fromtimestamp(st['wait_until']):%F %T}")
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
     st['soft'] = 0 if hard else st.get('soft', 0) + 1   # mọi phiên chưa ra fact, kể cả phiên không đổi gì: xen kẽ hai loại vẫn chạm trần
     say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else ('chỉ work/ đổi' if soft else 'không đổi') + f", {st['soft']}/{SOFT} phiên chưa ra fact")
@@ -145,6 +154,23 @@ def session(c, st, model):
            else f"{st['soft']} phiên liên tiếp chưa ra fact mới (chỉ đổi work/: hook, công cụ, snapshot; hoặc không đổi gì)" if st['soft'] >= SOFT
            else f'đủ {maxs} phiên' if n >= maxs else '')
     stop(c, st, why) if why else save(c, st)
+
+def limit_until(out):
+    """Thời điểm (epoch) hết giới hạn dùng nếu phiên bị claude từ chối vì hạn mức (rate_limit_event status=rejected, hoặc result lỗi API 429);
+    không bị từ chối thì 0. Ưu tiên resetsAt của sự kiện; không có (hoặc vô lý) thì nghỉ LIMIT_WAIT giây."""
+    now, reset, fall = time.time(), 0.0, 0.0
+    for ln in out.splitlines():
+        if 'rate_limit' not in ln and '429' not in ln: continue
+        try: e = json.loads(ln)
+        except ValueError: continue
+        if not isinstance(e, dict): continue
+        i = e.get('rate_limit_info') if e.get('type') == 'rate_limit_event' else None
+        if isinstance(i, dict) and i.get('status') == 'rejected':
+            r = i.get('resetsAt')
+            if isinstance(r, (int, float)) and not isinstance(r, bool) and now < r < now + 7 * 86400: reset = max(reset, float(r))
+            else: fall = now + LIMIT_WAIT
+        elif e.get('type') == 'result' and e.get('is_error') and e.get('api_error_status') == 429: fall = now + LIMIT_WAIT
+    return reset or fall
 
 def step(c, model, report=None):
     f = lock(c)
@@ -172,7 +198,11 @@ def step(c, model, report=None):
             r = flow('review', c, '--llm', '--detach')
             if r.returncode in (4, 7): stop(c, st, f'review lớp 2 cần người (mã {r.returncode}): {r.stdout.strip()[-300:]}')
             elif r.returncode != 6: say(c, f'review xong (mã {r.returncode})')
-        elif k: session(c, st, model)
+        elif k:
+            w = st.get('wait_until'); w = max(_LIMIT[0], w if isinstance(w, (int, float)) and not isinstance(w, bool) else 0)
+            if w > time.time(): return   # đang chờ hết hạn mức (đã báo lúc chạm)
+            if st.pop('wait_until', None) is not None: save(c, st)
+            session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
 from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)

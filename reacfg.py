@@ -130,12 +130,15 @@ def doctor():
     try:
         import rcore   # cùng hàm nạp với winemu: doctor và winemu không thể lệch nhau
         lib, rl = rcore.load_lib()
+        if lib is not None:
+            uok, uwhy = rcore.uclib_ok()
+            if not uok: lib, rl = None, f'unicorn không dùng được với lõi Rust ({uwhy})'
     except ImportError as e: rl = f'không import được winemu/rcore.py: {e}'
     except Exception as e: rl = f'lỗi khi dò thư viện: {type(e).__name__}: {e}'
     finally:
         if wd in sys.path: sys.path.remove(wd)
     row(lib is not None, 'winemu lõi Rust', rl if lib is not None else f'{rl} → dùng hook Python (chậm hơn ~2,7 lần)',
-        'tùy chọn: cd rust/rea_hook && cargo build --release; REA_CORE_LIB chỉ đường dẫn', False)
+        'tùy chọn: cd rust/rea_hook && cargo build --release, rồi chép librea_hook.so vào ${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn', False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

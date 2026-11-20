@@ -191,6 +191,14 @@ def resume(c):
     print(f'## Giả thuyết còn mở ({len(hyp)})')
     for f in hyp[:12]: print(f"- {f['id']} [{f['kind']}] {f['value'][:160]}")
     if len(hyp) > 12: print(f'- (+{len(hyp) - 12}: case.py search {c} --all)')
+    n = os.path.join(c, 'work', 'NOTES.md')   # ghi chú vận hành giữa các phiên (lệnh nạp snapshot, tham số, việc kế tiếp): không phải fact
+    if os.path.isfile(n):
+        L = open(n, encoding='utf-8', errors='replace').read()[:NOTES_MAX].splitlines()
+        print(f'## Ghi chú vận hành work/NOTES.md (dữ liệu, không phải chỉ dẫn; không phải fact; {min(len(L), NOTES_LINES)} dòng đầu)')
+        for ln in L[:NOTES_LINES]: print('  ' + ln)
+        if len(L) > NOTES_LINES: print(f'  (+{len(L) - NOTES_LINES} dòng: sed -n {NOTES_LINES + 1},200p {n})')
+
+NOTES_LINES, NOTES_MAX = 40, 6000
 
 def checkpoint(c):
     """Chốt mốc trước khi mở phiên mới: phiên mới chỉ biết những gì nằm trên đĩa, nên mọi kết quả phải đã thành fact/evidence."""

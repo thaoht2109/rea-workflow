@@ -15,6 +15,7 @@ if '--help' in a: print(HELP_TEXT); sys.exit()
 open(os.environ['FAKE_LOG'], 'a').write(json.dumps(a) + '\n')
 c = re.search(r'case `([^`]+)`', a[a.index('-p') + 1])[1]
 if os.environ.get('FAKE_TOUCH'): open(glob.glob(c + '/report/report-*.md')[0], 'a').write('x\n')
+if os.environ.get('FAKE_SOFT'): os.makedirs(c + '/work/scripts', exist_ok=True); open(c + '/work/scripts/h%d.py' % len(glob.glob(c + '/work/scripts/*')), 'w').write('#\n')
 s = glob.glob(c + '/work/sample/*')[0]
 x = os.environ.get('FAKE_EXEC', '')
 cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'fromw': "python3 -c \"from watch import main; main(['inbox'])\"", 'grepsub': 'grep -n subprocess flow.py watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\""}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
@@ -90,6 +91,16 @@ try:
     drop('m.sh', 'echo m\n'); W(REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')
     m = [x for x in cases() if x.startswith('m_')][0]
     assert st(m)['stop'] == 'đủ 1 phiên' and '--model' not in calls()[-1], (st(m), calls()[-1])
+    # tiến độ mềm: phiên chỉ viết hook trong work/ không tính là "không đổi" (stall về 0) nhưng có trần riêng REA_WATCH_SOFT
+    drop('sf.sh', 'echo sf\n'); W('--model', 'mx', FAKE_SOFT='1', REA_WATCH_SOFT='2')
+    sf = [x for x in cases() if x.startswith('sf_')][0]; assert st(sf)['soft'] == 1 and st(sf)['stall'] == 0 and not st(sf).get('stop'), st(sf)
+    W('--model', 'mx', FAKE_SOFT='1', REA_WATCH_SOFT='2'); assert 'chỉ đổi work/' in st(sf).get('stop', ''), st(sf)
+    # trần phiên riêng của case (max_sessions trong watch.json) thay cho REA_WATCH_MAX_SESSIONS
+    drop('mx2.sh', 'echo mx2\n'); W('--model', 'mx', REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1')
+    m2 = [x for x in cases() if x.startswith('mx2_')][0]; j = st(m2); assert j['stop'] == 'đủ 1 phiên', j
+    j.pop('stop'); j['max_sessions'] = 3; json.dump(j, open(os.path.join(ws, m2, 'work', 'watch.json'), 'w'))
+    W('--model', 'mx', REA_WATCH_MAX_SESSIONS='1', FAKE_TOUCH='1'); assert st(m2)['sessions'] == 2 and not st(m2).get('stop'), st(m2)
+    j = st(m2); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, m2, 'work', 'watch.json'), 'w'))   # không chạy tiếp ở các bước sau
     # case STOPPED (phản biện FAIL 2 lần): báo người, không mở phiên, không tự OVERRIDE
     n = len(calls()); fx_stopped_case(ws); json.dump({'sha256': 'x'}, open(os.path.join(ws, 'CASE_E3', 'work', 'watch.json'), 'w'))
     W('--model', 'mx'); assert st('CASE_E3')['stop'].startswith('STOPPED') and len(calls()) == n, st('CASE_E3')

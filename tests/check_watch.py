@@ -27,6 +27,8 @@ print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
 if os.environ.get('FAKE_LIMIT'):   # hết hạn mức: sự kiện rejected kèm resetsAt (rỗng: không có giờ) + result 429
     print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected', **({'resetsAt': int(os.environ['FAKE_LIMIT'])} if os.environ['FAKE_LIMIT'] != '-' else {})}}))
     print(json.dumps({'type': 'result', 'is_error': True, 'api_error_status': 429, 'result': "You've hit your limit"}))
+elif os.environ.get('FAKE_CUT'):   # phiên hết lượt: result lỗi không có trường result, lý do ở errors
+    open(c + '/report/evidence/orphan.txt', 'w').write('x\n'); print(json.dumps({'type': 'result', 'is_error': True, 'subtype': 'error_max_turns', 'errors': ['Reached maximum number of turns (80)']}))
 else: print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
 '''.replace('HELP_TEXT', repr(HELP))
 assert watch.models(HELP) == ['fable', 'opus', 'sonnet']
@@ -158,6 +160,12 @@ try:
         watch._LIMIT[0] = 0.0; watch.step(l2, 'mx'); assert len(calls()) == n + 1
     finally: os.environ.clear(); os.environ.update(env0); os.chdir(cwd0); watch._LIMIT[0] = 0.0
     j = st(l2); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, l2, 'work', 'watch.json'), 'w'))   # không chạy tiếp ở các bước sau
+    # phiên bị cắt (hết lượt): lý do đúng trong nhật ký, watcher tự checkpoint và ghi NOTES.md; prompt có ngân sách phiên
+    assert 'NGÂN SÁCH PHIÊN: tối đa 80 lượt và 30 phút' in calls()[-1][calls()[-1].index('-p') + 1]
+    drop('cu.sh', 'echo cu\n'); out = W('--model', 'mx', FAKE_CUT='1', FAKE_SOFT='1'); cu = [x for x in cases() if x.startswith('cu_')][0]
+    nt2 = open(os.path.join(ws, cu, 'work', 'NOTES.md'), encoding='utf-8').read()
+    assert 'Reached maximum number of turns' in out and 'Phiên 1 bị cắt' in nt2 and 'orphan.txt' in nt2, (out, nt2)
+    j = st(cu); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, cu, 'work', 'watch.json'), 'w'))
     # watch.json hỏng (sửa tay gõ sai): bỏ qua case, không ghi đè, không mở phiên, không nhận lại mẫu thành case mới
     drop('cj.sh', 'echo cj\n'); W('--model', 'mx', FAKE_TOUCH='1')
     cj = [x for x in cases() if x.startswith('cj_')][0]; pj = os.path.join(ws, cj, 'work', 'watch.json'); bad = '{"sessions": 1, "stop": "x",}'

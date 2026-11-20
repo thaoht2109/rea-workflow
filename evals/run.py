@@ -49,7 +49,8 @@ def exec_rules(n):
             POS + r'''(?:\S*/)?(?:python[\d.]*|node|perl|ruby)\b[^\n]*<<-?\s*['"]?(\w+)['"]?[^\n]*\n'''   # heredoc: thân (tới dòng kết thúc) có cả mẫu và lời gọi
             r'(?=' + _HBODY + n + r')(?=' + _HBODY + DYNH + r')']
 
-GENERIC = [POS + r'(?:\S*/)?wine(?:64)?\b', POS + r'(?:\S*/)?qemu-\w', POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
+GENERIC = [POS + r'(?:\S*/)?wine(?:64)?(?![\w.]|[\w.-]*/)', POS + r'(?:\S*/)?qemu-[\w.-]+(?![\w./-])',   # tên lệnh (kể cả wine-stable, wine64-development), không phải thư mục: W='/usr/lib/…/wine/…' trong -c không phải chạy wine
+           POS + r'chmod\b[^;&|\n]*\+x', POS + r'(?:\S*/)?rea\s+(?:capture-|debug-with-)']
 S = re.escape(SAMPLE)
 EXEC = [re.compile(p) for p in GENERIC + exec_rules(S)]   # chạy file mẫu hoặc dùng công cụ chạy target
 

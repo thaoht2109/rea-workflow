@@ -16,6 +16,8 @@ MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), n
 MAXT = num('REA_WATCH_MAX_TURNS', '80')   # số lượt tối đa của một phiên claude -p (một mốc phân tích)
 SOFT = num('REA_WATCH_SOFT', '5')          # số phiên liên tiếp chưa ra fact mới (facts/báo cáo không đổi, kể cả khi có đổi work/; NOTES.md không tính) thì dừng
 MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòng quét: thư mục giải nén nhiều file không đẻ hàng trăm case một lúc
+PUBFAIL = 10           # số vòng liên tiếp chép báo cáo lỗi thì dừng case, báo người (thay vì thử lại mãi)
+REPORTED_TTL = 600     # giây giữa hai lần quét cả cây thư mục báo cáo (reported)
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
@@ -159,9 +161,11 @@ def step(c, model, report=None):
                 if r.returncode: return stop(c, st, f'report --final lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
                 st['final'] = True; save(c, st)
             try: out = publish(c, st, report)
-            except OSError as e:   # chép lỗi (đĩa đầy, quyền...): chưa đóng case, vòng sau chép lại
-                st['publish_error'] = str(e); save(c, st); return say(c, f'report --final xong nhưng chép báo cáo lỗi, vòng sau thử lại: {e}')
-            st.pop('publish_error', None)
+            except Exception as e:   # chép lỗi (đĩa đầy, quyền, facts hỏng...): chưa đóng case, vòng sau chép lại; quá PUBFAIL lần thì dừng báo người
+                n = st['publish_fail'] = st.get('publish_fail', 0) + 1; st['publish_error'] = f'{type(e).__name__}: {e}'
+                if n >= PUBFAIL: st.pop('publish_fail'); return stop(c, st, f"report --final xong nhưng chép báo cáo lỗi {n} lần liên tiếp: {st['publish_error'][:300]}")   # mở lại thì đếm lại từ 0
+                save(c, st); return say(c, f'report --final xong nhưng chép báo cáo lỗi ({n}/{PUBFAIL}), vòng sau thử lại: {e}')
+            st.pop('publish_error', None); st.pop('publish_fail', None)
             if out: st['published'] = out
             stop(c, st, 'DONE: đã report --final' + (f', báo cáo chép vào {out}' if out else ''))
         elif k == 'NEED_REVIEW':   # review nền tự chống chạy trùng; gọi lại mỗi vòng để lấy kết quả (mã 6 = đang chạy)
@@ -239,10 +243,15 @@ def note_of(p):
         except OSError: pass
     return ''
 
+_REPORTED = {}
 def reported(root):
     """sha256 các mẫu đã có báo cáo trong thư mục báo cáo (dòng đầu README.txt của <mẫu>_data/): mẫu đã xong không bị phân tích lại,
-    kể cả khi thư mục case đã xóa sau khi xuất."""
-    return {h for h in map(reported_sha, glob.glob(os.path.join(glob.escape(root), '**', '*_data'), recursive=True)) if h}
+    kể cả khi thư mục case đã xóa sau khi xuất. Quét cả cây tối đa mỗi REPORTED_TTL giây (cây báo cáo lớn); publish tự thêm sha mới."""
+    t, hs = _REPORTED.get(root, (0, None))
+    if hs is None or time.time() - t > REPORTED_TTL:
+        hs = {h for h in map(reported_sha, glob.glob(os.path.join(glob.escape(root), '**', '*_data'), recursive=True)) if h}
+        _REPORTED[root] = (time.time(), hs)
+    return set(hs)
 
 def reported_sha(d):
     """sha256 ghi ở dòng đầu <d>/README.txt (do publish ghi), hoặc ''."""
@@ -269,6 +278,7 @@ def publish(c, st, report=None):
     os.makedirs(out, exist_ok=True)
     import export   # dữ liệu case + 7z mẫu/payload + báo cáo có thông tin mẫu; README.txt dòng đầu có sha256 (reported() đọc)
     export.write(c, dict(st, source=src, inbox=inbox, sha256=h), d)
+    if report_root(inbox, name_) in _REPORTED: _REPORTED[report_root(inbox, name_)][1].add(h)
     return out
 
 def _noted_load():

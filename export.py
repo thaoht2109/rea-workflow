@@ -8,7 +8,7 @@
 #   - theo nội dung: mọi file không phải văn bản (ELF/PE, bản dump bộ nhớ không header, snapshot giả lập, blob giải mã...).
 # Không chép: .claude/, __pycache__/, .git/, work/ghidra/ (dự án Ghidra, lớn, dựng lại được), .watch.lock, symlink.
 # Nội dung ghi chú thu mẫu đến từ máy bị thu: luôn escape trong HTML, không thành liên kết.
-import os, re, sys, html, json, codecs, shutil, hashlib, subprocess
+import os, re, sys, html, glob, json, time, codecs, shutil, hashlib, tempfile, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG   # noqa: E402
 
@@ -24,6 +24,7 @@ HDR_KV = re.compile(r'([\w.-]+)=(.*?)(?=\s+[\w.-]+=|$)')
 CMD = re.compile(r'^\$\s+\S+(?:\s+-\S+)*\s+(\S+)\s*$')
 HEX64 = re.compile(r'\b([0-9a-f]{64})\b')
 HEAD = 'Dữ liệu phân tích của mẫu '   # dòng đầu README.txt; watch.reported() đọc "(sha256 <hex>)" ở dòng này
+PART_TTL = 6 * 3600   # thư mục tạm .part cũ hơn chừng này (lần xuất bị giết) thì dọn
 e = lambda s: html.escape(str(s), quote=True)
 
 def sha(p):
@@ -122,14 +123,28 @@ def ours(d):
     return first.startswith(HEAD) and '(sha256 ' in first
 
 def export(info, d):
-    """Chép dữ liệu case vào d (thư mục <tên mẫu>_data); mẫu và file có thể là mã độc vào 7z. Trả danh sách đường dẫn đã gói.
-    Dựng trong thư mục tạm ẩn .<tên>.part cạnh d rồi mới thay d: lỗi giữa chừng (7z hỏng, đĩa đầy) không để lại d dở dang."""
+    """Chép dữ liệu case vào d (thư mục <tên mẫu>_data) kèm báo cáo có thông tin mẫu (augment); mẫu và file có thể là mã độc vào 7z.
+    Trả danh sách đường dẫn đã gói. Dựng trọn trong thư mục tạm ẩn riêng của lần gọi (.<tên>.<ngẫu nhiên>.part cạnh d) rồi mới thay d:
+    lỗi giữa chừng (7z hỏng, đĩa đầy) không để lại d dở dang, hai lần xuất song song không dùng chung thư mục tạm."""
     c = info['case']
-    if os.path.exists(os.path.join(c, 'facts.jsonl')): C.report(c)   # GENERATED.md + HTML theo facts hiện tại (cùng việc flow.py report)
     if os.path.lexists(d) and not ours(d): raise OSError(f'{d} đã có nhưng không do export sinh (README.txt không đúng mẫu): không xóa, xem rồi dời đi')
-    final, d = d, os.path.join(os.path.dirname(d), '.' + os.path.basename(d) + '.part')
-    if os.path.lexists(d): shutil.rmtree(d)   # bản dở của lần trước (tên do hàm này đặt)
-    os.makedirs(d); pack = []
+    if os.path.exists(os.path.join(c, 'facts.jsonl')): C.report(c)   # GENERATED.md + HTML theo facts hiện tại (cùng việc flow.py report)
+    final, parent = d, os.path.dirname(d) or '.'
+    for old in glob.glob(os.path.join(glob.escape(parent), '.' + glob.escape(os.path.basename(final)) + '.*.part')):
+        try:
+            if time.time() - os.path.getmtime(old) > PART_TTL: shutil.rmtree(old)   # bản dở của lần bị giết giữa chừng (tên do hàm này đặt)
+        except OSError: pass
+    os.makedirs(parent, exist_ok=True); d = tempfile.mkdtemp(prefix='.' + os.path.basename(final) + '.', suffix='.part', dir=parent)
+    um = os.umask(0); os.umask(um); os.chmod(d, 0o777 & ~um)   # mkdtemp tạo 0700: đặt lại như makedirs để báo cáo còn chia sẻ được
+    try:
+        pack = _build(info, c, d)
+        if os.path.lexists(final): shutil.rmtree(final)
+        os.rename(d, final)
+    except BaseException: shutil.rmtree(d, ignore_errors=True); raise   # cả khi thay đích lỗi (lần xuất song song vừa ghi final, quyền)
+    return pack
+
+def _build(info, c, d):
+    pack = []
     for root, ds, fs in os.walk(c):
         r = os.path.relpath(root, c)
         ds[:] = sorted(x for x in ds if os.path.normpath(os.path.join(r, x)).replace(os.sep, '/') not in SKIP_DIRS and x not in ('.claude', '__pycache__', '.git')
@@ -142,7 +157,6 @@ def export(info, d):
     for p in [n['file'] for n in info['notes']] + [p for p, _ in info['sums']]:   # giữ đường dẫn tương đối trong INBOX: hai SHA256SUMS ở hai thư mục không đè nhau
         r = os.path.relpath(p, info['inbox']) if info['inbox'] else os.path.basename(p)
         q = os.path.join(d, 'ghi_chu_thu_mau', os.path.basename(p) if r.startswith('..') else r); os.makedirs(os.path.dirname(q), exist_ok=True); shutil.copyfile(p, q); os.chmod(q, 0o644)
-    rows = [(sha(os.path.join(dp, n)), os.path.relpath(os.path.join(dp, n), d)) for dp, _, ns in os.walk(d) for n in ns]
     if pack:
         z = os.path.join(d, ZIP)
         lst = d + '.list'   # danh sách qua file (@list, -spd tắt wildcard): case nhiều file không vượt giới hạn argv
@@ -151,7 +165,9 @@ def export(info, d):
         except OSError as x: raise OSError(f'không chạy được 7z ({CFG.SEVENZ}): {x}; đặt SEVENZ_BIN trong rea.env')
         finally: os.remove(lst)
         if r.returncode or not os.path.isfile(z): raise OSError(f'7z lỗi: {(r.stdout + r.stderr)[-300:]}')
-        rows += [(sha(os.path.join(c, x)), f'{ZIP}:{x}') for x in pack] + [(sha(z), ZIP)]
+    augment(info, d)   # báo cáo .md/.html của mẫu dựng trong thư mục tạm: d hoàn chỉnh mới thay bản cũ, và có trong MANIFEST
+    rows = [(sha(os.path.join(dp, n)), os.path.relpath(os.path.join(dp, n), d)) for dp, _, ns in os.walk(d) for n in ns]
+    rows += [(sha(os.path.join(c, x)), f'{ZIP}:{x}') for x in pack]
     with open(os.path.join(d, 'MANIFEST.sha256'), 'w', encoding='utf-8') as f: f.write(''.join(f'{h}  {n}\n' for h, n in sorted(rows, key=lambda x: x[1])))
     with open(os.path.join(d, 'README.txt'), 'w', encoding='utf-8') as f: f.write(
         f"{HEAD}{info['name']} (sha256 {info['sha256']}), chép từ case {os.path.basename(c)}.\n\n"
@@ -162,8 +178,6 @@ def export(info, d):
         + ("ghi_chu_thu_mau/       ghi chú thu mẫu đi kèm trong INBOX (bản chép)\n" if info['notes'] or info['sums'] else '')
         + "MANIFEST.sha256        sha256 mọi file; dòng 'mau_va_payload.7z:<đường dẫn>' là file nằm trong 7z\n"
         + (f"{ZIP}      mẫu sống, file giải nén, payload và file nhị phân; mật khẩu `{ZIP_PW}`. Chỉ giải nén trên máy phân tích cô lập, không thực thi.\n" if pack else ''))
-    if os.path.lexists(final): shutil.rmtree(final)
-    os.rename(d, final)
     return pack
 
 def _size(n): return '' if n is None else f'{n:,} byte'.replace(',', '.')
@@ -174,7 +188,7 @@ def _links(info, d):
     L = [(x, t) for x, t in (('report/evidence', 'mọi file bằng chứng (trích dẫn #L trong báo cáo)'), ('facts.jsonl', 'nguồn chân lý: mọi kết luận kèm src S/E/V và evidence'),
                               ('report/GENERATED.md', 'bảng sinh từ facts: hash, IOC, đính chính'), ('work', 'kết quả trung gian: runs/, tools/, review/'),
                               ('ghi_chu_thu_mau', 'ghi chú thu mẫu đi kèm (bản chép)'), ('MANIFEST.sha256', 'sha256 mọi file, kể cả file trong 7z'),
-                              (ZIP, f'mẫu và payload, mật khẩu {ZIP_PW}; chỉ giải nén trên máy phân tích cô lập')) if os.path.exists(os.path.join(d, x))]
+                              (ZIP, f'mẫu và payload, mật khẩu {ZIP_PW}; chỉ giải nén trên máy phân tích cô lập')) if x == 'MANIFEST.sha256' or os.path.exists(os.path.join(d, x))]   # MANIFEST ghi sau augment, luôn có
     ev = os.path.join(d, 'report', 'evidence')
     return L, (sorted(os.listdir(ev)) if os.path.isdir(ev) else [])
 
@@ -268,7 +282,7 @@ def augment(info, d):
 
 def write(c, st, d):
     """Gói case c vào d (<tên mẫu>_data): dữ liệu + 7z + báo cáo có thông tin mẫu. Trả info."""
-    info = collect(c, st); export(info, d); augment(info, d); return info
+    info = collect(c, st); export(info, d); return info
 
 def main(c, a):
     """flow.py export CASE OUT: ghi OUT/<tên mẫu>_data/."""
@@ -277,7 +291,7 @@ def main(c, a):
     except (OSError, ValueError): st = {}
     try:
         info = collect(c, st); d = os.path.join(os.path.abspath(a[0]), info['name'] + '_data')
-        export(info, d); augment(info, d)
+        export(info, d)
     except OSError as x: print(f'export lỗi: {x}'); return 1
     print(f'{d}: báo cáo {info["name"]}.html, MANIFEST.sha256' + (f', {ZIP} (mật khẩu {ZIP_PW})' if os.path.exists(os.path.join(d, ZIP)) else ''))
     return 0

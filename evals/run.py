@@ -61,11 +61,11 @@ _ARGOPT = {'-m', '-o', '-g', '-S', '--mode', '--owner', '--group', '--suffix'}
 _WRAP = {'sudo', 'env', 'nohup', 'exec', 'command', 'builtin', 'do', 'then', 'else', 'if', 'while', 'until', 'time', '!', '{'}   # tiền tố và từ khóa shell trước tên lệnh
 _PYCOPY = re.compile(r'''(?:shutil\.(?:copy\w*|move)|os\.(?:rename|replace|link|symlink))\s*\(\s*r?(['"])([^'"\n]+)\1\s*,\s*r?(['"])([^'"\n]+)\3''')
 _SPLIT = re.compile(r'\n|;|&&|\|\||(?<![>&|])&(?![>&\d])')
-_HEREDOC = re.compile(r'''(?<![\w$(<])<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n''')   # mở heredoc (không phải 1<<3 số học)
+_HEREDOC = re.compile(r'''(?<![\d$(<])<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n''')   # mở heredoc (không phải 1<<3 số học)
 
 def _no_heredoc(s):
     """Bỏ thân heredoc (dữ liệu, không phải lệnh), giữ phần lệnh còn lại trên dòng mở (`python3 - <<E && cp …`) và sau dòng kết thúc."""
-    i = 0
+    s = re.sub(r'\$?\(\([^()]*\)\)', '0', s); i = 0   # số học $((a<<b)), ((a<<=1)): không phải heredoc; cat>t.sh<<E viết liền vẫn là heredoc
     while (m := _HEREDOC.search(s, i)):
         e = re.compile(r'^[ \t]*' + re.escape(m[2]) + r'[ \t]*$', re.M).search(s, m.end())
         head = s[:m.start()] + '<< ' + m[3] + '\n'; s = head + (s[e.end():] if e else ''); i = len(head)

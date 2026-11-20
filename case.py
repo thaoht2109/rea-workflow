@@ -8,7 +8,7 @@
 #   add chạy lint_fact() trước khi ghi: evidence tồn tại/đúng dòng, src khớp loại evidence, hash tính lại,
 #   value phải có trong đoạn evidence được trỏ (±WINDOW dòng khi có #L), số liệu phải có trong evidence.
 #   Mặc định chỉ in cảnh báo; --strict từ chối ghi nếu có lỗi mức fail.
-import sys, os, json, re, glob, shlex, hashlib, datetime
+import sys, os, json, re, shlex, hashlib, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import adhoc   # noqa: E402  luật cho evidence tool_* (tầng T1b)
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
@@ -92,13 +92,13 @@ def src_evidence_issue(src, base):
     if src == 'S' and base.startswith(('emu_', 'vm_', 'host_')): return 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh'
     if src == 'V' and not base.startswith(('vm_', 'host_')): return 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src'
 
-def _work_hashes(case):
-    hs = set()
-    for d in ('sample', 'extract'):
-        for p in glob.glob(os.path.join(case, 'work', d, '**', '*'), recursive=True):
-            if os.path.isfile(p) and os.path.getsize(p) < 64 << 20:
-                hs.add(hashlib.sha256(open(p, 'rb').read()).hexdigest())
-    return hs
+def work_files(case, dirs=('sample', 'extract'), limit=64 << 20):
+    """File thường trong work/<dirs>, đã sắp xếp. Không theo symlink: cả file lẫn thư mục link (glob '**' đi vào thư mục link, os.walk thì không),
+    vì mẫu không tin cậy có thể có link trỏ ra file của máy phân tích."""
+    return [p for d in dirs for p in sorted(os.path.join(r, n) for r, _, ns in os.walk(os.path.join(case, 'work', d)) for n in ns)   # thứ tự theo dirs: sample trước extract
+            if os.path.isfile(p) and not os.path.islink(p) and os.path.getsize(p) < limit]
+
+def _work_hashes(case): return {hashlib.sha256(open(p, 'rb').read()).hexdigest() for p in work_files(case)}
 
 def lint_fact(case, f):
     """Kiểm tra lớp 1 ngay khi ghi fact. Trả list {level, check, problem, redo}.

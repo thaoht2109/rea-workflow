@@ -163,12 +163,15 @@ def run_ops(c, reqs):
     if len(reqs) > REQ_MAX: out.append(dict(ok=False, out=f'chỉ thực hiện {REQ_MAX} thao tác đầu'))
     return out
 
+def copy_nolinks(src, dst):
+    """Chép cây thư mục sang workspace của phiên LLM, bỏ symlink: link trỏ ra file của máy phân tích không được kéo vào, link treo không làm copytree lỗi."""
+    shutil.copytree(src, dst, ignore=lambda d, names: [n for n in names if os.path.islink(os.path.join(d, n))])
+
 # ---------- hồ sơ ----------
 def files(c):
     """Mẫu và file trích ra, bỏ bản trùng nội dung (ưu tiên work/sample). Trả (danh sách, {file: bản trùng})."""
     seen, out, dup = {}, [], {}
-    for p in [p for d in ('sample', 'extract') for p in sorted(glob.glob(os.path.join(c, 'work', d, '**', '*'), recursive=True))
-              if os.path.isfile(p) and os.path.getsize(p) < 64 << 20]:
+    for p in C.work_files(c):
         h = hashlib.sha256(raw(p)).hexdigest()
         if h in seen: dup.setdefault(seen[h], []).append(os.path.relpath(p, c)); continue
         seen[h] = p; out.append(p)
@@ -386,9 +389,9 @@ def run_tools(c, k, ids, mech_items):
             cur = C.load(c)
             with open(os.path.join(ws, 'facts.jsonl'), 'w', encoding='utf-8') as f:   # chỉ fact được gửi: mô hình không đọc phần không cần
                 f.writelines(json.dumps(cur[i], ensure_ascii=False) + '\n' for i in todo)
-            shutil.copytree(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
+            copy_nolinks(os.path.join(c, 'report', 'evidence'), os.path.join(ws, 'report', 'evidence'))
             for d in ('sample', 'scripts', 'extract'):
-                if os.path.isdir(os.path.join(c, 'work', d)): shutil.copytree(os.path.join(c, 'work', d), os.path.join(ws, 'work', d))
+                if os.path.isdir(os.path.join(c, 'work', d)): copy_nolinks(os.path.join(c, 'work', d), os.path.join(ws, 'work', d))
             man = ''.join(f'{hashlib.sha256(open(p, "rb").read()).hexdigest()}  {os.path.relpath(p, ws)}\n'
                           for p in sorted(glob.glob(ws + '/**/*', recursive=True)) if os.path.isfile(p))
             open(os.path.join(ws, 'input_manifest.sha256'), 'w').write(man)

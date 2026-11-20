@@ -5,7 +5,7 @@
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
 #   review.py next CASE [--accept C4=lý do]...     DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
-import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime
+import sys, os, re, json, shlex, hashlib, tempfile, subprocess, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -25,11 +25,11 @@ def now(): return datetime.datetime.now().isoformat(timespec='seconds')
 
 # ---------- lớp 1: kiểm tra máy ----------
 def work_hashes(c):
-    hs = set()
-    for d in ('sample', 'extract'):
-        for p in glob.glob(os.path.join(c, 'work', d, '**', '*'), recursive=True):
-            if os.path.isfile(p) and os.path.getsize(p) < 64 << 20: hs.add(sha_file(p))
-    return hs
+    return {sha_file(p) for p in C.work_files(c)}
+
+def sample_hashes(c):
+    """sha256 mọi file thường trong work/sample (đệ quy, kể cả mẫu dạng thư mục; bỏ symlink, không giới hạn kích thước): kiểm mẫu không bị đổi."""
+    return {p: sha_file(p) for p in C.work_files(c, ('sample',), limit=1 << 62)}
 
 def mech(c):
     cur, items, hs = C.load(c), [], None
@@ -252,7 +252,7 @@ def analyst(c, k):
     rj = json.load(open(os.path.join(DIR(c), f'r{k}', 'review.json')))
     todo = [{x: i.get(x) for x in ('id', 'verdict', 'severity', 'problem', 'where', 'redo')} for i in rj['items'] if i['verdict'] in ('fail', 'weak')]
     fp = os.path.join(c, 'facts.jsonl'); before = open(fp, 'rb').read()
-    samples = {p: sha_file(p) for p in glob.glob(os.path.join(c, 'work', 'sample', '*'))}
+    samples = sample_hashes(c)
     name = os.path.basename(os.path.abspath(c))
     sysp = open(os.path.join(HERE, 'review', 'analyst.md'), encoding='utf-8').read().replace('CASE', name).replace('{SKILL}', HERE)
     prm = open(os.path.join(HERE, 'review', 'analyst_prompt.tmpl'), encoding='utf-8').read().replace('{CASE}', name).replace('{SKILL}', HERE).replace('{ROUND}', str(k)).replace(

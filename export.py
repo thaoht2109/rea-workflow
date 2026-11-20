@@ -249,6 +249,8 @@ def augment(info, d):
         t = rebase(open(md, encoding='utf-8', errors='replace').read(), c, d, 'md')
         m = re.search(r'^## ', t, re.M)
         t = t[:m.start()] + md_section(info) + '\n' + t[m.start():] if m else t + '\n' + md_section(info)
+        h1 = re.match(r'# [^\n]*\n', t); vl = C.verdict_line(C.verdict(c)) + '\n\n'   # nhãn phân loại ngay dưới tiêu đề (bản HTML đã có từ case.report)
+        t = t[:h1.end()] + '\n' + vl + t[h1.end():].lstrip('\n') if h1 else vl + t
         with open(os.path.join(d, name + '.md'), 'w', encoding='utf-8') as f: f.write(t.rstrip('\n') + '\n\n' + md_details(info, d))
     if os.path.isfile(ht):
         t = rebase(open(ht, encoding='utf-8', errors='replace').read(), c, d, 'html').replace('</style>', CSS + '</style>', 1)

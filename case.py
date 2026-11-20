@@ -13,8 +13,39 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import adhoc   #
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
-         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage'}
+         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage', 'verdict'}
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
+# Phân loại cả mẫu (kind=verdict): value = '<khóa>: lý do'. Nhãn đặt trên đầu báo cáo HTML, GENERATED.md và bản export.
+VERDICT = {'malicious': ('MÃ ĐỘC / CÔNG CỤ TẤN CÔNG', '#cf222e'), 'suspicious': ('NGHI VẤN / CHƯA KẾT LUẬN ĐƯỢC', '#bc4c00'),
+           'nofind': ('KHÔNG THẤY HÀNH VI ĐỘC HẠI (trong phạm vi đã phân tích)', '#9a6700'), 'benign': ('KHÔNG PHẢI MÃ ĐỘC / LÀNH TÍNH', '#1a7f37'),
+           'unknown': ('CHƯA XÁC ĐỊNH', '#57606a')}
+VERDICT_RX = re.compile(r'(malicious|suspicious|nofind|benign)(?:\s*:\s*(\S.*))?\Z', re.S)
+# Case chưa có fact verdict (tạo trước khi có kind này): suy tạm từ fact family, khớp hẹp, ghi rõ là suy luận
+_BENIGN = re.compile(r'không (?:phải|có|chứa) mã độc|lành tính|\bbenign\b', re.I)
+_NOFIND = re.compile(r'không (?:thấy|tìm thấy|có) hành vi độc hại', re.I)
+_MALWARE = re.compile(r'backdoor|sniffer|trojan|rootkit|implant|web ?shell|reverse.?shell|bind.?shell|ransomware|\bminer\b|stealer|keylogger'
+                      r'|botnet|loader|dropper|\bRAT\b|\bC2\b|cửa hậu|công cụ tấn công', re.I)
+
+def verdict(case, cur=None):
+    """Phân loại mẫu: fact verdict hiệu lực mới nhất; không có thì suy tạm từ fact family hiệu lực (inferred=True); không có nữa thì unknown."""
+    cur = load(case) if cur is None else cur
+    act = lambda k: sorted((f for f in cur.values() if f['kind'] == k and f['status'] == 'active'), key=lambda f: f.get('ts', ''))
+    v = act('verdict')
+    if v:
+        f = v[-1]; m = VERDICT_RX.match(f['value'].strip()); k = m.group(1) if m else 'unknown'
+        return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=(m.group(2) or '') if m else f['value'], inferred=False)
+    fam = act('family')
+    if not fam: return dict(key='unknown', label=VERDICT['unknown'][0], color=VERDICT['unknown'][1], id='', why='chưa có fact verdict hay family hiệu lực', inferred=False)
+    f = fam[-1]; t = f['value']
+    k = 'benign' if _BENIGN.search(t) else 'nofind' if _NOFIND.search(t) else 'malicious' if _MALWARE.search(t) else 'suspicious'
+    return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=t, inferred=True)
+
+def verdict_line(v):
+    """Một dòng Markdown cho nhãn phân loại (GENERATED.md, bản export)."""
+    src = f"suy tạm từ fact `{v['id']}` (family), chưa có fact verdict" if v['inferred'] else (f"fact `{v['id']}`" if v['id'] else 'không có fact')
+    why = v['why'][:200].replace('|', '/').replace('\n', ' ')
+    return f"> **PHÂN LOẠI: {v['label']}**. Căn cứ: {src}" + (f": {why}" if why else '')
+
 PERSIST_API = re.compile(r'Reg(Set|Create)|CopyFile|MoveFile|CreateService|SchTask|Startup', re.I)
 EV = 'report/evidence/'
 REVIEW_RULE_VERSION = 2   # 2: fail ở check bằng chứng cứng luôn high; state.json cũ hết hiệu lực
@@ -65,6 +96,9 @@ def lint_fact(case, f):
     level 'fail' = mâu thuẫn rõ; 'warn' = nên sửa nhưng chưa chắc sai."""
     out = []
     def bad(level, check, problem, redo): out.append(dict(level=level, check=check, problem=problem, redo=redo))
+    if f['kind'] == 'verdict' and not VERDICT_RX.match(f['value'].strip()):
+        bad('fail', 'verdict_value', f"verdict phải là '{'|'.join(k for k in VERDICT if k != 'unknown')}: lý do', có: {f['value'][:60]}",
+            "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
     rel, full = ev_path(case, f['evidence'])
     if not os.path.isfile(full):
         bad('fail', 'evidence_exists', f'file evidence không tồn tại: {rel}', 'chép bằng chứng vào report/evidence/')
@@ -277,7 +311,8 @@ def ev_files(case):
 
 def report(case):
     cur, H = load(case), history(case)
-    L = ['<!-- Sinh tự động bởi rea-workflow case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', '## IOC', '',
+    vd = verdict(case, cur)
+    L = ['<!-- Sinh tự động bởi rea-workflow case.py report: không sửa tay, sửa facts.jsonl rồi chạy lại -->', '', verdict_line(vd), '', '## IOC', '',
          '| Loại | Giá trị | Nguồn | Evidence |', '|---|---|---|---|']
     L += [f"| {f['kind']} | `{f['value']}` | {'+'.join(f['verified_by'])} | `{f['evidence']}` |"
           for k in IOC_KINDS for f in cur.values() if f['kind'] == k and f['status'] == 'active']
@@ -311,7 +346,7 @@ def report(case):
             and not (v == 'ok' or v.startswith('n/a')) else (k, v, h) for k, v, h in check(case, shown=name)]
     open(report_html(case), 'w', encoding='utf-8').write(htmlreport.render(   # ngày và tên nguồn theo đúng file báo cáo đang dùng
         name, m.group(1) if m else analysis_date(case, body), body, '\n'.join(L), rows,   # file HTML để chia sẻ: gợi ý điền tên case, không lộ đường dẫn máy
-        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm)))
+        dict(n, ioc=sum(f['kind'] in IOC_KINDS and f['status'] == 'active' for f in F), evidence=len(ev_files(case))), gate, os.path.basename(rm), vd))
     return L
 
 def audit(case):

@@ -138,7 +138,7 @@ def doctor():
     finally:
         if wd in sys.path: sys.path.remove(wd)
     row(lib is not None, 'winemu lõi Rust', rl if lib is not None else f'{rl} → dùng hook Python (chậm hơn ~2,7 lần)',
-        'tùy chọn: cd rust/rea_hook && cargo build --release, rồi chép librea_hook.so vào ${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn', False)
+        'tùy chọn: cd rust/rea_hook && cargo build --release, rồi chép thư viện (librea_hook.so trên Linux, tên đúng là rcore.NAME) vào ${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn', False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

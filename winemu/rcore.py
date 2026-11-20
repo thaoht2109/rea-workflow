@@ -97,6 +97,8 @@ def attach(mu, begin, end, eflags_id, mode=None, log=lambda *a: None):
         lib, why = load_lib()
         if lib is not None:
             try:
+                uok, uwhy = uclib_ok()
+                if not uok: raise RuntimeError(uwhy)
                 from unicorn.unicorn_py3.unicorn import uclib
                 c = RustCore(mu, begin, end, eflags_id, lib, uclib); log(f'[core] rust ({why})'); return c
             except Exception as e:

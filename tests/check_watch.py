@@ -14,6 +14,8 @@ a = sys.argv[1:]
 if '--help' in a: print(HELP_TEXT); sys.exit()
 open(os.environ['FAKE_LOG'], 'a').write(json.dumps(a) + '\n')
 c = re.search(r'case `([^`]+)`', a[a.index('-p') + 1])[1]
+if os.environ.get('FAKE_SPAN'):   # khoảng thời gian phiên chạy: kiểm các case chạy chồng nhau (song song) hay nối đuôi
+    import time; t0 = time.time(); time.sleep(float(os.environ.get('FAKE_NAP', '1'))); open(os.environ['FAKE_SPAN'], 'a').write(f'{t0} {time.time()}\n')
 if os.environ.get('FAKE_TOUCH'): open(glob.glob(c + '/report/report-*.md')[0], 'a').write('x\n')
 if os.environ.get('FAKE_NOTES'): open(c + '/work/NOTES.md', 'a').write('x\n')
 if os.environ.get('FAKE_SOFT'): os.makedirs(c + '/work/scripts', exist_ok=True); open(c + '/work/scripts/h%d.py' % len(glob.glob(c + '/work/scripts/*')), 'w').write('#\n')
@@ -162,6 +164,31 @@ try:
     open(pj, 'w').write(bad); n = len(calls()); out = W('--model', 'mx')
     assert len(calls()) == n and open(pj).read() == bad and 'BỎ QUA case' in out and [x for x in os.listdir(ws) if x.startswith('cj')] == [cj], out
     json.dump({'sessions': 1, 'stop': 'test: dừng'}, open(pj, 'w'))
+    # REA_WATCH_PARALLEL: N case cùng lúc trong một watcher; mặc định tuần tự
+    ws2, in2, span = (os.path.join(T, x) for x in ('ws2', 'in2', 'span')); os.makedirs(ws2); os.makedirs(in2)
+    for k in range(3): q = os.path.join(in2, f'p{k}.sh'); open(q, 'w').write(f'echo p{k}\n'); os.utime(q, (1, 1))
+    def W2(**e):
+        r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', in2, '--once', '--model', 'mx'], cwd=ws2,
+                           env={**E0, 'FAKE_SPAN': span, 'FAKE_NAP': '1.5', 'FAKE_TOUCH': '1', **e}, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        assert r.returncode == 0, r.stdout + r.stderr
+        return r.stdout, sorted(tuple(map(float, l.split())) for l in open(span))
+    def overlap(sp): return any(b[0] < a[1] for a, b in zip(sp, sp[1:]))
+    out, sp = W2(); assert len(sp) == 3 and not overlap(sp) and 'song song 1' in out, (sp, out)   # tuần tự: phiên nối đuôi nhau
+    os.remove(span)
+    out, sp = W2(REA_WATCH_PARALLEL='3'); assert len(sp) == 3 and overlap(sp) and 'song song 3' in out, (sp, out)   # song song: chồng nhau
+    for c2 in os.listdir(ws2):
+        pj2 = os.path.join(ws2, c2, 'work', 'watch.json')
+        if os.path.exists(pj2): assert json.load(open(pj2))['sessions'] == 2, c2   # mỗi case đúng một phiên mỗi vòng, không chạy trùng
+    # Ctrl-C khi song song: case còn trong hàng đợi không bắt đầu
+    import threading; started, gate = [], threading.Event(); real_step, real_wait, real_par = watch.step, watch.wait, watch.PARALLEL
+    def slow(c, *a): started.append(c); gate.wait(5)
+    def intr(fs): time.sleep(0.5); raise KeyboardInterrupt
+    watch.step, watch.wait, watch.PARALLEL = slow, intr, 2
+    try:
+        try: watch.run_round(['a', 'b', 'c', 'd'], 'mx', None); raise SystemExit('KeyboardInterrupt phải thoát run_round')
+        except KeyboardInterrupt: pass
+        gate.set(); time.sleep(0.5); assert sorted(started) == ['a', 'b'], started   # c, d bị huỷ trong hàng đợi
+    finally: watch.step, watch.wait, watch.PARALLEL = real_step, real_wait, real_par
     # case STOPPED (phản biện FAIL 2 lần): báo người, không mở phiên, không tự OVERRIDE
     n = len(calls()); fx_stopped_case(ws); json.dump({'sha256': 'x'}, open(os.path.join(ws, 'CASE_E3', 'work', 'watch.json'), 'w'))
     W('--model', 'mx'); assert st('CASE_E3')['stop'].startswith('STOPPED') and len(calls()) == n, st('CASE_E3')

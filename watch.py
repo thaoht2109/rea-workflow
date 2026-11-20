@@ -4,6 +4,7 @@
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
 import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -19,6 +20,7 @@ MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòn
 PUBFAIL = 10           # số vòng liên tiếp chép báo cáo lỗi thì dừng case, báo người (thay vì thử lại mãi)
 REPORTED_TTL = 600     # giây giữa hai lần quét cả cây thư mục báo cáo (reported)
 LIMIT_WAIT = num('REA_WATCH_LIMIT_WAIT', '900')   # giây tạm nghỉ khi claude báo hết hạn mức (429) mà không kèm giờ hết hạn
+PARALLEL = max(1, num('REA_WATCH_PARALLEL', '1'))   # số case xử lý cùng lúc trong một watcher (mỗi case một phiên claude -p riêng; tốn hạn mức tỉ lệ thuận)
 _LIMIT = [0.0]         # hạn mức của tài khoản dùng chung mọi case: chạm ở một case thì case khác trong watcher này cũng nghỉ
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
@@ -349,6 +351,15 @@ def ingest(inbox, report=None):
             r = flow('new', c, p)
             if r.returncode: stop(c, st, f'flow.py new lỗi: {(r.stdout + r.stderr).strip()[-300:]}')
 
+def run_round(cases, model, report):
+    """Mỗi case một bước. PARALLEL > 1: tối đa PARALLEL case chạy cùng lúc (khóa flock theo case, hạn mức dùng chung _LIMIT); case lỗi không làm
+    mất bước của case khác: chờ xong cả vòng rồi mới ném lỗi đầu tiên."""
+    if PARALLEL <= 1 or len(cases) <= 1:
+        for c in cases: step(c, model, report)
+        return
+    with ThreadPoolExecutor(max_workers=PARALLEL) as ex: fs = [ex.submit(step, c, model, report) for c in cases]
+    for f in fs: f.result()
+
 def main(a):
     if not a or a[0].startswith('-') or not os.path.isdir(a[0]):
         print('dùng: flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   (chạy ở workspace; case tạo trong thư mục hiện tại; quét cả thư mục con)'); return 2
@@ -363,10 +374,10 @@ def main(a):
     if (os.path.abspath(os.getcwd()) + os.sep).startswith(os.path.abspath(a[0]) + os.sep):
         say('', f'CẢNH BÁO: workspace {os.getcwd()} nằm trong INBOX: case và file tạm ghi vào cây mẫu gốc; nên chạy từ một thư mục ngoài INBOX'
                 + (f', ví dụ {root}/.cases' if root else ''))
-    say('', f"theo dõi {a[0]} (cả thư mục con), workspace {os.getcwd()}, model {model or 'mặc định của claude'}, trần {MAXS} phiên x {MAXT} lượt / {STALL} lần không đổi, "
+    say('', f"theo dõi {a[0]} (cả thư mục con), workspace {os.getcwd()}, model {model or 'mặc định của claude'}, song song {PARALLEL}, trần {MAXS} phiên x {MAXT} lượt / {STALL} lần không đổi, "
             + (f'báo cáo vào {root}' if root else 'không xuất báo cáo (--report)'))
     while True:
-        ingest(a[0], report)   # ponytail: các case chạy tuần tự trong một watcher; song song thì mở thêm watcher (khóa theo case)
-        for w in sorted(glob.glob('*/work/watch.json')): step(os.path.dirname(os.path.dirname(w)), model, report)
+        ingest(a[0], report)
+        run_round(sorted(os.path.dirname(os.path.dirname(w)) for w in glob.glob('*/work/watch.json')), model, report)
         if '--once' in a: return 0
         time.sleep(INTERVAL)

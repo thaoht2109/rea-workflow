@@ -22,7 +22,10 @@ x = os.environ.get('FAKE_EXEC', '')
 cmd = {'sh': f'cd x && bash {s}', 'watch': 'cd /x && python3 /x/flow.py watch inbox --once', 'pyw': "python3 -c \"import watch; watch.main(['inbox'])\"", 'grepw': 'grep -n "flow.py watch" SKILL.md', 'grepm': 'grep -n "watch.main(" watch.py', 'fromw': "python3 -c \"from watch import main; main(['inbox'])\"", 'grepsub': 'grep -n subprocess flow.py watch.py', 'subw': "python3 -c \"import os; os.system('python3 flow.py watch inbox')\"", 'py': f"python3 -c \"import os; os.system('sh {s}')\"", 'cpx': f'cp {s} /tmp/zz9 && sh /tmp/zz9', 'cp1': f'cp {s} /tmp/zz8', 'run1': 'sh /tmp/zz8'}.get(x, f'python3 flow.py resume {c}; grep -n bash {s}')
 use = {'type': 'tool_use', 'name': 'mcp__frida__spawn', 'input': {'target': s}} if x == 'mcp' else {'type': 'tool_use', 'name': 'Bash', 'input': {'command': cmd}}
 print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
-print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
+if os.environ.get('FAKE_LIMIT'):   # hết hạn mức: sự kiện rejected kèm resetsAt (rỗng: không có giờ) + result 429
+    print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected', **({'resetsAt': int(os.environ['FAKE_LIMIT'])} if os.environ['FAKE_LIMIT'] != '-' else {})}}))
+    print(json.dumps({'type': 'result', 'is_error': True, 'api_error_status': 429, 'result': "You've hit your limit"}))
+else: print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
 '''.replace('HELP_TEXT', repr(HELP))
 assert watch.models(HELP) == ['fable', 'opus', 'sonnet']
 T = tempfile.mkdtemp(prefix='rea-watch-')
@@ -123,6 +126,36 @@ try:
     assert 'max_sessions' in st(bm).get('stop', '') and st(bm)['sessions'] == 1 and len(calls()) == n, st(bm)
     drop('z0.sh', 'echo z0\n'); W('--model', 'mx', REA_WATCH_MAX_SESSIONS='0', FAKE_TOUCH='1')   # trần env <= 0: coi như 1, không đổ lỗi cho watch.json
     z0 = [x for x in cases() if x.startswith('z0_')][0]; assert st(z0)['stop'] == 'đủ 1 phiên' and st(z0)['sessions'] == 1, st(z0)
+    # hết hạn mức của claude: phiên bị từ chối không tính (sessions/stall/soft giữ nguyên), case nghỉ tới resetsAt rồi chạy tiếp
+    drop('lm.sh', 'echo lm\n'); W('--model', 'mx', FAKE_TOUCH='1')
+    lm = [x for x in cases() if x.startswith('lm_')][0]; j0 = st(lm); R = int(time.time()) + 3600
+    out = W('--model', 'mx', FAKE_LIMIT=str(R)); j = st(lm)
+    assert (j['sessions'], j['stall'], j['soft']) == (j0['sessions'], j0['stall'], j0['soft']) and j['wait_until'] == R + 30 and not j.get('stop') and 'hạn mức' in out, (j, out)
+    n = len(calls()); W('--model', 'mx', FAKE_TOUCH='1'); assert len(calls()) == n, 'đang nghỉ thì không mở phiên'
+    j = st(lm); j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
+    W('--model', 'mx', FAKE_TOUCH='1'); j = st(lm); assert len(calls()) == n + 1 and 'wait_until' not in j and j['sessions'] == j0['sessions'] + 1, j
+    for _ in range(4): W('--model', 'mx', FAKE_LIMIT='-')   # không có resetsAt: nghỉ REA_WATCH_LIMIT_WAIT; lặp lại không bao giờ dừng case vì "không đổi"
+    j = st(lm); assert not j.get('stop') and j['sessions'] == j0['sessions'] + 1 and 0 < j['wait_until'] - time.time() <= 930, j
+    j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
+    W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_TOUCH='1'); j = st(lm)   # làm được việc rồi mới chạm hạn mức: phiên vẫn tính, vẫn nghỉ
+    assert j['sessions'] == j0['sessions'] + 2 and j['stall'] == 0 and j['wait_until'] == R + 30, j
+    j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
+    W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_EXEC='sh'); assert 'hậu kiểm' in st(lm).get('stop', ''), st(lm)   # chạy mẫu rồi chạm hạn mức: vẫn dừng
+    tr = sorted(os.listdir(os.path.join(ws, lm, 'work', 'runs', 'watch'))); assert len([x for x in tr if '-limit-' in x]) >= 2, tr   # transcript lần bị từ chối không bị ghi đè
+    ev = lambda **i: json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected', 'resetsAt': R, **i}})
+    ok, bad429 = json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}), json.dumps({'type': 'result', 'is_error': True, 'api_error_status': 429})
+    assert watch.limit_until(ev() + '\n' + ok) == 0 and watch.limit_until(ev() + '\n' + bad429) == R, 'rejected mà phiên vẫn chạy xong: không nghỉ'
+    assert watch.limit_until(ev(isUsingOverage=True) + '\n' + json.dumps({'type': 'result', 'is_error': True, 'result': 'x'})) == 0
+    assert watch.limit_until(ok) == 0 and 0 < watch.limit_until(bad429) - time.time() <= 900
+    # _LIMIT dùng chung trong một watcher: case này chạm hạn mức thì case khác cùng tiến trình không mở phiên
+    drop('l2.sh', 'echo l2\n'); W('--model', 'mx', FAKE_TOUCH='1'); l2 = [x for x in cases() if x.startswith('l2_')][0]
+    env0, cwd0 = dict(os.environ), os.getcwd()
+    try:
+        os.environ.clear(); os.environ.update(E0); os.chdir(ws); n = len(calls())
+        watch._LIMIT[0] = time.time() + 600; watch.step(l2, 'mx'); assert len(calls()) == n, 'đang nghỉ (case khác chạm hạn mức): không mở phiên'
+        watch._LIMIT[0] = 0.0; watch.step(l2, 'mx'); assert len(calls()) == n + 1
+    finally: os.environ.clear(); os.environ.update(env0); os.chdir(cwd0); watch._LIMIT[0] = 0.0
+    j = st(l2); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, l2, 'work', 'watch.json'), 'w'))   # không chạy tiếp ở các bước sau
     # watch.json hỏng (sửa tay gõ sai): bỏ qua case, không ghi đè, không mở phiên, không nhận lại mẫu thành case mới
     drop('cj.sh', 'echo cj\n'); W('--model', 'mx', FAKE_TOUCH='1')
     cj = [x for x in cases() if x.startswith('cj_')][0]; pj = os.path.join(ws, cj, 'work', 'watch.json'); bad = '{"sessions": 1, "stop": "x",}'

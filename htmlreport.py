@@ -158,6 +158,14 @@ var f=document.getElementById('filter');if(!f)return;f.oninput=function(){var q=
 document.querySelectorAll('#phu-luc-body tbody tr').forEach(function(t){t.classList.toggle('hide',q&&t.textContent.toLowerCase().indexOf(q)<0)})}})();
 """
 
+VERDICT_BLOCK = re.compile(r'<div id="phan-loai".*?</div></div>', re.S)
+
+def verdict_html(v):
+    """Khối nhãn phân loại (case.verdict) đặt dưới <h1>: màu cố định của từng mức, chữ trắng. export thay khối này khi xuất."""
+    src_ = f"suy tạm từ fact {v['id']} (family), chưa có fact verdict" if v['inferred'] else (f"fact {v['id']}" if v['id'] else 'không có fact')
+    return (f'<div id="phan-loai" class="verdict" style="border-color:{v["color"]}"><span style="background:{v["color"]}">PHÂN LOẠI: {esc(v["label"])}</span>'
+            f'<div>Căn cứ: {esc(src_)}' + (f': {esc(v["why"][:300])}' if v['why'] else '') + '</div></div>')
+
 def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None, verdict=None):
     """checklist: [(mục, trạng thái, gợi ý)] từ case.check(); stats: active/hypothesis/retracted/ioc/evidence;
     gate: (ok, lý do) của review.gate (cùng điều kiện với report --final); không có thì suy từ C0."""
@@ -171,11 +179,7 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None, v
     stat = ''.join(f'<div class="stat"><b>{stats.get(k, 0)}</b><span>{t}</span></div>' for k, t in S)
     nav = ''.join(f'<a href="#{a}">{esc(t)}</a>' for a, t in [('checklist', 'Checklist C0–C11')] + toc + [('phu-luc', 'Phụ lục: bảng sinh từ facts')])
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    vd = ''
-    if verdict:   # nhãn phân loại (case.verdict): màu cố định của từng mức, chữ trắng
-        src_ = f"suy tạm từ fact {verdict['id']} (family), chưa có fact verdict" if verdict['inferred'] else (f"fact {verdict['id']}" if verdict['id'] else 'không có fact')
-        vd = (f'<div id="phan-loai" class="verdict" style="border-color:{verdict["color"]}"><span style="background:{verdict["color"]}">PHÂN LOẠI: {esc(verdict["label"])}</span>'
-              f'<div>Căn cứ: {esc(src_)}' + (f': {esc(verdict["why"][:300])}' if verdict['why'] else '') + '</div></div>')
+    vd = verdict_html(verdict) if verdict else ''
     return f"""<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">

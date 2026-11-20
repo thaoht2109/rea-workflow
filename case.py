@@ -21,8 +21,8 @@ VERDICT = {'malicious': ('MÃ ĐỘC / CÔNG CỤ TẤN CÔNG', '#cf222e'), 'sus
            'unknown': ('CHƯA XÁC ĐỊNH', '#57606a')}
 VERDICT_RX = re.compile(r'(malicious|suspicious|nofind|benign)(?:\s*:\s*(\S.*))?\Z', re.S)
 # Case chưa có fact verdict (tạo trước khi có kind này): suy tạm từ fact family, khớp hẹp, ghi rõ là suy luận
-_BENIGN = re.compile(r'không (?:phải|có|chứa) mã độc|lành tính|\bbenign\b', re.I)
-_NOFIND = re.compile(r'không (?:thấy|tìm thấy|có) hành vi độc hại', re.I)
+_BENIGN = re.compile(r'^\s*(?:n/a\s*:\s*)?(?:không (?:phải|có|chứa) mã độc|lành tính|benign)\b', re.I)   # chỉ khi đứng đầu value
+_NOFIND = re.compile(r'^\s*(?:n/a\s*:\s*)?không (?:thấy|tìm thấy|có) hành vi độc hại', re.I)
 _MALWARE = re.compile(r'backdoor|sniffer|trojan|rootkit|implant|web ?shell|reverse.?shell|bind.?shell|ransomware|\bminer\b|stealer|keylogger'
                       r'|botnet|loader|dropper|\bRAT\b|\bC2\b|cửa hậu|công cụ tấn công', re.I)
 
@@ -37,7 +37,8 @@ def verdict(case, cur=None):
     fam = act('family')
     if not fam: return dict(key='unknown', label=VERDICT['unknown'][0], color=VERDICT['unknown'][1], id='', why='chưa có fact verdict hay family hiệu lực', inferred=False)
     f = fam[-1]; t = f['value']
-    k = 'benign' if _BENIGN.search(t) else 'nofind' if _NOFIND.search(t) else 'malicious' if _MALWARE.search(t) else 'suspicious'
+    mal, ben, nof = _MALWARE.search(t), _BENIGN.search(t), _NOFIND.search(t)   # từ khóa mã độc xét trước; có cả hai chiều thì nghi vấn
+    k = ('suspicious' if ben or nof else 'malicious') if mal else 'benign' if ben else 'nofind' if nof else 'suspicious'
     return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=t, inferred=True)
 
 def verdict_line(v):

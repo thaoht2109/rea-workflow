@@ -12,7 +12,7 @@ import case as C, reacfg as CFG
 MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
-HARD_CHECKS = {'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
+HARD_CHECKS = {'verdict_value', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,6 +56,8 @@ def mech(c):
         if sv: bad('fail', 'src_vs_evidence', *sv)
         for ck, pb, rd in C.adhoc.issues(c, f, rel, txt): bad('fail', ck, pb, rd)   # cùng luật với lint khi ghi
         for ck, pb, rd in C.adhoc.notes(c, f, rel, txt): bad('weak', ck, pb, rd)    # công cụ chạy ngoài vỏ không mạng: nhắc, không chặn
+        if k == 'verdict' and not C.VERDICT_RX.match(f['value'].strip()):   # cùng luật với lint khi ghi
+            bad('fail', 'verdict_value', 'verdict phải là malicious|suspicious|nofind|benign: lý do', "ghi fact mới value='<khóa>: lý do' (supersedes)")
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])

@@ -112,6 +112,9 @@ def lint_fact(case, f):
     if not os.path.isfile(full):
         bad('fail', 'evidence_exists', f'file evidence không tồn tại: {rel}', 'chép bằng chứng vào report/evidence/')
         return out
+    if os.path.islink(full):   # phiên phản biện chép workspace bỏ symlink nên sẽ không thấy file này
+        bad('fail', 'evidence_exists', f'evidence là symlink: {rel}', 'chép nội dung thật vào report/evidence/ thay vì liên kết')
+        return out
     lines = open(full, encoding='utf-8', errors='replace').read().splitlines()
     whole = _normnum('\n'.join(lines)).replace('\\\\', '\\').lower()
     base = os.path.basename(rel)

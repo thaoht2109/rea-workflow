@@ -28,4 +28,10 @@ sh = review.sample_hashes(c); assert [os.path.basename(p) for p in sh] == ['real
 ws = os.path.join(tempfile.mkdtemp(prefix='rea-ws-'), 'sample'); reviewer.copy_nolinks(os.path.join(c, 'work', 'sample'), ws)
 got = sorted(os.path.relpath(os.path.join(r, n), ws) for r, _, ns in os.walk(ws) for n in ns); assert got == ['app/real.sh'], got
 assert not os.path.lexists(os.path.join(ws, 'app', 'lib')) and not os.path.lexists(os.path.join(ws, 'app', 'good_link'))
+# evidence là symlink: lint và lớp 1 của cổng đều báo fail (phiên phản biện không thấy link), không im lặng
+os.makedirs(os.path.join(c, 'report', 'evidence')); real = os.path.join(c, 'report', 'evidence', 'real.txt'); open(real, 'w').write('abc\n')
+os.symlink(real, os.path.join(c, 'report', 'evidence', 'lnk.txt'))
+f = dict(id='s.x', kind='note', value='abc', src='S', evidence='report/evidence/lnk.txt', status='active', verified_by=['S'], supersedes=None, stage='', note='')
+assert any(i['check'] == 'evidence_exists' and 'symlink' in i['problem'] for i in C.lint_fact(c, f)), C.lint_fact(c, f)
+f['evidence'] = 'report/evidence/real.txt'; assert not any('symlink' in i['problem'] for i in C.lint_fact(c, f))
 print('OK check_symlink_readers')

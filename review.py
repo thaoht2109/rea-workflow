@@ -43,6 +43,7 @@ def mech(c):
                               problem=problem, where=where or f['evidence'], redo=redo, layer='mech'))
         rel, full = C.ev_path(c, f['evidence'])
         if not os.path.isfile(full): bad('fail', 'evidence_exists', 'file evidence không tồn tại', 'chép bằng chứng vào report/evidence/'); continue
+        if os.path.islink(full): bad('fail', 'evidence_exists', 'evidence là symlink (phiên phản biện bỏ link khi chép workspace)', 'chép nội dung thật vào report/evidence/'); continue
         txt = open(full, encoding='utf-8', errors='replace').read()
         m = re.search(r'#L(\d+)$', f['evidence'])
         if m:   # #L neo theo nội dung (ev_line): dòng đã dời thì báo weak kèm vị trí mới, mất hẳn và ngoài phạm vi mới fail

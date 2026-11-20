@@ -131,6 +131,7 @@ nav{position:sticky;top:16px;align-self:start;max-height:calc(100vh - 32px);over
 nav a{display:block;color:var(--mut);text-decoration:none;padding:3px 8px;border-left:2px solid var(--line)}
 nav a:hover{color:var(--acc);border-color:var(--acc)}nav .t{font-weight:600;color:var(--fg);margin:0 0 8px 8px}
 main{min-width:0}header{margin-bottom:20px}h1{font-size:26px;line-height:1.25;margin:0 0 6px}
+.verdict{margin:10px 0 12px;padding:10px 14px;border:2px solid;border-radius:10px}.verdict span{display:inline-block;padding:3px 12px;border-radius:999px;color:#fff;font-weight:700}.verdict div{margin-top:6px;font-size:.92em}
 .meta{color:var(--mut);font-size:13.5px}.draft{display:inline-block;margin-top:8px;padding:4px 10px;border-radius:6px;background:var(--pab);color:var(--pa);font-weight:600;font-size:13px}
 .final{background:var(--okb);color:var(--ok)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:18px 0}
@@ -157,7 +158,15 @@ var f=document.getElementById('filter');if(!f)return;f.oninput=function(){var q=
 document.querySelectorAll('#phu-luc-body tbody tr').forEach(function(t){t.classList.toggle('hide',q&&t.textContent.toLowerCase().indexOf(q)<0)})}})();
 """
 
-def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None):
+VERDICT_BLOCK = re.compile(r'<div id="phan-loai".*?</div></div>', re.S)
+
+def verdict_html(v):
+    """Khối nhãn phân loại (case.verdict) đặt dưới <h1>: màu cố định của từng mức, chữ trắng. export thay khối này khi xuất."""
+    src_ = f"suy tạm từ fact {v['id']} (family), chưa có fact verdict" if v['inferred'] else (f"fact {v['id']}" if v['id'] else 'không có fact')
+    return (f'<div id="phan-loai" class="verdict" style="border-color:{v["color"]}"><span style="background:{v["color"]}">PHÂN LOẠI: {esc(v["label"])}</span>'
+            f'<div>Căn cứ: {esc(src_)}' + (f': {esc(v["why"][:300])}' if v['why'] else '') + '</div></div>')
+
+def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None, verdict=None):
     """checklist: [(mục, trạng thái, gợi ý)] từ case.check(); stats: active/hypothesis/retracted/ioc/evidence;
     gate: (ok, lý do) của review.gate (cùng điều kiện với report --final); không có thì suy từ C0."""
     used, toc = {'tom-tat', 'checklist', 'phu-luc'}, []
@@ -170,12 +179,13 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None):
     stat = ''.join(f'<div class="stat"><b>{stats.get(k, 0)}</b><span>{t}</span></div>' for k, t in S)
     nav = ''.join(f'<a href="#{a}">{esc(t)}</a>' for a, t in [('checklist', 'Checklist C0–C11')] + toc + [('phu-luc', 'Phụ lục: bảng sinh từ facts')])
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    vd = verdict_html(verdict) if verdict else ''
     return f"""<!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <meta name="referrer" content="no-referrer"><title>Báo cáo {esc(case)}</title><style>{CSS}</style></head>
 <body><div class="wrap"><nav><div class="t">{esc(case)}</div>{nav}</nav><main>
-<header><div class="tools"><button id="theme" type="button">Sáng/tối</button></div><h1>Báo cáo phân tích: {esc(case)}</h1>
+<header><div class="tools"><button id="theme" type="button">Sáng/tối</button></div><h1>Báo cáo phân tích: {esc(case)}</h1>{vd}
 <div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-workflow · nguồn: <code>facts.jsonl</code>, <code>{esc(src or f'report-{date}.md')}</code></div>
 <div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(why) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(why) + ')'}</div>
 <div class="stats" id="tom-tat">{stat}</div></header>

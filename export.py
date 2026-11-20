@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # flow.py export CASE OUT: gói dữ liệu phân tích của một case thành thư mục tự đủ <tên mẫu>_data/ để chia sẻ hoặc lưu, xóa được case sau đó.
-# Chỉ đọc case (facts, báo cáo trong case không đổi); không bao giờ chạy mẫu.
+# Không đổi facts hay báo cáo viết tay; sinh lại GENERATED.md và bản HTML từ facts hiện tại trước khi chép (để nhãn, bảng khớp facts). Không chạy mẫu.
 #   <tên mẫu>_data/  <tên mẫu>.md|.html (báo cáo + mục "Thông tin mẫu" + liên kết chi tiết), README.txt, MANIFEST.sha256, facts.jsonl,
 #                    report/ (evidence, GENERATED.md), work/ (runs, tools, review...), ghi_chu_thu_mau/, mau_va_payload.7z
 # Mẫu và mọi thứ có thể là mã độc KHÔNG chép dạng rõ, gói vào mau_va_payload.7z (mật khẩu infected, -mhe=on mã hóa cả tên file):
@@ -125,6 +125,7 @@ def export(info, d):
     """Chép dữ liệu case vào d (thư mục <tên mẫu>_data); mẫu và file có thể là mã độc vào 7z. Trả danh sách đường dẫn đã gói.
     Dựng trong thư mục tạm ẩn .<tên>.part cạnh d rồi mới thay d: lỗi giữa chừng (7z hỏng, đĩa đầy) không để lại d dở dang."""
     c = info['case']
+    if os.path.exists(os.path.join(c, 'facts.jsonl')): C.report(c)   # GENERATED.md + HTML theo facts hiện tại (cùng việc flow.py report)
     if os.path.lexists(d) and not ours(d): raise OSError(f'{d} đã có nhưng không do export sinh (README.txt không đúng mẫu): không xóa, xem rồi dời đi')
     final, d = d, os.path.join(os.path.dirname(d), '.' + os.path.basename(d) + '.part')
     if os.path.lexists(d): shutil.rmtree(d)   # bản dở của lần trước (tên do hàm này đặt)
@@ -249,9 +250,14 @@ def augment(info, d):
         t = rebase(open(md, encoding='utf-8', errors='replace').read(), c, d, 'md')
         m = re.search(r'^## ', t, re.M)
         t = t[:m.start()] + md_section(info) + '\n' + t[m.start():] if m else t + '\n' + md_section(info)
+        h1 = re.match(r'# [^\n]*\n', t); vl = C.verdict_line(C.verdict(c)) + '\n\n'   # nhãn phân loại ngay dưới tiêu đề (bản HTML đã có từ case.report)
+        t = t[:h1.end()] + '\n' + vl + t[h1.end():].lstrip('\n') if h1 else vl + t
         with open(os.path.join(d, name + '.md'), 'w', encoding='utf-8') as f: f.write(t.rstrip('\n') + '\n\n' + md_details(info, d))
     if os.path.isfile(ht):
         t = rebase(open(ht, encoding='utf-8', errors='replace').read(), c, d, 'html').replace('</style>', CSS + '</style>', 1)
+        import htmlreport   # nhãn phân loại theo facts hiện tại, như bản .md (report.html của case có thể sinh trước khi có fact verdict)
+        vb = htmlreport.verdict_html(C.verdict(c)); t, n = htmlreport.VERDICT_BLOCK.subn(lambda m: vb, t, count=1)
+        if not n and '</h1>' in t: i = t.find('</h1>'); t = t[:i + 5] + vb + t[i + 5:]
         t = re.sub(r'(<nav><div class="t">.*?</div>)', lambda m: m.group(1) + '<a href="#thong-tin-mau">Thông tin mẫu</a>', t, count=1, flags=re.S)
         t = t.replace('</nav>', '<a href="#chi-tiet">Chi tiết</a></nav>', 1)
         i = t.find('<section>'); sec = html_section(info)

@@ -76,18 +76,21 @@ pub unsafe extern "C" fn rea_on_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
 
-    static STOPS: AtomicU32 = AtomicU32::new(0);
-    static mut FLAGS: u64 = 0;
-    static mut RC: c_int = 0;
-
-    unsafe extern "C" fn fake_rr(_uc: *mut c_void, _id: c_int, value: *mut c_void) -> c_int {
-        *(value as *mut u64) = FLAGS;
-        RC
+    /// Ngữ cảnh giả đi theo tham số `uc`: mỗi test một bản riêng nên chạy song song không dẫm lên nhau.
+    struct Fake {
+        flags: u64,
+        rc: c_int,
+        stops: u32,
     }
-    unsafe extern "C" fn fake_stop(_uc: *mut c_void) -> c_int {
-        STOPS.fetch_add(1, Ordering::SeqCst);
+
+    unsafe extern "C" fn fake_rr(uc: *mut c_void, _id: c_int, value: *mut c_void) -> c_int {
+        let f = &*(uc as *const Fake);
+        *(value as *mut u64) = f.flags;
+        f.rc
+    }
+    unsafe extern "C" fn fake_stop(uc: *mut c_void) -> c_int {
+        (*(uc as *mut Fake)).stops += 1;
         0
     }
     fn state() -> State {
@@ -100,78 +103,72 @@ mod tests {
             emu_stop: Some(fake_stop),
         }
     }
+    unsafe fn block(f: &mut Fake, s: &mut State, addr: u64) {
+        rea_on_block(
+            f as *mut Fake as *mut c_void,
+            addr,
+            5,
+            s as *mut State as *mut c_void,
+        );
+    }
 
     #[test]
     fn tf_dat_thi_dung_va_ghi_dia_chi() {
         unsafe {
-            STOPS.store(0, Ordering::SeqCst);
-            FLAGS = 0x302;
-            RC = 0;
+            let mut f = Fake {
+                flags: 0x302,
+                rc: 0,
+                stops: 0,
+            };
             let mut s = state();
-            rea_on_block(
-                std::ptr::null_mut(),
-                0x1000_1234,
-                5,
-                &mut s as *mut State as *mut c_void,
-            );
+            block(&mut f, &mut s, 0x1000_1234);
             assert_eq!((s.nblk, s.tf_pend, s.tf_addr), (1, 1, 0x1000_1234));
-            assert_eq!(STOPS.load(Ordering::SeqCst), 1);
+            assert_eq!(f.stops, 1);
             // đang chờ: block kế tiếp chỉ đếm, không dừng lần nữa, không đổi địa chỉ
-            rea_on_block(
-                std::ptr::null_mut(),
-                0x1000_9999,
-                5,
-                &mut s as *mut State as *mut c_void,
-            );
+            block(&mut f, &mut s, 0x1000_9999);
             assert_eq!((s.nblk, s.tf_addr), (2, 0x1000_1234));
-            assert_eq!(STOPS.load(Ordering::SeqCst), 1);
+            assert_eq!(f.stops, 1);
         }
     }
 
     #[test]
     fn khong_co_tf_thi_chi_dem() {
         unsafe {
-            STOPS.store(0, Ordering::SeqCst);
-            FLAGS = 0x202 | 0x1_0000_0000; // bit cao không được nhầm thành TF
-            RC = 0;
+            let mut f = Fake {
+                flags: 0x202 | 0x1_0000_0000,
+                rc: 0,
+                stops: 0,
+            }; // bit cao không được nhầm thành TF
             let mut s = state();
             for a in 0..3u64 {
-                rea_on_block(
-                    std::ptr::null_mut(),
-                    a,
-                    1,
-                    &mut s as *mut State as *mut c_void,
-                );
+                block(&mut f, &mut s, a);
             }
             assert_eq!((s.nblk, s.tf_pend), (3, 0));
-            assert_eq!(STOPS.load(Ordering::SeqCst), 0);
+            assert_eq!(f.stops, 0);
         }
     }
 
     #[test]
     fn loi_doc_thanh_ghi_hoac_thieu_ham_thi_bo_qua() {
         unsafe {
-            STOPS.store(0, Ordering::SeqCst);
-            FLAGS = 0x302;
-            RC = 5; // uc_reg_read báo lỗi
+            let mut f = Fake {
+                flags: 0x302,
+                rc: 5,
+                stops: 0,
+            }; // uc_reg_read báo lỗi
             let mut s = state();
-            rea_on_block(
-                std::ptr::null_mut(),
-                1,
-                1,
-                &mut s as *mut State as *mut c_void,
-            );
+            block(&mut f, &mut s, 1);
             assert_eq!((s.nblk, s.tf_pend), (1, 0));
             s.reg_read = None;
-            rea_on_block(
-                std::ptr::null_mut(),
-                1,
-                1,
-                &mut s as *mut State as *mut c_void,
-            );
+            block(&mut f, &mut s, 1);
             assert_eq!((s.nblk, s.tf_pend), (2, 0));
-            rea_on_block(std::ptr::null_mut(), 1, 1, std::ptr::null_mut()); // user_data null: không crash
-            assert_eq!(STOPS.load(Ordering::SeqCst), 0);
+            rea_on_block(
+                &mut f as *mut Fake as *mut c_void,
+                1,
+                1,
+                std::ptr::null_mut(),
+            ); // user_data null: không crash
+            assert_eq!(f.stops, 0);
         }
     }
 

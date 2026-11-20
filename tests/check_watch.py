@@ -143,6 +143,7 @@ try:
     j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
     W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_TOUCH='1'); j = st(lm)   # làm được việc rồi mới chạm hạn mức: phiên vẫn tính, vẫn nghỉ
     assert j['sessions'] == j0['sessions'] + 2 and j['stall'] == 0 and j['wait_until'] == R + 30, j
+    assert 'bị cắt' in open(os.path.join(ws, lm, 'work', 'NOTES.md'), encoding='utf-8').read(), 'chạm hạn mức giữa chừng (đã có tiến độ): vẫn chốt NOTES'
     j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
     W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_EXEC='sh'); assert 'hậu kiểm' in st(lm).get('stop', ''), st(lm)   # chạy mẫu rồi chạm hạn mức: vẫn dừng
     tr = sorted(os.listdir(os.path.join(ws, lm, 'work', 'runs', 'watch'))); assert len([x for x in tr if '-limit-' in x]) >= 2, tr   # transcript lần bị từ chối không bị ghi đè

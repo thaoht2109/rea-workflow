@@ -152,7 +152,7 @@ def session(c, st, model):
             os.replace(tp, os.path.join(d, f's{n:02d}-limit-{int(time.time())}.jsonl'))   # phiên sau dùng lại số n: giữ transcript lần bị từ chối
             return say(c, f"phiên {n} bị claude từ chối vì hạn mức ({init['_error'] or 'rate limit'}): không tính phiên, "
                           f"tạm nghỉ tới {datetime.datetime.fromtimestamp(st['wait_until']):%F %T}")
-    if init['_error'] and not bad and not lim: cut_notes(c, n, init['_error'])   # phiên bị cắt (hết giờ/lượt/CLI lỗi): chốt phần dở cho phiên sau
+    if init['_error'] and not bad and (not lim or hard or soft): cut_notes(c, n, init['_error'])   # phiên bị cắt (hết giờ/lượt/CLI lỗi): chốt phần dở cho phiên sau
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
     st['soft'] = 0 if hard else st.get('soft', 0) + 1   # mọi phiên chưa ra fact, kể cả phiên không đổi gì: xen kẽ hai loại vẫn chạm trần
     say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else ('chỉ work/ đổi' if soft else 'không đổi') + f", {st['soft']}/{SOFT} phiên chưa ra fact")
@@ -226,7 +226,7 @@ def step(c, model, report=None):
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, HDR_KV, CMD   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
+from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, CMD   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -288,7 +288,6 @@ def note_of(p):
     for q in sib:
         if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
     L = t.splitlines()
-    if sib and L and L[0].startswith('#') and len(HDR_KV.findall(L[0].lstrip('#').strip())) >= 2: return 'có dòng tiêu đề thu mẫu (# khóa=giá trị ...)'   # định dạng export.parse_note hiểu
     for ln in L:
         m = CMD.match(ln)
         if m and any(os.path.basename(m[1]) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(m[1])}'

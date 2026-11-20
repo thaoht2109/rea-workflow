@@ -125,6 +125,9 @@ def doctor():
     for m, req in (('pefile', True), ('unicorn', True), ('capstone', True)):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, PYLIB if m == 'unicorn' else '',
             f'winemu; cài: python3 -m pip install --target {PYLIB} unicorn==2.1.4' if m == 'unicorn' else 'triage/winemu', req)
+    rl = os.environ.get('REA_CORE_LIB') or next((c for c in (os.path.join(TOOLS, 'rust', 'rea_hook', 'target', 'release', 'librea_hook.so'),
+                                                              os.path.join(os.path.dirname(SHARE_PYLIB), 'lib', 'librea_hook.so')) if os.path.isfile(c)), '')
+    row(bool(rl), 'winemu lõi Rust', rl or 'chưa build: dùng hook Python (chậm hơn ~2,7 lần)', 'tùy chọn: cd rust/rea_hook && cargo build --release', False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

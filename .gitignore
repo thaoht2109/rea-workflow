@@ -3,3 +3,4 @@ __pycache__/
 pylib/
 .claude/
 .mcp.json
+rust/rea_hook/target/

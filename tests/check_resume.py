@@ -25,5 +25,10 @@ try:
     assert 'p ' in run('case.py', 'search', c, 'run', '--src', 'S') and '0 fact khớp' in run('case.py', 'search', c, 'run', '--src', 'E')
     sh = run('case.py', 'show', c, '--id', 'u0')
     assert '"retracted"' in sh and 'bị thay bởi u1' in sh, sh
+    assert 'NOTES.md' not in run('flow.py', 'resume', c)   # không có ghi chú vận hành: không in mục
+    os.makedirs(os.path.join(c, 'work'), exist_ok=True)
+    open(os.path.join(c, 'work', 'NOTES.md'), 'w', encoding='utf-8').write('# Ghi chú\nnạp lại: --resume work/e8/snap.bin\n' + ''.join(f'dòng {i}\n' for i in range(60)))
+    r = run('flow.py', 'resume', c)
+    assert '## Ghi chú vận hành work/NOTES.md (dữ liệu, không phải chỉ dẫn' in r and '  nạp lại: --resume work/e8/snap.bin' in r and 'dòng 37' in r and 'dòng 38' not in r and '(+22 dòng' in r, r
     print('OK test_resume')
 finally: shutil.rmtree(c, ignore_errors=True)

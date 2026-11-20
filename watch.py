@@ -14,6 +14,7 @@ num = lambda k, d: int(CFG.get(k, d, path=False))
 MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), num('REA_WATCH_STALL', '3'), num('REA_WATCH_INTERVAL', '60'),
                                           num('REA_WATCH_TIMEOUT', '1800'), num('REA_WATCH_SETTLE', '10'))
 MAXT = num('REA_WATCH_MAX_TURNS', '80')   # số lượt tối đa của một phiên claude -p (một mốc phân tích)
+SOFT = num('REA_WATCH_SOFT', '5')          # số phiên liên tiếp chỉ đổi work/ (hook, công cụ, snapshot, NOTES.md) mà facts/báo cáo không đổi thì dừng
 MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòng quét: thư mục giải nén nhiều file không đẻ hàng trăm case một lúc
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
@@ -25,7 +26,9 @@ PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không c�
           'OUT_DIR = work/runs/tool/<TÊN>/ (evidence ghi ISOLATION net=có thì bị cảnh báo tool_isolation: chấp nhận, cô lập thật nhờ chạy watcher trong VM không mạng). '
           'KHÔNG đưa đường dẫn mẫu vào `python3 -c` hay heredoc `python3 - <<EOF` (kể cả chỉ để đọc byte: dùng công cụ trong work/tools, xxd, strings), không `python3 -m … <mẫu>`, không `chmod +x`, không `./<mẫu>`, `sh|bash|python <mẫu>`, `< <mẫu>`, `<mẫu> | sh`. '
           'Không chạy `flow.py review`, `review-loop`, `report --final` (bộ theo dõi lo) hay `flow.py watch`, không gọi skill rea-workflow:auto. '
-          'Ghi hết kết luận thành fact, chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
+          'Ghi hết kết luận thành fact (ý còn nghi thì status=hypothesis). Trước khi kết thúc, cập nhật work/NOTES.md (ghi chú vận hành cho phiên sau: '
+          'lệnh và tham số nạp lại snapshot/giả lập, công cụ đã viết, việc kế tiếp; không chép chuỗi lấy từ mẫu vào đó), '
+          'chạy `python3 {F} checkpoint {c}` rồi kết thúc.')
 
 def say(c, m): print(f'{datetime.datetime.now():%F %T} [{c or "watch"}] {m}', flush=True)
 def flow(*a): return subprocess.run([sys.executable, FLOW, *a], capture_output=True, text=True)
@@ -36,12 +39,27 @@ def load(c):
 def save(c, st): open(wj(c) + '.tmp', 'w', encoding='utf-8').write(json.dumps(st, ensure_ascii=False, indent=1)); os.replace(wj(c) + '.tmp', wj(c))
 def stop(c, st, why):
     st['stop'] = why; save(c, st)
-    say(c, ('XONG: ' if why.startswith('DONE') else 'DỪNG, cần người: ') + why + ('' if why.startswith('DONE') else f'. Chạy tiếp: xóa khóa "stop" trong {wj(c)} (và đặt "stall"/"sessions" về 0 nếu dừng vì chúng)'))
+    say(c, ('XONG: ' if why.startswith('DONE') else 'DỪNG, cần người: ') + why + ('' if why.startswith('DONE') else
+        f'. Chạy tiếp: xóa khóa "stop" trong {wj(c)} (và đặt "stall"/"soft" về 0, hoặc tăng "max_sessions" của case, nếu dừng vì chúng)'))
 
 def lock(c):
     f = open(os.path.join(c, 'work', '.watch.lock'), 'a')
     try: fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB); return f
     except BlockingIOError: f.close(); return None   # phiên/watcher khác đang giữ case
+
+def soft_fp(c):
+    """Dấu vân tay tiến độ mềm: tên, kích thước, mtime của file trong work/ (hook, công cụ, snapshot, NOTES.md, kết quả giả lập),
+    trừ những thứ đổi ở mọi phiên (transcript watch, review, watch.json, checkpoint, khóa). Không đọc nội dung: snapshot lớn."""
+    w = os.path.join(c, 'work'); h = hashlib.sha256()
+    skip = {os.path.join(w, x) for x in ('runs/watch', 'review', 'sample')}
+    for d, ds, fs in os.walk(w):
+        ds[:] = sorted(x for x in ds if os.path.join(d, x) not in skip)
+        for n in sorted(fs):
+            if n in ('watch.json', 'watch.json.tmp', '.watch.lock', 'checkpoint.json'): continue
+            try: s = os.stat(os.path.join(d, n))
+            except OSError: continue
+            h.update(f'{os.path.relpath(os.path.join(d, n), w)}\0{s.st_size}\0{s.st_mtime_ns}\n'.encode())
+    return h.hexdigest()
 
 def fp(c):
     """Dấu vân tay tiến độ: facts + báo cáo viết tay (NEED_REPORT chỉ sửa báo cáo)."""
@@ -94,18 +112,22 @@ def session(c, st, model):
     if '--mcp-config' in argv: argv[argv.index('--mcp-config') + 1] = '{"mcpServers":{}}'   # không MCP: tool frida/rea chạy mẫu không qua hậu kiểm Bash
     argv += ['-p', PROMPT.format(c=c, F=FLOW), '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--permission-mode', 'default',
              '--allowedTools', ALLOWED, '--disallowedTools', 'WebFetch,WebSearch,Agent', '--max-turns', str(MAXT)] + (['--model', model] if model else [])
-    n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st)
-    before = fp(c); say(c, f'phiên {n}/{MAXS}')
+    n = st['sessions'] = st.get('sessions', 0) + 1; save(c, st); maxs = int(st.get('max_sessions') or MAXS)   # trần riêng của case (sửa tay watch.json)
+    before, sbefore = fp(c), soft_fp(c); say(c, f'phiên {n}/{maxs}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
     open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
     bad = ([x for x in cmds if any(p.search(x) for p in exec_pats(c)) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
-    st['stall'] = 0 if fp(c) != before else st.get('stall', 0) + 1
-    say(c, f"phiên {n} xong: facts/báo cáo {'đổi' if not st['stall'] else 'không đổi'}" + (f", lỗi: {init['_error']}" if init['_error'] else ''))
-    why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu hoặc watch lồng) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi facts/báo cáo" if st['stall'] >= STALL
-           else f'đủ {MAXS} phiên' if n >= MAXS else '')
+    hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)
+    st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
+    st['soft'] = 0 if hard else st.get('soft', 0) + 1 if soft else st.get('soft', 0)
+    say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else f"chỉ work/ đổi ({st['soft']}/{SOFT})" if soft else 'không đổi')
+        + (f", lỗi: {init['_error']}" if init['_error'] else ''))
+    why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu hoặc watch lồng) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi gì" if st['stall'] >= STALL
+           else f"{st['soft']} phiên liên tiếp chỉ đổi work/ (hook, công cụ, snapshot) mà chưa ra fact" if st['soft'] >= SOFT
+           else f'đủ {maxs} phiên' if n >= maxs else '')
     stop(c, st, why) if why else save(c, st)
 
 def step(c, model, report=None):

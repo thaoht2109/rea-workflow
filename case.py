@@ -96,7 +96,7 @@ def _work_hashes(case):
     hs = set()
     for d in ('sample', 'extract'):
         for p in glob.glob(os.path.join(case, 'work', d, '**', '*'), recursive=True):
-            if os.path.isfile(p) and os.path.getsize(p) < 64 << 20:
+            if os.path.isfile(p) and not os.path.islink(p) and os.path.getsize(p) < 64 << 20:
                 hs.add(hashlib.sha256(open(p, 'rb').read()).hexdigest())
     return hs
 

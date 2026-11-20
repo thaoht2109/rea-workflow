@@ -48,7 +48,7 @@ def cases(ws):
 def files_of(c):
     """Mẫu trong work/sample và mọi file đã triage (payload bóc ra) còn nằm trong case."""
     rc, out = os.path.realpath(c), {}
-    cand = [os.path.join(d, n) for d, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns]
+    cand = [p for d, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for p in (os.path.join(d, n) for n in ns) if not os.path.islink(p)]   # symlink trong mẫu: không theo đích
     for t in glob.glob(os.path.join(c, 'work', 'runs', 'triage_*', 'triage.json')):
         try: cand.append(json.load(open(t, encoding='utf-8')).get('path') or '')
         except (OSError, ValueError): pass

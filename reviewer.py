@@ -168,7 +168,7 @@ def files(c):
     """Mẫu và file trích ra, bỏ bản trùng nội dung (ưu tiên work/sample). Trả (danh sách, {file: bản trùng})."""
     seen, out, dup = {}, [], {}
     for p in [p for d in ('sample', 'extract') for p in sorted(glob.glob(os.path.join(c, 'work', d, '**', '*'), recursive=True))
-              if os.path.isfile(p) and os.path.getsize(p) < 64 << 20]:
+              if os.path.isfile(p) and not os.path.islink(p) and os.path.getsize(p) < 64 << 20]:
         h = hashlib.sha256(raw(p)).hexdigest()
         if h in seen: dup.setdefault(seen[h], []).append(os.path.relpath(p, c)); continue
         seen[h] = p; out.append(p)

@@ -83,7 +83,7 @@ def _inbox_files(inbox, skip):
 def collect(c, st=None):
     """Thông tin mẫu của case c. st: watch.json (source, inbox, sha256) nếu case do watch nhận; không có thì lấy file trong work/sample."""
     st = st or {}; c = os.path.abspath(c)
-    smp = sorted(os.path.join(d, n) for d, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for n in ns)
+    smp = sorted(p for d, _, ns in os.walk(os.path.join(c, 'work', 'sample')) for p in (os.path.join(d, n) for n in ns) if not os.path.islink(p))   # symlink (kể cả treo): không theo đích
     src = os.path.abspath(st['source']) if st.get('source') else (smp[0] if smp else '')
     if not src: raise OSError(f'{c}: không có mẫu (work/sample trống, watch.json không có source)')
     loc = src if os.path.isfile(src) else next((p for p in smp if os.path.basename(p) == os.path.basename(src)), smp[0] if smp else '')

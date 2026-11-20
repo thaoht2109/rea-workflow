@@ -26,11 +26,12 @@ _NOFIND = re.compile(r'^\s*(?:n/a\s*:\s*)?không (?:thấy|tìm thấy|có) hàn
 _MALWARE = re.compile(r'backdoor|sniffer|trojan|rootkit|implant|web ?shell|reverse.?shell|bind.?shell|ransomware|\bminer\b|stealer|keylogger'
                       r'|botnet|loader|dropper|\bRAT\b|\bC2\b|cửa hậu|công cụ tấn công', re.I)
 
-_NEG = re.compile(r'(?:\b(?:không|chẳng|chưa)\s+(?:phải|có|thấy|chứa|tìm thấy|phát hiện)(?:\s+(?!là\b|nhưng\b|mà\b|và\b)\w+){0,3}'   # chen tối đa 3 từ, dừng ở từ nối
+_NEGFILL = r'(?:là|một|các|bất kỳ|dấu hiệu|thành phần|hoạt động|kết nối|máy chủ|module|mã|hành vi|chức năng|tới|đến|với)'   # từ được chen giữa
+_NEG = re.compile(r'(?:\b(?:không|chẳng|chưa)\s+(?:phải|có|thấy|chứa|tìm thấy|phát hiện)(?:\s+' + _NEGFILL + r')*'   # danh sách cố định: không lan sang mệnh đề sau
                   r'|\b(?:not|no|without)(?:\s+(?:a|an|any|the))?)\s*$', re.I)
 def _mal(t):
     """Có từ khóa mã độc không bị phủ định ngay trước nó ("không phải backdoor", "không thấy kết nối C2", "not a trojan" không tính;
-    "mẫu không đóng gói là trojan", "không có packer nhưng là trojan" vẫn tính)."""
+    "mẫu không đóng gói là trojan", "không có packer nhưng là trojan", "không có packer dropper tải payload" vẫn tính)."""
     return any(not _NEG.search(t[:m.start()]) for m in _MALWARE.finditer(t))
 
 def verdict(case, cur=None):

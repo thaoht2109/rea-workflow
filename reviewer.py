@@ -232,7 +232,7 @@ def digest(c, f):
 
 def dossier(c, ids, mech_items):
     cur, (fs, dup) = C.load(c), files(c)
-    allf = [json.loads(l) for l in open(os.path.join(c, 'facts.jsonl'), encoding='utf-8') if l.strip()]
+    allf = C.history(c)   # cùng bộ đọc với case.py (bỏ dòng bị cụt)
     head = ['## Tệp có thể truy vấn (đường dẫn dùng trong requests)']
     for p in fs:
         x = pe_of(p)

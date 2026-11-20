@@ -204,13 +204,32 @@ def add(case, strict=False, lint=False, **f):
     fails = [i for i in issues if i['level'] == 'fail']
     if strict and fails:
         raise ValueError('lint từ chối fact: ' + '; '.join(f"{i['check']}: {i['problem']}" for i in fails))
-    with open(os.path.join(case, 'facts.jsonl'), 'a') as fh: fh.write(json.dumps(f, ensure_ascii=False) + '\n')
+    p = os.path.join(case, 'facts.jsonl')
+    with open(p, 'ab') as fh:   # chỉ nối thêm; dòng cuối bị cụt (thiếu \n) thì xuống dòng trước để fact mới không dính vào mảnh cụt
+        if os.path.getsize(p):
+            with open(p, 'rb') as r: r.seek(-1, 2); last = r.read(1)
+            if last != b'\n': fh.write(b'\n')
+        fh.write((json.dumps(f, ensure_ascii=False) + '\n').encode('utf-8'))
     for i in issues:
         print(f"lint {i['level']}: {i['check']}: {i['problem']} -> {i['redo']}")
 
+_CUT_WARNED = set()
+
 def history(case):
+    """Mọi dòng của facts.jsonl theo thứ tự ghi. Dòng bị cụt do tiến trình bị giết giữa lúc ghi (bắt đầu bằng `{` nhưng JSON không
+    trọn) thì bỏ qua và cảnh báo một lần; dòng hỏng kiểu khác (sửa tay) thì báo lỗi kèm số dòng, không im lặng bỏ."""
     p = os.path.join(case, 'facts.jsonl')
-    return [json.loads(l) for l in open(p, encoding='utf-8') if l.strip()] if os.path.exists(p) else []
+    if not os.path.exists(p): return []
+    out = []
+    for i, l in enumerate(open(p, encoding='utf-8', errors='replace'), 1):
+        if not l.strip(): continue
+        try: out.append(json.loads(l))
+        except ValueError:
+            t = l.strip()
+            if not (t.startswith('{') and not t.endswith('}')): raise ValueError(f'{p}:{i}: dòng không phải JSON (sửa tay?): {t[:80]}')
+            if (p, i) not in _CUT_WARNED:
+                _CUT_WARNED.add((p, i)); print(f'CẢNH BÁO {p}:{i}: dòng fact bị cụt (tiến trình bị giết lúc ghi), bỏ qua; ghi lại fact đó nếu cần', file=sys.stderr)
+    return out
 
 def load(case):
     cur = {}

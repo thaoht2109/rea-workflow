@@ -166,11 +166,15 @@ def cut_notes(c, n, why):
     """Phiên n kết thúc bất thường nên agent chưa kịp checkpoint/ghi NOTES: chạy checkpoint thay và ghi vào work/NOTES.md những gì phiên sau phải xử lý
     trước (kết quả chạy mới hơn fact cuối, evidence chưa có fact, fact lỗi/lệch)."""
     r = flow('checkpoint', c); L = [x.strip() for x in (r.stdout + r.stderr).splitlines() if re.match(r'\s*(CHƯA GHI\?|lưu ý:|FAIL|LỆCH)', x) and 'runs/watch' not in x]
-    np = os.path.join(c, 'work', 'NOTES.md'); old = open(np, encoding='utf-8').read() if os.path.exists(np) else ''
-    with open(np, 'w', encoding='utf-8') as f:   # ghi lên ĐẦU file: resume chỉ in phần đầu NOTES.md
-        f.write(f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nXử lý trước khi làm tiếp (kết quả đã có trên đĩa nhưng chưa thành fact):\n' + ''.join(f'- {x[:300]}\n' for x in L[:12]) if L else
-                f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nKhông thấy kết quả nào chưa ghi.\n')
-        f.write('\n' + old)
+    np = os.path.join(c, 'work', 'NOTES.md')
+    try:
+        old = open(np, encoding='utf-8', errors='replace').read() if os.path.exists(np) else ''
+        with open(np + '.tmp', 'w', encoding='utf-8') as f:   # ghi lên ĐẦU file: resume chỉ in phần đầu NOTES.md
+            f.write(f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nXử lý trước khi làm tiếp (kết quả đã có trên đĩa nhưng chưa thành fact):\n' + ''.join(f'- {x[:300]}\n' for x in L[:12]) if L else
+                    f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nKhông thấy kết quả nào chưa ghi.\n')
+            f.write('\n' + old)
+        os.replace(np + '.tmp', np)
+    except (OSError, ValueError) as e: say(c, f'không ghi được NOTES.md: {e}')
 
 def limit_until(out):
     """Thời điểm (epoch) hết giới hạn dùng nếu phiên kết thúc lỗi vì hạn mức của claude (result cuối is_error, kèm lỗi API 429 hoặc

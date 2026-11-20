@@ -342,7 +342,9 @@ def session(a):
             'không dùng lệnh chạy target (`rea capture-*`, `debug-*`, `cutter-command`, chạy qua wine/qemu/gdb), mọi kết luận ghi thành fact.\n\n')
     extra = ''.join(f'- **{n}**: {d} Đọc `{p}/SKILL.md` khi cần (đường dẫn tương đối trong skill tính từ `{p}`).\n' for n, d, p in re_skills(ws))
     if extra: extra = '\n## Skill dịch ngược khác trên máy (Claude Code không tự nạp; đọc file khi cần)\n\n' + extra
-    open(out, 'w', encoding='utf-8').write(head + sk + '\n' + extra + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
+    tmp = f'{out}.{os.getpid()}.tmp'   # ghi nguyên tử: phiên song song không bao giờ đọc phải file rỗng/dở dang
+    open(tmp, 'w', encoding='utf-8').write(head + sk + '\n' + extra + ''.join(f'\n## Ghi chú của workspace\n\n{n}\n' for n in notes))
+    os.replace(tmp, out)
     cl = shutil.which('claude')
     if not cl: print('flow.py session chỉ hỗ trợ Claude Code. Agent khác: mở phiên mới như bình thường; quy tắc đã nằm trong AGENTS.md (flow.py rules).'); return 2
     if '--strict' in a:   # chặt nhất: --safe-mode bỏ mọi tùy biến của máy (cả skill/MCP dịch ngược), chỉ còn rea-workflow; nền thấp nhất
@@ -351,7 +353,9 @@ def session(a):
         os.execv(cl, argv)
     mcp, off = session_tools(ws)
     mf = os.path.abspath(os.path.join(TMP, 'rea_session_mcp.json'))   # có thể chứa token của MCP: chỉ chủ sở hữu đọc được
-    fd = os.open(mf, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.write(fd, json.dumps({'mcpServers': mcp}).encode()); os.close(fd)
+    tmp = f'{mf}.{os.getpid()}.tmp'
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.write(fd, json.dumps({'mcpServers': mcp}).encode()); os.close(fd)
+    os.replace(tmp, mf)
     argv = [cl, '--strict-mcp-config', '--mcp-config', mf, '--settings', json.dumps({'disableAllHooks': True, 'enabledPlugins': {p: False for p in off}}),
             '--append-system-prompt-file', out] + [x for x in a if x not in ('--print', '--strict')]
     print(f"rea-workflow session: giữ MCP dịch ngược [{', '.join(mcp) or 'không có'}], tắt {len(off)} plugin không liên quan, tắt hook; skill giữ nguyên", file=sys.stderr)

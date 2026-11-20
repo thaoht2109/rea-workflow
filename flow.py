@@ -31,7 +31,7 @@
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
 #   flow.py review CASE [--llm] [--detach] | gate CASE | next CASE [--accept Cx=lý do]...   cổng phản biện facts (tối đa 2 lần) | kiểm cổng | dừng sớm khi đủ
-import sys, os, re, glob, json, shlex, shutil, datetime, subprocess
+import sys, os, re, glob, json, shlex, shutil, hashlib, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS); import case, reacfg as CFG   # cấu hình theo máy: reacfg.py
@@ -42,12 +42,15 @@ def sh(*a, **kw): return subprocess.run(a, check=True, **kw)
 
 def samples(c):
     root = os.path.join(c, 'work', 'sample')
-    return sorted(os.path.join(d, n) for d, _, ns in os.walk(root) for n in ns)
+    return sorted(p for d, _, ns in os.walk(root) for p in (os.path.join(d, n) for n in ns) if not os.path.islink(p))   # symlink trong mẫu: không theo đích (có thể là file của máy phân tích)
 
 def new(c, srcs):
     sd = os.path.join(c, 'work', 'sample')
     for d in (sd, os.path.join(c, 'work', 'runs'), os.path.join(c, 'report', 'evidence')): os.makedirs(d, exist_ok=True)
     for s in srcs:
+        if os.path.isdir(s):   # mẫu dạng thư mục (app Electron…): chép nguyên cây vào work/sample/<tên thư mục>, không giải nén gì bên trong
+            shutil.copytree(s, os.path.join(sd, os.path.basename(os.path.abspath(s))), dirs_exist_ok=True, symlinks=True); continue   # symlinks=True: giữ link nguyên dạng, không đọc đích
+        if not os.path.isfile(s): raise SystemExit(f'không thấy mẫu {s}')
         head = open(s, 'rb').read(8)
         kind = zip_kind(s) if head.startswith(b'PK\x03\x04') else None
         if kind: print(f'giữ nguyên {s}: {kind} (không giải nén)'); shutil.copy2(s, sd)
@@ -67,6 +70,8 @@ def new(c, srcs):
 def triage(c, files):
     for f in files:
         out = os.path.join(c, 'work', 'runs', 'triage_' + re.sub(r'\W+', '_', os.path.basename(f))[:40])
+        if os.path.exists(os.path.join(out, 'triage.json')) and jload(os.path.join(out, 'triage.json')).get('path') != os.path.abspath(f):
+            out += '_' + hashlib.sha256(os.path.relpath(f, c).encode()).hexdigest()[:8]   # file khác cùng basename (mẫu dạng thư mục): thư mục chạy riêng
         print(f'===== {os.path.relpath(f, c)}')
         sh(sys.executable, '-I', os.path.join(TOOLS, 'static', 'triage.py'), f, '--out', out, '--facts', c)
         R = json.load(open(os.path.join(out, 'triage.json')))

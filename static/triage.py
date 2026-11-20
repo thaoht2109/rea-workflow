@@ -381,10 +381,13 @@ def main():
     if A.facts:
         sys.path.insert(0, os.path.dirname(HERE)); import case
         tag = re.sub(r'\W+', '_', R['file'])[:32].strip('_')
+        try: old = json.load(open(os.path.join(A.facts, f'report/evidence/triage_{tag}.json'))).get('sha256')
+        except (OSError, ValueError): old = None
+        if old and old != R['sha256']: tag = f"{tag}_{R['sha256'][:8]}"   # file khác cùng basename (mẫu dạng thư mục): không ghi đè evidence/fact của file trước
         e = f'report/evidence/triage_{tag}.json'; shutil.copy(os.path.join(A.out, 'triage.json'), os.path.join(A.facts, e))
-        have = {(f['kind'], f['value']) for f in case.load(A.facts).values()}
+        have = {(f['kind'], f['value'], f.get('evidence')) for f in case.load(A.facts).values()}   # theo evidence: hai file cùng loại (PE32) đều có fact riêng
         def add(id_, kind, value, **kw):
-            if (kind, value) not in have: have.add((kind, value)); case.add(A.facts, id=f's.{tag}.{id_}', kind=kind, value=value, src='S', evidence=e, **kw)
+            if (kind, value, e) not in have: have.add((kind, value, e)); case.add(A.facts, id=f's.{tag}.{id_}', kind=kind, value=value, src='S', evidence=e, **kw)
         add('hash', 'hash', f"{R['sha256']} {R['file']}")
         add('filetype', 'filetype', ' '.join([R['type']] + R['flags']))
         for c in ('NSIS', 'UPX'):

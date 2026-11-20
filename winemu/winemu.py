@@ -602,9 +602,19 @@ JCC = {'jo': lambda f: f & 0x800, 'jno': lambda f: not f & 0x800, 'jb': lambda f
        'jle': lambda f: f & 0x40 or bool(f & 0x80) != bool(f & 0x800), 'jg': lambda f: not f & 0x40 and bool(f & 0x80) == bool(f & 0x800),
        'jmp': lambda f: True}
 NBLK = [0]
+# on_block chạy mỗi basic block: reg_read của binding Python tốn ~1/3 tổng thời gian (profile --full), nên gọi thẳng uc_reg_read
+# vào bộ đệm dùng lại; binding đổi nội bộ thì lùi về reg_read.
+try:
+    from unicorn.unicorn_py3.unicorn import uclib as _uclib
+    import ctypes as _ct
+    _EFB = _ct.c_uint64(); _EFR = _ct.byref(_EFB); _UCH = mu._uch
+    def _eflags(uc): _uclib.uc_reg_read(_UCH, UC_X86_REG_EFLAGS, _EFR); return _EFB.value
+    _eflags(mu)
+except Exception:
+    def _eflags(uc): return uc.reg_read(UC_X86_REG_EFLAGS)
 def on_block(uc, addr, size, _):
     NBLK[0] += 1
-    if uc.reg_read(UC_X86_REG_EFLAGS) & 0x100 and not CTX.get('tf_pend'):
+    if _eflags(uc) & 0x100 and not CTX.get('tf_pend'):
         CTX['tf_pend'] = addr; uc.emu_stop()
 mu.hook_add(UC_HOOK_BLOCK, on_block, begin=BASE, end=BASE + SIZE)
 

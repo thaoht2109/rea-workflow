@@ -22,4 +22,10 @@ assert eh not in C._work_hashes(c) and eh not in review.work_hashes(c)
 assert [os.path.basename(p) for p in reviewer.files(c)[0]] == ['real.sh'] and [os.path.basename(p) for p in kb.files_of(c)] == ['real.sh']
 os.makedirs(os.path.join(c, 'work', 'extract')); open(os.path.join(c, 'work', 'extract', 'a.bin'), 'w').write('x')
 assert [os.path.basename(p) for p in C.work_files(c)] == ['real.sh', 'a.bin']   # sample trước extract
+# review.analyst: mẫu dạng thư mục không làm crash, file lồng được kiểm toàn vẹn, link không vào
+sh = review.sample_hashes(c); assert [os.path.basename(p) for p in sh] == ['real.sh'] and all(os.path.isfile(p) for p in sh), sh
+# reviewer: chép sang workspace bỏ link (hợp lệ, thư mục, treo) và không lỗi
+ws = os.path.join(tempfile.mkdtemp(prefix='rea-ws-'), 'sample'); reviewer.copy_nolinks(os.path.join(c, 'work', 'sample'), ws)
+got = sorted(os.path.relpath(os.path.join(r, n), ws) for r, _, ns in os.walk(ws) for n in ns); assert got == ['app/real.sh'], got
+assert not os.path.lexists(os.path.join(ws, 'app', 'lib')) and not os.path.lexists(os.path.join(ws, 'app', 'good_link'))
 print('OK check_symlink_readers')

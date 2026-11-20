@@ -41,6 +41,8 @@ try:
     out = watch.publish(c, {'source': b, 'inbox': inbox, 'report': 'IN'})   # mẫu nằm thẳng trong thư mục cấp một: thư mục riêng theo tên bỏ đuôi nén
     assert out == os.path.join(root, 'U3', 'r') and os.path.isfile(os.path.join(out, 'r.tar.gz_data', 'r.tar.gz.md')), out
     shutil.rmtree(out)
+    assert h2 in watch.reported(root)   # bộ đệm: báo cáo bị xóa chỉ hết tính sau REPORTED_TTL giây (publish tự thêm sha mới)
+    watch._REPORTED.clear()
     # ingest: mẫu đã có báo cáo, ghi chú, thư mục báo cáo và workspace không thành case; trần số case mới mỗi vòng
     watch.SETTLE = 0; watch.flow = lambda *x: type('R', (), {'returncode': 0, 'stdout': '', 'stderr': ''})()
     made = lambda: sorted(x for x in os.listdir(ws) if os.path.exists(os.path.join(ws, x, 'work', 'watch.json')))
@@ -56,8 +58,12 @@ try:
     def bad(*x): raise OSError('đĩa đầy')
     watch.flow = fl; cc = os.path.join(ws, m[0]); watch.publish = bad; watch.step(cc, None, 'IN'); st = watch.load(cc)
     assert not st.get('stop') and st['final'] and 'đĩa đầy' in st['publish_error'], st
+    def bad2(*x): raise ValueError('facts.jsonl:3: dòng hỏng')   # lỗi không phải OSError cũng không làm sập watcher; quá PUBFAIL lần thì dừng báo người
+    watch.publish = bad2; watch.PUBFAIL = 2; watch.step(cc, None, 'IN'); st = watch.load(cc)
+    assert 'lỗi 2 lần liên tiếp' in st.get('stop', '') and 'ValueError' in st['stop'] and st['publish_fail'] == 2, st
+    st.pop('stop'); watch.save(cc, st)
     watch.publish = lambda *x: '/x'; watch.step(cc, None, 'IN'); st = watch.load(cc)
-    assert st['stop'].startswith('DONE') and st['published'] == '/x' and 'publish_error' not in st, st
+    assert st['stop'].startswith('DONE') and st['published'] == '/x' and 'publish_error' not in st and 'publish_fail' not in st, st
     assert [x[0] for x in calls].count('report') == 1, calls
     st = watch.load(cc); st.pop('stop'); watch.save(cc, st)   # case mở lại (vd. người xóa stop sau khi sửa fact): bỏ cờ final
     watch.flow = lambda *x: type('R', (), {'returncode': 0, 'stdout': 'NEED_REVIEW\n', 'stderr': ''})(); watch.step(cc, None, 'IN')

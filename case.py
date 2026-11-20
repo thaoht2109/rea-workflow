@@ -26,6 +26,11 @@ _NOFIND = re.compile(r'^\s*(?:n/a\s*:\s*)?không (?:thấy|tìm thấy|có) hàn
 _MALWARE = re.compile(r'backdoor|sniffer|trojan|rootkit|implant|web ?shell|reverse.?shell|bind.?shell|ransomware|\bminer\b|stealer|keylogger'
                       r'|botnet|loader|dropper|\bRAT\b|\bC2\b|cửa hậu|công cụ tấn công', re.I)
 
+_NEG = re.compile(r'\b(?:không|chẳng|chưa|not|no|without)\b', re.I)
+def _mal(t):
+    """Có từ khóa mã độc không bị phủ định trong cùng vế (vế: đoạn từ dấu , . ; : ( gần nhất): "không phải backdoor" không tính."""
+    return any(not _NEG.search(re.split(r'[,.;:()\n]', t[:m.start()])[-1]) for m in _MALWARE.finditer(t))
+
 def verdict(case, cur=None):
     """Phân loại mẫu: fact verdict hiệu lực mới nhất; không có thì suy tạm từ fact family hiệu lực (inferred=True); không có nữa thì unknown."""
     cur = load(case) if cur is None else cur
@@ -37,7 +42,7 @@ def verdict(case, cur=None):
     fam = act('family')
     if not fam: return dict(key='unknown', label=VERDICT['unknown'][0], color=VERDICT['unknown'][1], id='', why='chưa có fact verdict hay family hiệu lực', inferred=False)
     f = fam[-1]; t = f['value']
-    mal, ben, nof = _MALWARE.search(t), _BENIGN.search(t), _NOFIND.search(t)   # từ khóa mã độc xét trước; có cả hai chiều thì nghi vấn
+    mal, ben, nof = _mal(t), _BENIGN.search(t), _NOFIND.search(t)   # từ khóa mã độc (không bị phủ định) xét trước; có cả hai chiều thì nghi vấn
     k = ('suspicious' if ben or nof else 'malicious') if mal else 'benign' if ben else 'nofind' if nof else 'suspicious'
     return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=t, inferred=True)
 

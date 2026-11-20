@@ -14,7 +14,9 @@ try:
     # chỉ có family: suy tạm, ghi rõ là suy luận; khớp hẹp (n/a, chưa quy họ là nghi vấn, không phải mã độc)
     for i, (val, k) in enumerate((('backdoor dạng reverse shell', 'malicious'), ('không phải mã độc: archive rỗng', 'benign'), ('n/a: chưa quy họ, file dữ liệu mã hóa', 'suspicious'),
                    ('không thấy hành vi độc hại trong phạm vi tĩnh', 'nofind'), ('dropper ngụy trang thành bộ cài lành tính', 'malicious'),
-                   ('loader không chứa mã độc nhúng sẵn, tải payload từ C2', 'malicious'), ('bộ cài hợp lệ, có chữ lành tính ở giữa', 'suspicious'))):   # từ khóa mã độc xét trước; lành tính chỉ khi đứng đầu
+                   ('loader không chứa mã độc nhúng sẵn, tải payload từ C2', 'malicious'), ('bộ cài hợp lệ, có chữ lành tính ở giữa', 'suspicious'),
+                   ('không phải backdoor, chỉ là công cụ quản trị từ xa', 'suspicious'), ('not a trojan: signed updater', 'suspicious'),   # phủ định trong cùng vế: không suy MÃ ĐỘC
+                   ('công cụ quản trị, không phải RAT; có module keylogger', 'malicious'), ('chưa thấy C2, không rõ họ', 'suspicious'))):   # từ khóa mã độc xét trước; lành tính chỉ khi đứng đầu
         c = mk_case(T, f'F{i}', [('s.fam', 'family', val)])
         v = C.verdict(c); assert v['key'] == k and v['inferred'] and v['id'] == 's.fam', (val, v)
     # có fact verdict: dùng nó, không suy từ family; fact bị supersedes và hypothesis không tính
@@ -46,7 +48,7 @@ try:
     d = os.path.join(T, 'out', 'v_data')
     info = dict(name='v', src='v', inbox='', sha256='a' * 64, size=1, ftype='', aliases=[], notes=[], sums=[], case=os.path.abspath(c))
     C.add(c, id='s.v4', kind='verdict', value='nofind: xem lại, không thấy hành vi', src='S', evidence='report/evidence/strings.txt#L1', supersedes='s.v2')
-    export.export(info, d); export.augment(info, d)   # report.html của case sinh trước s.v4: bản export vẫn theo facts hiện tại
+    export.export(info, d)   # report.html của case sinh trước s.v4: bản export vẫn theo facts hiện tại
     hx = open(os.path.join(d, 'v.html'), encoding='utf-8').read()
     assert hx.count('id="phan-loai"') == 1 and 'KHÔNG THẤY HÀNH VI ĐỘC HẠI' in hx and 'MÃ ĐỘC / CÔNG CỤ' not in hx, hx[:1500]
     md = open(os.path.join(d, 'v.md'), encoding='utf-8').read().splitlines()

@@ -54,6 +54,7 @@ try:
     assert not os.path.exists(d + '.list'), 'file danh sách 7z phải bị xóa'
     first = open(os.path.join(d, 'README.txt'), encoding='utf-8').readline(); assert f'(sha256 {h})' in first and export.ours(d), first
     man = open(os.path.join(d, 'MANIFEST.sha256'), encoding='utf-8').read(); assert f'{h}  {export.ZIP}:work/sample/x.bin' in man, man
+    assert '  x.bin.md\n' in man and '  x.bin.html\n' in man and f'  {export.ZIP}\n' in man, man   # báo cáo dựng trong .part, có trong MANIFEST
     md = open(os.path.join(d, 'x.bin.md'), encoding='utf-8').read()
     assert md.index('## Thông tin mẫu') < md.index('## 1. Tóm tắt') and '(report/evidence/e.txt#L1)' in md and f'({export.ZIP})' in md and '(https://x.test/a)' in md, md
     assert 'U2/y.bin' in md and 'host=m1\\|&lt;b&gt;x&lt;/b&gt;' in md and '<b>' not in md and '<img' not in md and 'bad.test' not in md, md
@@ -64,8 +65,14 @@ try:
     # xuất lại: làm mới thư mục của mình; thư mục lạ trùng tên thì không xóa
     export.write(c, st, d); assert export.ours(d)
     lạ = os.path.join(out, 'z_data'); w(os.path.join(lạ, 'README.txt'), 'của người dùng\n')
+    gen = os.path.join(c, 'report', 'GENERATED.md'); os.remove(gen)
     try: export.export(info, lạ); raise AssertionError('xóa thư mục lạ')
-    except OSError as x: assert 'không do export sinh' in str(x) and os.path.exists(os.path.join(lạ, 'README.txt'))
+    except OSError as x: assert 'không do export sinh' in str(x) and os.path.exists(os.path.join(lạ, 'README.txt')) and not os.path.exists(gen)   # kiểm đích trước, chưa sinh báo cáo
+    # thư mục tạm riêng mỗi lần: .part cũ (lần bị giết) quá PART_TTL thì dọn, .part mới (lần xuất song song) giữ nguyên
+    stale, live = (os.path.join(out, f'.x.bin_data.{k}.part') for k in ('old1', 'new1'))
+    for p in (stale, live): os.makedirs(p)
+    os.utime(stale, (1, 1)); export.write(c, st, d)
+    assert not os.path.exists(stale) and os.path.isdir(live) and export.ours(d), os.listdir(out)
     # flow.py export CASE OUT (case không do watch nhận: lấy mẫu trong work/sample)
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'export', c, os.path.join(T, 'manual')], capture_output=True, text=True, env=dict(os.environ))
     assert r.returncode == 0 and os.path.isfile(os.path.join(T, 'manual', 'x.bin_data', 'x.bin.html')), r.stdout + r.stderr

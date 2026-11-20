@@ -129,7 +129,7 @@ def session(c, st, model):
     before, sbefore = fp(c), soft_fp(c); say(c, f'phiên {n}/{maxs}')
     out = run_agent(argv, os.getcwd(), TIMEOUT)
     d = os.path.join(c, 'work', 'runs', 'watch'); os.makedirs(d, exist_ok=True)
-    open(os.path.join(d, f's{n:02d}.jsonl'), 'w', encoding='utf-8').write(out)
+    tp = os.path.join(d, f's{n:02d}.jsonl'); open(tp, 'w', encoding='utf-8').write(out)
     cmds, _, init = parse(out)
     prev = st.get('derived'); prev = {x for x in prev if isinstance(x, str) and x.strip()} if isinstance(prev, list) else set()   # sửa tay sai kiểu: bỏ
     known = prev | derived(cmds, sample_names(c) | prev)   # bản chép mẫu mang tên khác: suy một lần, nhớ sang phiên sau
@@ -144,6 +144,7 @@ def session(c, st, model):
         _LIMIT[0] = max(_LIMIT[0], lim); st['wait_until'] = int(lim) + 30
         if not (hard or soft):   # bị từ chối trước khi làm được gì: không tính vào trần phiên, stall, soft (trước đây 3 phiên 5 giây là dừng case)
             st['sessions'] = n - 1; save(c, st)
+            os.replace(tp, os.path.join(d, f's{n:02d}-limit-{int(time.time())}.jsonl'))   # phiên sau dùng lại số n: giữ transcript lần bị từ chối
             return say(c, f"phiên {n} bị claude từ chối vì hạn mức ({init['_error'] or 'rate limit'}): không tính phiên, "
                           f"tạm nghỉ tới {datetime.datetime.fromtimestamp(st['wait_until']):%F %T}")
     st['stall'] = 0 if hard or soft else st.get('stall', 0) + 1
@@ -156,21 +157,23 @@ def session(c, st, model):
     stop(c, st, why) if why else save(c, st)
 
 def limit_until(out):
-    """Thời điểm (epoch) hết giới hạn dùng nếu phiên bị claude từ chối vì hạn mức (rate_limit_event status=rejected, hoặc result lỗi API 429);
-    không bị từ chối thì 0. Ưu tiên resetsAt của sự kiện; không có (hoặc vô lý) thì nghỉ LIMIT_WAIT giây."""
-    now, reset, fall = time.time(), 0.0, 0.0
+    """Thời điểm (epoch) hết giới hạn dùng nếu phiên kết thúc lỗi vì hạn mức của claude (result cuối is_error, kèm lỗi API 429 hoặc
+    rate_limit_event status=rejected không dùng overage); không thì 0. Sự kiện rejected mà phiên vẫn chạy tiếp (result không lỗi) không tính.
+    Ưu tiên resetsAt của sự kiện; không có (hoặc vô lý) thì nghỉ LIMIT_WAIT giây."""
+    now, reset, fall, err = time.time(), 0.0, 0.0, False
     for ln in out.splitlines():
-        if 'rate_limit' not in ln and '429' not in ln: continue
+        if '"result"' not in ln and 'rate_limit' not in ln: continue
         try: e = json.loads(ln)
         except ValueError: continue
         if not isinstance(e, dict): continue
+        if e.get('type') == 'result': err = bool(e.get('is_error'))   # result cuối quyết định phiên có kết thúc lỗi không
         i = e.get('rate_limit_info') if e.get('type') == 'rate_limit_event' else None
-        if isinstance(i, dict) and i.get('status') == 'rejected':
+        if isinstance(i, dict) and i.get('status') == 'rejected' and not i.get('isUsingOverage'):
             r = i.get('resetsAt')
             if isinstance(r, (int, float)) and not isinstance(r, bool) and now < r < now + 7 * 86400: reset = max(reset, float(r))
             else: fall = now + LIMIT_WAIT
         elif e.get('type') == 'result' and e.get('is_error') and e.get('api_error_status') == 429: fall = now + LIMIT_WAIT
-    return reset or fall
+    return (reset or fall) if err else 0
 
 def step(c, model, report=None):
     f = lock(c)

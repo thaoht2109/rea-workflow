@@ -135,6 +135,7 @@ def export(info, d):
             if time.time() - os.path.getmtime(old) > PART_TTL: shutil.rmtree(old)   # bản dở của lần bị giết giữa chừng (tên do hàm này đặt)
         except OSError: pass
     os.makedirs(parent, exist_ok=True); d = tempfile.mkdtemp(prefix='.' + os.path.basename(final) + '.', suffix='.part', dir=parent)
+    um = os.umask(0); os.umask(um); os.chmod(d, 0o777 & ~um)   # mkdtemp tạo 0700: đặt lại như makedirs để báo cáo còn chia sẻ được
     try: pack = _build(info, c, d)
     except BaseException: shutil.rmtree(d, ignore_errors=True); raise
     if os.path.lexists(final): shutil.rmtree(final)
@@ -186,7 +187,7 @@ def _links(info, d):
     L = [(x, t) for x, t in (('report/evidence', 'mọi file bằng chứng (trích dẫn #L trong báo cáo)'), ('facts.jsonl', 'nguồn chân lý: mọi kết luận kèm src S/E/V và evidence'),
                               ('report/GENERATED.md', 'bảng sinh từ facts: hash, IOC, đính chính'), ('work', 'kết quả trung gian: runs/, tools/, review/'),
                               ('ghi_chu_thu_mau', 'ghi chú thu mẫu đi kèm (bản chép)'), ('MANIFEST.sha256', 'sha256 mọi file, kể cả file trong 7z'),
-                              (ZIP, f'mẫu và payload, mật khẩu {ZIP_PW}; chỉ giải nén trên máy phân tích cô lập')) if os.path.exists(os.path.join(d, x))]
+                              (ZIP, f'mẫu và payload, mật khẩu {ZIP_PW}; chỉ giải nén trên máy phân tích cô lập')) if x == 'MANIFEST.sha256' or os.path.exists(os.path.join(d, x))]   # MANIFEST ghi sau augment, luôn có
     ev = os.path.join(d, 'report', 'evidence')
     return L, (sorted(os.listdir(ev)) if os.path.isdir(ev) else [])
 

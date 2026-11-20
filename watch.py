@@ -14,7 +14,7 @@ num = lambda k, d: int(CFG.get(k, d, path=False))
 MAXS, STALL, INTERVAL, TIMEOUT, SETTLE = (num('REA_WATCH_MAX_SESSIONS', '10'), num('REA_WATCH_STALL', '3'), num('REA_WATCH_INTERVAL', '60'),
                                           num('REA_WATCH_TIMEOUT', '1800'), num('REA_WATCH_SETTLE', '10'))
 MAXT = num('REA_WATCH_MAX_TURNS', '80')   # số lượt tối đa của một phiên claude -p (một mốc phân tích)
-SOFT = num('REA_WATCH_SOFT', '5')          # số phiên liên tiếp chỉ đổi work/ (hook, công cụ, snapshot, NOTES.md) mà facts/báo cáo không đổi thì dừng
+SOFT = num('REA_WATCH_SOFT', '5')          # số phiên liên tiếp chưa ra fact mới (facts/báo cáo không đổi, kể cả khi có đổi work/; NOTES.md không tính) thì dừng
 MAXN = num('REA_WATCH_MAX_NEW', '20')     # số case mới tối đa mỗi vòng quét: thư mục giải nén nhiều file không đẻ hàng trăm case một lúc
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'

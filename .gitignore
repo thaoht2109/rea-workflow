@@ -1,3 +1,5 @@
 rea.env
 __pycache__/
 pylib/
+.claude/
+.mcp.json

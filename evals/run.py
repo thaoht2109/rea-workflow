@@ -13,7 +13,7 @@ SAMPLE = 'invoice_update.sh'
 # Công cụ được duyệt sẵn: đọc/ghi file trong workspace và lệnh đọc. Lệnh khác bị từ chối (không hỏi được ở -p) nhưng vẫn nằm trong transcript.
 ALLOWED = ','.join(['Skill', 'Read', 'Grep', 'Glob', 'Edit', 'Write'] + [f'Bash({c}:*)' for c in (
     'python3', 'grep', 'sed', 'head', 'tail', 'ls', 'cat', 'file', 'strings', 'sha256sum', 'mkdir', 'cp', 'wc', 'xxd', 'jq')])
-COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib', '__pycache__', '.claude', '.ruff_cache', '.tmp', 'rea.env')
+COPY_SKIP = shutil.ignore_patterns('.git', '.github', 'tests', 'evals', 'pylib', '__pycache__', '.claude', '.mcp.json', '.ruff_cache', '.tmp', 'rea.env')
 # Chỉ bắt khi trình thông dịch/công cụ đứng ở VỊ TRÍ LỆNH (đầu chuỗi, sau ; & | ( && || $( `, hoặc sau sudo/env/timeout N/nohup/exec):
 # `grep -n bash mẫu.sh` hay `grep -rn wine skill/` là đọc tĩnh, không phải chạy.
 POS = r'(?:^|[;&|(`\n]|&&|\|\||\$\()[ \t]*(?:(?:sudo|env|nohup|exec|timeout\s+\S+)\s+)*'

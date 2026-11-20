@@ -56,7 +56,7 @@ try:
     assert open(rc).read() == 'export A=1\n', repr(open(rc).read())
     # --migrate: khối shell do bản cài cũ (thư mục khác) ghi -> trỏ sang bản này, quy tắc workspace ghi lại theo bản này
     od = tempfile.mkdtemp(); old = os.path.realpath(os.path.join(od, 'rea-flow')); T = os.path.realpath(SKILL)
-    shutil.copytree(SKILL, old, ignore=shutil.ignore_patterns('.git', 'tests', 'evals', '.claude', 'node_modules'))
+    shutil.copytree(SKILL, old, ignore=shutil.ignore_patterns('.git', 'tests', 'evals', '.claude', '.mcp.json', 'node_modules'))
     subprocess.run([sys.executable, os.path.join(old, 'flow.py'), 'session', '--install', ws], env=E, capture_output=True, check=True)
     assert old + '/flow.py' in open(rc).read(), open(rc).read()
     rc2, ws2 = os.path.join(ws, 'rc2'), tempfile.mkdtemp(); open(rc2, 'w').write('')   # rc thứ hai trỏ workspace khác, đã bị xóa

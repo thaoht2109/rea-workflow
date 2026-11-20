@@ -226,7 +226,8 @@ def history(case):
         try: out.append(json.loads(l))
         except ValueError:
             t = l.strip()
-            if not (t.startswith('{') and not t.endswith('}')): raise ValueError(f'{p}:{i}: dòng không phải JSON (sửa tay?): {t[:80]}')
+            if not (t.startswith('{') and not t.endswith('}')):   # bắt đầu bằng { mà vẫn hỏng: có thể là dòng cụt tình cờ dừng sau một } trong chuỗi
+                raise ValueError(f'{p}:{i}: dòng không phải JSON (sửa tay?' + (' hoặc dòng cụt: xóa dòng này rồi ghi lại fact đó' if t.startswith('{') else '') + f'): {t[:80]}')
             if (p, i) not in _CUT_WARNED:
                 _CUT_WARNED.add((p, i)); print(f'CẢNH BÁO {p}:{i}: dòng fact bị cụt (tiến trình bị giết lúc ghi), bỏ qua; ghi lại fact đó nếu cần', file=sys.stderr)
     return out

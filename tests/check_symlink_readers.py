@@ -34,4 +34,19 @@ os.symlink(real, os.path.join(c, 'report', 'evidence', 'lnk.txt'))
 f = dict(id='s.x', kind='note', value='abc', src='S', evidence='report/evidence/lnk.txt', status='active', verified_by=['S'], supersedes=None, stage='', note='')
 assert any(i['check'] == 'evidence_exists' and 'symlink' in i['problem'] for i in C.lint_fact(c, f)), C.lint_fact(c, f)
 f['evidence'] = 'report/evidence/real.txt'; assert not any('symlink' in i['problem'] for i in C.lint_fact(c, f))
+# thư mục cha là symlink: vẫn fail (lint và lớp 1)
+real_d = os.path.join(c, 'realdir'); os.makedirs(real_d); open(os.path.join(real_d, 'a.txt'), 'w').write('abc\n'); os.symlink(real_d, os.path.join(c, 'report', 'evidence', 'sub'))
+f['evidence'] = 'report/evidence/sub/a.txt'; assert any('symlink' in i['problem'] for i in C.lint_fact(c, f)), C.lint_fact(c, f)
+# lớp 1 của cổng (review.mech) trên case có fact trỏ evidence là link / nằm trong thư mục link / bình thường
+import json
+for ev, bad_expected in (('report/evidence/lnk.txt', True), ('report/evidence/sub/a.txt', True), ('report/evidence/real.txt', False)):
+    open(os.path.join(c, 'facts.jsonl'), 'w').write(json.dumps(dict(f, id='s.t', evidence=ev)) + '\n')
+    items = review.mech(c); items = items[0] if isinstance(items, tuple) else items
+    hit = any(i['id'] == 's.t' and i['check'] == 'evidence_exists' and 'symlink' in i['problem'] for i in items)
+    assert hit == bad_expected, (ev, hit, items)
+# copy_nolinks in cảnh báo khi bỏ link
+import io, contextlib
+err = io.StringIO()
+with contextlib.redirect_stderr(err): reviewer.copy_nolinks(os.path.join(c, 'work', 'sample'), os.path.join(tempfile.mkdtemp(prefix='rea-ws2-'), 's'))
+assert 'CẢNH BÁO' in err.getvalue() and 'symlink' in err.getvalue(), err.getvalue()
 print('OK check_symlink_readers')

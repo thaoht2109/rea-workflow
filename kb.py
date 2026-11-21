@@ -353,20 +353,22 @@ def match(c, limit=40, header=True):
     return len(rows)
 
 def hint(c):
-    """Sau new/triage: kho chưa có hoặc chưa có workspace này (server mới, workspace mới) thì tự dựng, rồi in gợi ý.
+    """Sau new/triage: kho chưa có hoặc chưa có workspace này (server mới, workspace mới) thì tự dựng, rồi in gợi ý mẫu tương tự.
+    Playbook độc lập với kho (chỉ đọc dữ liệu tĩnh của skill và triage.json): vẫn in khi kho tắt hoặc hỏng.
     Lỗi kho không được làm hỏng triage."""
     try:
         d = kb_dir()
-        if not d: return
-        K, ws = load_kb(d), ws_of(c)
-        cs = cases(ws)
-        if cs and (K is None or not any(r.get('ws') == ws and not r.get('peer') for r in K)):   # workspace chưa có case hợp lệ thì chưa dựng (khỏi dựng lại mỗi lần)
-            print(f'kb: workspace này chưa có trong kho, đang dựng từ {len(cs)} case...', flush=True)
-            build(ws, quiet=True); print(f'kb: đã dựng {d}')
-        match(c, limit=8, header=False)
-        playbook(c, header=False)
+        if d:
+            K, ws = load_kb(d), ws_of(c)
+            cs = cases(ws)
+            if cs and (K is None or not any(r.get('ws') == ws and not r.get('peer') for r in K)):   # workspace chưa có case hợp lệ thì chưa dựng (khỏi dựng lại mỗi lần)
+                print(f'kb: workspace này chưa có trong kho, đang dựng từ {len(cs)} case...', flush=True)
+                build(ws, quiet=True); print(f'kb: đã dựng {d}')
+            match(c, limit=8, header=False)
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: bỏ qua gợi ý ({type(e).__name__}: {safe(e, 100)})')
+    try: playbook(c, header=False)
+    except Exception as e: print(f'kb: bỏ qua playbook ({type(e).__name__}: {safe(e, 100)})')
 
 def playbooks():
     """Gợi ý hướng xử lý từ winemu/playbooks.json (dữ liệu tĩnh của skill, không chứa mẫu/case). Trả [] nếu thiếu hoặc hỏng."""

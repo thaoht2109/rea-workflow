@@ -9,10 +9,10 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 # capstone: gói Python hệ thống (không có apt thì flow.py setup cài vào REA_PYLIB). DLL giả lấy tên export từ WINE_DLL_DIR (mặc định /usr/lib/x86_64-linux-gnu/wine)
 ```
 
-### Lõi Rust cho hook block (tùy chọn, nhanh hơn ~2,7 lần ở pha nhiều block)
+### Lõi Rust cho hook block (tùy chọn, nhanh hơn ~6 lần trên bài `--full` mẫu thật)
 
 Hook kiểm cờ TF chạy mỗi basic block; viết bằng Python thì chuyển ngữ cảnh C→Python mỗi block chiếm gần nửa thời gian. `rust/rea_hook` là thư viện Rust
-không phụ thuộc crate ngoài, đăng ký callback thẳng vào unicorn (Python vẫn điều phối). Build một lần: `cd rust/rea_hook && cargo build --release`.
+không phụ thuộc crate ngoài, đăng ký callback thẳng vào unicorn (Python vẫn điều phối). `flow.py setup --yes` tự dựng (cần `cargo`; apt có gói `cargo`) và chép vào `${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/`; dựng tay: `cd rust/rea_hook && cargo build --release`.
 `REA_CORE=auto` (mặc định) dùng Rust nếu có thư viện, không thì lùi về Python và cho cùng kết quả; `REA_CORE=rust` bắt buộc có Rust; `REA_CORE=py` ép Python;
 `REA_CORE_LIB` chỉ đường dẫn thư viện. Để thư viện sống qua các lần cập nhật skill, chép thư viện trong `target/release/` (`librea_hook.so` trên Linux, `.dylib` trên macOS, `rea_hook.dll` trên Windows) vào
 `${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/` (đường dẫn này được dò sau thư mục build). `flow.py doctor` cho biết đã có thư viện chưa.

@@ -299,11 +299,18 @@ def _pub_cases(p):
     cd = os.path.join(p, 'cases')
     return sorted(x for x in os.listdir(cd) if re.fullmatch(r'c[0-9a-f]{10}\.jsonl', x)) if os.path.isdir(cd) else []
 
+def _share_ids(d):
+    """Mọi mã công khai từng gán cho (ws, case): mã tính từ tập file nên có thể đổi sau kb build; ghi lại để gỡ/thay được cả bản cũ. Nằm ở kho cá nhân."""
+    return {(r.get('ws'), r['case']): set(r.get('cids', [])) for r in read_jsonl(os.path.join(d, 'share_ids.json')) if 'case' in r}
+
+def _save_share_ids(d, ids):
+    write_jsonl(os.path.join(d, 'share_ids.json'), [{'ws': k[0], 'case': k[1], 'cids': sorted(v)} for k, v in sorted(ids.items(), key=str) if v])
+
 def share_add(names):
     """Đưa case (tên trong kho cá nhân) vào kho công khai: qua cổng phản biện, làm sạch, ghi cases/<mã>.jsonl. Ghi lại thì thay bản cũ của chính case đó."""
     import review
     d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    os.makedirs(os.path.join(p, 'cases'), mode=0o700, exist_ok=True); n = 0
+    os.makedirs(os.path.join(p, 'cases'), mode=0o700, exist_ok=True); n = 0; ids = _share_ids(d)
     for nm in names:
         keys = sorted({(r.get('ws'), r['case']) for r in S0 if r['case'] == nm}, key=str)
         if not keys: print(f'  bỏ {safe(nm, 40)}: không có trong kho cá nhân (chạy kb build)'); continue
@@ -312,6 +319,9 @@ def share_add(names):
             if not ok: print(f'  bỏ {safe(nm, 40)}: {safe(why, 80)}'); continue
             rows = sanitize([r for r in S0 if (r.get('ws'), r['case']) == k]); cid = rows[0]['case']
             write_jsonl(os.path.join(p, 'cases', cid + '.jsonl'), rows); n += 1
+            for old in ids.get(k, set()) - {cid}:   # mã cũ của chính case này (tập file đổi sau build): xóa để publish không gom bản trùng
+                if re.fullmatch(r'c[0-9a-f]{10}', old) and os.path.isfile(os.path.join(p, 'cases', old + '.jsonl')): os.unlink(os.path.join(p, 'cases', old + '.jsonl'))
+            ids[k] = {cid}; _save_share_ids(d, ids)
             print(f"  đã đưa {safe(nm, 40)} -> cases/{cid}.jsonl ({sum(r.get('kind') != 'case' for r in rows)} file)")
     print(f'kb share add: {n} case -> {p}')
     return 0 if n else 1
@@ -319,15 +329,18 @@ def share_add(names):
 def share_rm(names):
     """Gỡ khỏi kho công khai theo mã (cXXXXXXXXXX) hoặc theo tên case trong kho cá nhân. Chỉ xóa file trong cases/ của kho công khai."""
     d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    by_name = {}
+    by_name, ids = {}, _share_ids(d)
     keys = sorted({(r.get('ws'), r['case']) for r in S0}, key=str)
     for k in keys:
         rows = sanitize([r for r in S0 if (r.get('ws'), r['case']) == k]); by_name.setdefault(k[1], set()).add(rows[0]['case'])
+    for k, v in ids.items(): by_name.setdefault(k[1], set()).update(v)   # cả mã đã gán trước đây
     n = 0
     for nm in names:
-        for cid in (by_name.get(nm) or ({nm} if re.fullmatch(r'c[0-9a-f]{10}', nm) else set())):
+        for cid in sorted(by_name.get(nm) or ({nm} if re.fullmatch(r'c[0-9a-f]{10}', nm) else set())):
             f = os.path.join(p, 'cases', cid + '.jsonl')
             if os.path.isfile(f): os.unlink(f); n += 1; print(f'  đã gỡ {cid}')
+        for k in [k for k in ids if k[1] == nm]: del ids[k]
+    _save_share_ids(d, ids)
     print(f'kb share rm: gỡ {n} case khỏi {p}')
     return 0 if n else 1
 

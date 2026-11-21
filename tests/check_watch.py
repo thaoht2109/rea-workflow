@@ -2,7 +2,7 @@
 """Test flow.py watch với claude giả trong PATH: nhận mẫu theo sha256 (chống trùng, chờ file đứng yên), mỗi vòng một phiên theo next,
 khóa theo case, dừng khi fact không đổi / đủ trần / hậu kiểm thấy lệnh chạy mẫu / STOPPED, chọn model.
 Chạy: python3 tests/check_watch.py"""
-import os, sys, json, glob, time, fcntl, shutil, tempfile, subprocess
+import os, sys, json, glob, time, fcntl, shutil, tempfile, subprocess, types
 
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.insert(0, SKILL); import watch   # noqa: E402
@@ -240,5 +240,20 @@ try:
     assert set(cases()) == old
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model', 'mx'], cwd=inbox, env=E0, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 2 and 'không được trùng INBOX' in r.stdout, r.stdout + r.stderr   # workspace trùng INBOX: từ chối
+    # cut_notes: NOTES.md có byte không phải UTF-8 vẫn được giữ (errors='replace'), mục mới nằm đầu; ghi lỗi thì không để lại .tmp
+    cn = os.path.join(T, 'cut_case'); os.makedirs(os.path.join(cn, 'work')); npth = os.path.join(cn, 'work', 'NOTES.md')
+    open(npth, 'wb').write(b'## cu\nghi chu \xff\xfe cu\n')
+    real_flow = watch.flow; watch.flow = lambda *a: types.SimpleNamespace(stdout='lưu ý: evidence chưa có fact: x.txt\n', stderr='', returncode=0)
+    try:
+        watch.cut_notes(cn, 3, 'hết lượt')
+        t = open(npth, encoding='utf-8').read()
+        assert t.lstrip().startswith('## Phiên 3 bị cắt') and 'x.txt' in t and 'ghi chu' in t and not os.path.exists(npth + '.tmp'), t
+        os.chmod(os.path.join(cn, 'work'), 0o500)   # thư mục không ghi được: không ném, không để lại .tmp, NOTES.md gốc còn nguyên
+        try:
+            if os.access(os.path.join(cn, 'work'), os.W_OK): print('bỏ qua ca ghi lỗi: chạy với quyền ghi mọi nơi')
+            else:
+                watch.cut_notes(cn, 4, 'lỗi'); assert not os.path.exists(npth + '.tmp') and open(npth, encoding='utf-8').read() == t
+        finally: os.chmod(os.path.join(cn, 'work'), 0o700)
+    finally: watch.flow = real_flow
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

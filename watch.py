@@ -174,7 +174,10 @@ def cut_notes(c, n, why):
                     f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nKhông thấy kết quả nào chưa ghi.\n')
             f.write('\n' + old)
         os.replace(np + '.tmp', np)
-    except (OSError, ValueError) as e: say(c, f'không ghi được NOTES.md: {e}')
+    except (OSError, ValueError) as e:
+        say(c, f'không ghi được NOTES.md: {e}')
+        try: os.remove(np + '.tmp')   # ghi dở thì bỏ file tạm, NOTES.md gốc còn nguyên
+        except OSError: pass
 
 def limit_until(out):
     """Thời điểm (epoch) hết giới hạn dùng nếu phiên kết thúc lỗi vì hạn mức của claude (result cuối is_error, kèm lỗi API 429 hoặc

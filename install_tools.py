@@ -34,6 +34,15 @@ def unicorn_ok():
     try: import unicorn; return (ver(unicorn.__version__, 3) or (0,)) >= (2, 1, 4)
     except Exception: return False
 
+def rust_ok():
+    """Lõi Rust của winemu đã có (cùng hàm dò với winemu và doctor)."""
+    wd = os.path.join(HERE, 'winemu'); sys.path.insert(0, wd)
+    try:
+        import rcore; return rcore.load_lib()[0] is not None
+    except Exception: return False
+    finally:
+        if wd in sys.path: sys.path.remove(wd)
+
 def checks():
     """(tên, đã có?, bắt buộc?, gói apt, gói pip, bước riêng, dùng cho)"""
     node = ver(out('node', '--version'))
@@ -45,6 +54,7 @@ def checks():
         ('python: py-tlsh', has_mod('tlsh'), False, [], 'py-tlsh', None, 'flow.py kb: so khớp mờ mẫu tương tự (TLSH)'),
         ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
+        ('winemu: lõi Rust', rust_ok(), False, ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
         ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
         (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), True,
@@ -79,6 +89,18 @@ def set_env(k, v):
     s = re.sub(rf'^#?\s*{k}=.*$', f'{k}={v}', s, flags=re.M) if re.search(rf'^#?\s*{k}=', s, re.M) else s.rstrip('\n') + f'\n{k}={v}\n'
     open(p, 'w', encoding='utf-8').write(s); print(f'  ghi {k}={v} vào {p}')
 
+def rust_build():
+    """Dựng lõi Rust và chép vào SHARE/lib (sống qua lần cập nhật skill). Thiếu cargo hoặc build lỗi thì bỏ qua: winemu tự dùng Python."""
+    if not shutil.which('cargo'): print('  bỏ qua lõi Rust: chưa có cargo (apt install cargo hoặc rustup); winemu dùng Python'); return
+    d = os.path.join(HERE, 'rust', 'rea_hook')
+    if subprocess.run(['cargo', 'build', '--release', '--locked'], cwd=d).returncode: print('  build lõi Rust lỗi: winemu dùng Python'); return
+    wd = os.path.join(HERE, 'winemu'); sys.path.insert(0, wd)
+    try: import rcore
+    finally: sys.path.remove(wd)
+    src = os.path.join(d, 'target', 'release', rcore.NAME); dst = os.path.join(SHARE, 'lib', rcore.NAME)
+    if not os.path.exists(src): print(f'  không thấy {src}: winemu dùng Python'); return
+    os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy2(src, dst); print(f'  đã chép lõi Rust vào {dst}')
+
 def rea_install():
     npm = shutil.which('npm')
     if not npm: raise SystemExit('cần npm (Node.js >= 22.20) để cài rea')
@@ -104,6 +126,7 @@ def main(a):
     for s in steps:
         print({'ghidra': f'  tải Ghidra {GHIDRA_VER} từ GitHub (~550 MiB, kiểm sha256) vào {SHARE}, ghi GHIDRA_INSTALL_DIR vào {CFG.FILE}',
                'node': '  Node.js >= 22.20: cài tay (https://nodejs.org hoặc nvm); apt của nhiều bản phân phối còn bản cũ',
+               'rust': f'  cargo build --release trong rust/rea_hook rồi chép thư viện vào {SHARE}/lib/ (không cần mạng, không phụ thuộc crate ngoài)',
                'rea': f'  npm install -g {REA_PKG} (prefix không ghi được thì --prefix ~/.local)'}[s])
     if not yes: print('\nChưa cài gì. Chạy lại với --yes để cài (apt cần sudo). Bỏ Ghidra: --no-ghidra.'); return 1
     if apt_pkgs:
@@ -113,6 +136,7 @@ def main(a):
     req_pip = [c[4] for c in miss if c[4] in pip_pkgs and c[2]]
     for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
+    if 'rust' in steps: rust_build()
     if 'ghidra' in steps: ghidra_install()
     node = ver(out('node', '--version'))
     if 'rea' in steps and node and node >= NODE_MIN: rea_install()
@@ -127,6 +151,15 @@ def selftest():
     set_env('GHIDRA_INSTALL_DIR', '/opt/g1'); set_env('GHIDRA_INSTALL_DIR', '/opt/g2')   # thay dòng, không thêm trùng
     s = open(CFG.FILE).read(); assert s.count('GHIDRA_INSTALL_DIR=') == 1 and 'GHIDRA_INSTALL_DIR=/opt/g2' in s, s
     C = checks(); assert all(len(c) == 7 for c in C) and any(c[2] for c in C)
+    old = {k: os.environ.get(k) for k in ('REA_CORE_LIB', 'PATH')}
+    try:   # lõi Rust là tùy chọn: thiếu thư viện thì mục THIẾU không bắt buộc; không có cargo thì rust_build bỏ qua, không lỗi
+        os.environ['REA_CORE_LIB'] = os.path.join(t, 'khong-co'); os.environ['PATH'] = t
+        r = [c for c in checks() if c[5] == 'rust']; assert len(r) == 1 and not r[0][1] and not r[0][2] and r[0][3] == ['cargo'], r
+        rust_build()
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
     shutil.rmtree(t); print('OK install_tools selftest')
 
 if __name__ == '__main__':

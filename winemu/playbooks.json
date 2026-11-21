@@ -1,0 +1,18 @@
+{
+  "_doc": "Gợi ý hướng xử lý theo dấu hiệu triage (flow.py kb playbook CASE; tự in sau new/triage). Chỉ là gợi ý, không phải fact: không chép vào evidence/báo cáo, phải tự chứng minh trên mẫu của case. $SKILL = thư mục skill. when: flags (mọi cờ phải có trong triage), blob (một file NSIS có entropy và kích thước tối thiểu).",
+  "playbooks": [
+    {
+      "id": "nsis-shellcode-loader",
+      "title": "Bộ cài NSIS chứa blob shellcode giải mã khi chạy (kiểu loader làm rối nặng, mã điều khiển luồng bằng ngoại lệ)",
+      "when": {"flags": ["NSIS"], "blob": {"min_entropy": 7.0, "min_size": 100000}},
+      "steps": [
+        "Giả lập bằng winemu theo dòng `next:` của triage (--blob/--blob-off/--size --prerun --chain-child --exe). Lõi Rust (flow.py setup dựng; doctor kiểm) rút giả lập đầy đủ từ chục phút xuống vài phút, cùng kết quả.",
+        "Đọc `python3 $SKILL/winemu/summarize.py OUT/events.jsonl`: chuỗi `argstr` (URL, UA, tên DLL) có ngay không cần biết hàm giải mã.",
+        "Cần chuỗi chưa đi qua API hoặc khóa: tìm hàm giải mã (stdcall, XOR khóa lặp) theo winemu/plugins/guloader.py, rồi chạy lại với `--plugin $SKILL/winemu/plugins/guloader.py:dec=0x...,s2=0x...,s2len=0x...`.",
+        "Khóa/định dạng payload: `--fake-dl 0x80000` cho InternetReadFile trả toàn byte 0 để lấy keystream; kết quả chỉ là giả thuyết cho tới khi có bản mã thật.",
+        "Không tải payload thật và không chạm URL tải (quy tắc OPSEC). C8-C11 không đạt vì thiếu payload thì ghi hạn chế qua `flow.py next CASE --accept Cx=lý do`, đừng viết fact coverage/persistence không có cơ sở.",
+        "Chỉ ghi vào fact phần quan sát được (nhãn kỹ thuật như hollowing, tên ký hiệu trong ntdll cần bằng chứng riêng): cổng phản biện đã bắt lỗi này."
+      ]
+    }
+  ]
+}

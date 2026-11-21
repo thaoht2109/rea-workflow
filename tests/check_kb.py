@@ -216,6 +216,20 @@ try:
     assert P == {'imphash': 'ih', 'rich': hashlib.md5(b'rich', usedforsecurity=False).hexdigest(), 'timestamp': 7, 'pdb': 'C:\\b\\x.pdb', 'pdb_guid': 'ABCD1'}, P
     R = {'signature': {'offset': 0, 'size': 16}}; triage.pe_pivots(types.SimpleNamespace(), b'\x00' * 16, R)
     assert R['pivot']['imphash'] is None and R['pivot']['rich'] is None and R['pivot'].get('certs') in (None, []), R
+    # playbook: dấu hiệu triage khớp -> in hướng xử lý; không khớp -> báo không có; không ghi gì vào case
+    pbc = os.path.join(ws, 'PB_CASE'); os.makedirs(os.path.join(pbc, 'work', 'runs', 'triage'))
+    open(os.path.join(pbc, 'facts.jsonl'), 'w').close()
+    tj = os.path.join(pbc, 'work', 'runs', 'triage', 'triage.json')
+    json.dump({'flags': ['NSIS'], 'nsis': {'files': [{'name': 'x', 'size': 200000, 'entropy': 7.4}, {'name': 'y', 'size': 300, 'entropy': 4.0}]}}, open(tj, 'w'))
+    before = os.listdir(pbc)
+    r = run('kb', 'playbook', 'PB_CASE'); assert r.returncode == 0 and 'nsis-shellcode-loader' in r.stdout and 'KHÔNG phải fact' in r.stdout, r.stdout + r.stderr
+    assert os.listdir(pbc) == before and os.path.getsize(os.path.join(pbc, 'facts.jsonl')) == 0
+    json.dump({'flags': ['NSIS'], 'nsis': {'files': [{'name': 'y', 'size': 300, 'entropy': 4.0}]}}, open(tj, 'w'))   # blob quá nhỏ/entropy thấp
+    r = run('kb', 'playbook', 'PB_CASE'); assert 'không có playbook khớp' in r.stdout, r.stdout
+    json.dump({'flags': [], 'nsis': {'files': [{'name': 'x', 'size': 200000, 'entropy': 7.4}]}}, open(tj, 'w'))   # thiếu cờ NSIS
+    assert not kb.playbook_hit({'flags': [], 'nsis': {'files': [{'size': 200000, 'entropy': 7.4}]}}, kb.playbooks()[0]['when'])
+    r = run('kb', 'playbook', 'PB_CASE'); assert 'không có playbook khớp' in r.stdout, r.stdout
+    assert all(p.get('id') and p.get('steps') and p.get('when') for p in kb.playbooks())
 finally:
     shutil.rmtree(ws, ignore_errors=True)
 print('OK check_kb')

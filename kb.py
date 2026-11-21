@@ -9,7 +9,8 @@
 # Dữ liệu chứa IOC: REA_KB mặc định ~/.cache/rea-flow/kb (XDG_CACHE_HOME; mất thì `kb build` dựng lại), không được nằm trong thư mục skill.
 #   export.jsonl.gz    `kb export` xuất bản ghi của máy này (không có mẫu) để chép sang server khác, đưa vào backup; `kb import`
 #                      nạp vào kho máy kia dưới tên nguồn (bản ghi nhập không bị dựng lại hay tự xóa; nhập lại cùng tên thì thay).
-#   flow.py kb build | match CASE | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]
+#   playbooks (winemu/playbooks.json, dữ liệu tĩnh của skill): `kb playbook CASE` in hướng xử lý khi triage khớp dấu hiệu; cũng tự in sau new/triage. Gợi ý, không phải fact.
+#   flow.py kb build | match CASE | playbook CASE | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]
 # Không cần chạy tay lần đầu: new/triage tự dựng khi kho chưa có workspace này, report --final dựng lại khi đóng case.
 # Dựng tăng dần: file không đổi (kích thước, mtime, phiên bản đặc trưng, thư viện tùy chọn) dùng lại bản ghi cũ, không đọc lại mẫu.
 import sys, os, re, json, glob, gzip, socket, datetime, collections, tempfile, importlib.util
@@ -363,8 +364,37 @@ def hint(c):
             print(f'kb: workspace này chưa có trong kho, đang dựng từ {len(cs)} case...', flush=True)
             build(ws, quiet=True); print(f'kb: đã dựng {d}')
         match(c, limit=8, header=False)
+        playbook(c, header=False)
     except SystemExit as e: print(f'kb: {e}')
     except Exception as e: print(f'kb: bỏ qua gợi ý ({type(e).__name__}: {safe(e, 100)})')
+
+def playbooks():
+    """Gợi ý hướng xử lý từ winemu/playbooks.json (dữ liệu tĩnh của skill, không chứa mẫu/case). Trả [] nếu thiếu hoặc hỏng."""
+    try: return json.load(open(os.path.join(TOOLS, 'winemu', 'playbooks.json'), encoding='utf-8')).get('playbooks', [])
+    except (OSError, ValueError): return []
+
+def playbook_hit(R, w):
+    """R: triage.json. w: điều kiện when của playbook (mọi điều kiện phải đúng)."""
+    if not set(w.get('flags', [])) <= set(R.get('flags') or []): return False
+    b = w.get('blob')
+    if b:
+        fs = (R.get('nsis') or {}).get('files') or []
+        if not any((f.get('entropy') or 0) >= b.get('min_entropy', 0) and (f.get('size') or 0) >= b.get('min_size', 0) for f in fs): return False
+    return True
+
+def playbook(c, header=True):
+    """In hướng xử lý của các playbook khớp triage của case. Gợi ý, không phải fact."""
+    found = []
+    for p in sorted(glob.glob(os.path.join(c, 'work', 'runs', 'triage*', 'triage.json'))):
+        try: R = json.load(open(p, encoding='utf-8'))
+        except (OSError, ValueError): continue
+        for pb in playbooks():
+            if pb.get('id') not in {x['id'] for x in found} and playbook_hit(R, pb.get('when', {})): found.append(pb)
+    for pb in found:
+        print(f"kb playbook [{safe(pb.get('id'), 40)}] {safe(pb.get('title'), 160)} (gợi ý, KHÔNG phải fact; tự chứng minh lại trên mẫu này):")
+        for i, st in enumerate(pb.get('steps', []), 1): print(f'  {i}. {safe(st, 400)}')
+    if header and not found: print('kb playbook: không có playbook khớp triage của case này')
+    return found
 
 def refresh(c):
     """Sau report --final: dựng lại kho để case vừa đóng vào dữ liệu tra chéo và thống kê đính chính."""
@@ -413,10 +443,11 @@ def main(a):
     if a[:1] == ['build']: return build()
     if a[:1] == ['tools']: return tools()
     if a[:1] == ['match'] and len(a) > 1: match(a[1]); return 0
+    if a[:1] == ['playbook'] and len(a) > 1: playbook(a[1]); return 0
     if a[:1] == ['corrections']: return stats(a[a.index('--since') + 1] if '--since' in a else '', '--all' in a)
     nm = a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None
     if a[:1] == ['export'] and len(a) > 1: return export(a[1], nm)
     if a[:1] == ['import'] and len(a) > 1: return import_(a[1], nm)
-    print('flow.py kb build | match CASE | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
+    print('flow.py kb build | match CASE | playbook CASE | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
 
 if __name__ == '__main__': sys.exit(main(sys.argv[1:]))

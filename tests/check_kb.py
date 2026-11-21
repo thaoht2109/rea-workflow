@@ -88,13 +88,21 @@ try:
     finally: shutil.rmtree(ws2, ignore_errors=True); shutil.rmtree(empty, ignore_errors=True)
     r = subprocess.run([sys.executable, os.path.join(T, 'reacfg.py')], capture_output=True, text=True, cwd=T, env=dict(env, REA_KB='off'))
     assert any('REA_KB' in l and l.startswith('OK') and 'tắt' in l for l in r.stdout.splitlines()), r.stdout
-    # 4c. mặc định: cache của người dùng, không phụ thuộc cwd; thư mục không ghi được thì báo rõ, không traceback
+    # 4c. mặc định: thư mục dữ liệu của người dùng (XDG_DATA_HOME), không phụ thuộc cwd; bản cũ ở cache vẫn dùng nếu bản mới chưa có; thư mục không ghi được thì báo rõ, không traceback
     cache = tempfile.mkdtemp(prefix='rea-kbc-'); e0 = {k: v for k, v in env.items() if k != 'REA_KB'}
     try:
         for cwd in (ws, T):
             r = subprocess.run([sys.executable, '-c', 'import reacfg; print(reacfg.KB)'], capture_output=True, text=True, cwd=cwd,
-                               env=dict(e0, XDG_CACHE_HOME=cache, REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
+                               env=dict(e0, XDG_DATA_HOME=cache, XDG_CACHE_HOME=os.path.join(cache, 'c'), REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
             assert r.stdout.strip() == os.path.join(cache, 'rea-flow', 'kb'), r.stdout + r.stderr
+        os.makedirs(os.path.join(cache, 'c', 'rea-flow', 'kb'))   # chỉ có bản cũ ở cache: dùng bản cũ; có cả hai: bản mới
+        r = subprocess.run([sys.executable, '-c', 'import reacfg; print(reacfg.KB)'], capture_output=True, text=True, cwd=T,
+                           env=dict(e0, XDG_DATA_HOME=cache, XDG_CACHE_HOME=os.path.join(cache, 'c'), REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
+        assert r.stdout.strip() == os.path.join(cache, 'c', 'rea-flow', 'kb'), r.stdout + r.stderr
+        os.makedirs(os.path.join(cache, 'rea-flow', 'kb'))
+        r = subprocess.run([sys.executable, '-c', 'import reacfg; print(reacfg.KB)'], capture_output=True, text=True, cwd=T,
+                           env=dict(e0, XDG_DATA_HOME=cache, XDG_CACHE_HOME=os.path.join(cache, 'c'), REA_ENV=os.path.join(cache, 'none.env'), PYTHONPATH=T))
+        assert r.stdout.strip() == os.path.join(cache, 'rea-flow', 'kb'), r.stdout + r.stderr
         ro = os.path.join(cache, 'ro'); os.makedirs(ro); os.chmod(ro, 0o500)
         r = run('kb', 'build', env=dict(env, REA_KB=os.path.join(ro, 'kb')))
         if os.geteuid() != 0: assert r.returncode and 'không ghi được kho' in r.stderr and 'Traceback' not in r.stderr, r.stderr

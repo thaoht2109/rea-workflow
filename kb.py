@@ -370,10 +370,10 @@ def _fetch(src, limit):
 
 def update(src=None):
     """Nạp bản phát hành do người khác công bố: tải manifest.json, tải file dữ liệu cạnh nó, KIỂM sha256/kích thước khớp manifest rồi nhập dưới tên nguồn
-    (upstream). src mặc định REA_KB_UPSTREAM (URL hoặc đường dẫn manifest.json). Chỉ là gợi ý: nhập qua import_ nên mọi trường qua norm."""
+    (upstream). src mặc định REA_KB_UPSTREAM (có giá trị mặc định công khai; URL hoặc đường dẫn manifest.json). Chỉ là gợi ý: nhập qua import_ nên mọi trường qua norm."""
     import hashlib
-    src = src or CFG.get('REA_KB_UPSTREAM', '', False)
-    if not src: raise SystemExit('chưa có nguồn: kb update <URL|đường dẫn manifest.json> hoặc đặt REA_KB_UPSTREAM')
+    src = src or CFG.KB_UPSTREAM
+    if not src or src.lower() in ('off', '0', 'none', 'no'): raise SystemExit('chưa có nguồn: kb update <URL|đường dẫn manifest.json> hoặc đặt REA_KB_UPSTREAM')
     try: man = json.loads(_fetch(src, 1 << 16))
     except ValueError: raise SystemExit('manifest.json không hợp lệ')
     if not (isinstance(man, dict) and man.get('kind') == MANIFEST_KIND and isinstance(man.get('ver'), int) and man['ver'] <= EXPORT_VER

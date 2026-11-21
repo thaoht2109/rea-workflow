@@ -19,7 +19,7 @@
 
 rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
 
-> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, `~/.cache/rea-flow`). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
+> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, gồm cả kho tri thức). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
 
 ## Tính năng
 
@@ -211,7 +211,8 @@ mkdir -p ~/.config/rea-flow && cp $SKILL/rea.env.example ~/.config/rea-flow/rea.
 | `JAVA_HOME` | trống (dùng `java` trên `PATH`) | JDK 21 cho Ghidra |
 | `REA_TMP` | `.tmp` | thư mục tạm; đặt trên đĩa thật nếu `/tmp` nhỏ |
 | `REVIEW_LLM`, `REVIEW_MODEL` | `auto`, trống | LLM dùng để phản biện |
-| `REA_KB` | `~/.cache/rea-flow/kb` | kho tra chéo; `off` để tắt |
+| `REA_KB` | `~/.local/share/rea-flow/kb` | kho tra chéo cá nhân (không đặt cũng chạy trên mọi máy; bản cũ ở `~/.cache/rea-flow/kb` vẫn được dùng nếu chưa có bản mới); `off` để tắt |
+| `REA_KB_UPSTREAM` | nguồn công khai của skill | nơi `flow.py setup --yes` và `kb update` kéo kho đã công bố; `off` để không kéo |
 
 File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhật. Biến môi trường cùng tên được ưu tiên hơn file. Danh sách đầy đủ có giải thích nằm trong [`rea.env.example`](rea.env.example).
 

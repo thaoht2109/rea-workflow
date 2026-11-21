@@ -43,6 +43,26 @@ def rust_ok():
     finally:
         if wd in sys.path: sys.path.remove(wd)
 
+def kb_ready():
+    """Kho tra chéo đã có dữ liệu, hoặc cố ý tắt (REA_KB=off) / không có nguồn để kéo."""
+    try:
+        import kb; d = kb.kb_dir()
+    except BaseException: return True   # kho đặt sai chỗ: để doctor báo, không phải việc của setup
+    return d is None or os.path.exists(os.path.join(d, 'samples.jsonl'))
+
+def kb_install():
+    """Tạo thư mục kho và kéo bản đã công bố (kb update: https, kiểm sha256). Tùy chọn: mất mạng, chưa có bản phát hành, REA_KB_UPSTREAM=off
+    chỉ in cảnh báo, không chặn cài công cụ khác."""
+    try:
+        import kb; d = kb.kb_dir()
+        if not d: return
+        kb.writable(d); print(f'  kho tri thức: {d}')
+        if (CFG.KB_UPSTREAM or '').lower() in ('', 'off', '0', 'none', 'no'): print('  REA_KB_UPSTREAM=off: không kéo kho đã công bố'); return
+        kb.update()
+    except BaseException as e:
+        if isinstance(e, KeyboardInterrupt): raise
+        print(f'  bỏ qua kéo kho đã công bố: {e if isinstance(e, SystemExit) else type(e).__name__ + ": " + str(e)} (chạy lại sau: flow.py kb update)')
+
 def checks():
     """(tên, đã có?, bắt buộc?, gói apt, gói pip, bước riêng, dùng cho)"""
     node = ver(out('node', '--version'))
@@ -55,6 +75,7 @@ def checks():
         ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
         ('winemu: lõi Rust', rust_ok(), False, [] if shutil.which('cargo') else ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
+        ('kho tri thức (kb)', kb_ready(), False, [], None, 'kb', 'flow.py kb: gợi ý từ mẫu đã phân tích; kéo kho đã công bố (tùy chọn: thiếu thì chỉ không có gợi ý chéo)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
         ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
         (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), True,
@@ -136,6 +157,7 @@ def main(a):
         print({'ghidra': f'  tải Ghidra {GHIDRA_VER} từ GitHub (~550 MiB, kiểm sha256) vào {SHARE}, ghi GHIDRA_INSTALL_DIR vào {CFG.FILE}',
                'node': '  Node.js >= 22.20: cài tay (https://nodejs.org hoặc nvm); apt của nhiều bản phân phối còn bản cũ',
                'rust': f'  cargo build --release trong rust/rea_hook rồi chép thư viện vào {SHARE}/lib/ (không cần mạng, không phụ thuộc crate ngoài)',
+               'kb': f'  tạo kho tri thức ({CFG.KB}) và kéo bản đã công bố từ {CFG.KB_UPSTREAM} (https, kiểm sha256; lỗi thì bỏ qua)',
                'rea': f'  npm install -g {REA_PKG} (prefix không ghi được thì --prefix ~/.local)'}[s])
     if not yes: print('\nChưa cài gì. Chạy lại với --yes để cài (apt cần sudo). Bỏ Ghidra: --no-ghidra.'); return 1
     if apt_pkgs:
@@ -146,6 +168,7 @@ def main(a):
     for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
     if 'rust' in steps: rust_build()
+    if 'kb' in steps: kb_install()
     if 'ghidra' in steps: ghidra_install()
     node = ver(out('node', '--version'))
     if 'rea' in steps and node and node >= NODE_MIN: rea_install()

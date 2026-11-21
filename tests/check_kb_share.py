@@ -64,7 +64,7 @@ try:
     mp = os.path.join(out, 'manifest.json')
     assert kb.update(mp) == 0
     S2 = kb.read_jsonl(os.path.join(kb.kb_dir(), 'samples.jsonl'))
-    assert S2 and all(r.get('peer') == 'nguon-test' for r in S2) and {r.get('imphash', '') for r in S2} is not None, S2
+    assert S2 and all(r.get('peer') == 'nguon-test' for r in S2), S2
     # sha256 sai: không nhập
     bad = dict(man, sha256='0' * 64); os.makedirs(os.path.join(other, 'bad')); shutil.copy(os.path.join(out, man['file']), os.path.join(other, 'bad', man['file']))
     json.dump(bad, open(os.path.join(other, 'bad', 'manifest.json'), 'w'))
@@ -73,8 +73,16 @@ try:
     evil = dict(man, file='../x'); json.dump(evil, open(os.path.join(other, 'bad', 'manifest.json'), 'w'))
     assert 'manifest không đúng dạng' in (die(lambda: kb.update(os.path.join(other, 'bad', 'manifest.json'))) or '')
     assert 'chỉ nhận https' in (die(lambda: kb.update('http://example.invalid/manifest.json')) or '')
-    os.environ.pop('REA_KB_UPSTREAM', None)
+    kb.CFG.KB_UPSTREAM = 'off'
     assert 'chưa có nguồn' in (die(lambda: kb.update()) or '')
+    # setup: kho chưa có -> kb_ready False; kb_install tạo kho và kéo từ nguồn mặc định; nguồn hỏng/off không làm lỗi
+    import install_tools as it
+    kb.CFG.KB = os.path.join(other, 'kb3'); assert not it.kb_ready()
+    kb.CFG.KB_UPSTREAM = os.path.join(other, 'khong-co', 'manifest.json'); it.kb_install()   # nguồn hỏng: chỉ cảnh báo
+    assert not it.kb_ready() and os.path.isdir(kb.CFG.KB)
+    kb.CFG.KB_UPSTREAM = mp; it.kb_install(); assert it.kb_ready()
+    assert any(r.get('peer') == 'nguon-test' for r in kb.read_jsonl(os.path.join(kb.CFG.KB, 'samples.jsonl')))
+    kb.CFG.KB = 'off'; assert it.kb_ready()   # tắt kho: không cần kéo
 finally:
     shutil.rmtree(ws, ignore_errors=True); shutil.rmtree(other, ignore_errors=True)
 print('OK check_kb_share')

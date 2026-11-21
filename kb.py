@@ -363,7 +363,7 @@ def _fetch(src, limit):
     if not re.match(r'[a-z][a-z0-9+.-]*://', src, re.I): src = 'file://' + os.path.abspath(src)
     if not re.match(r'(https|file)://', src, re.I): raise SystemExit(f'{safe(src, 100)}: chỉ nhận https://, file:// hoặc đường dẫn')
     try:
-        with urllib.request.urlopen(src, timeout=30) as r: b = r.read(limit + 1)
+        with urllib.request.urlopen(src, timeout=30) as r: b = r.read(limit + 1)   # nosec B310: scheme đã giới hạn ở https/file ngay phía trên
     except (OSError, ValueError) as e: raise SystemExit(f'không tải được {safe(src, 100)}: {type(e).__name__}: {safe(e, 100)}')
     if len(b) > limit: raise SystemExit(f'{safe(src, 100)}: lớn hơn {limit >> 20} MiB, dừng')
     return b

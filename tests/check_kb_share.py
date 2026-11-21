@@ -58,13 +58,21 @@ try:
     assert kb.share_rm(['CASE_B']) == 0 and not kb._pub_cases(pub) and kb.share_rm([cid]) == 1
     os.environ['REA_KB_PUBLIC'] = pub
     review.gate = lambda c: (True, '')
-    assert kb.share_add(['CASE_B']) == 0; review.gate = real; assert len(kb._pub_cases(pub)) == 1
+    assert kb.share_add(['CASE_B']) == 0; assert len(kb._pub_cases(pub)) == 1; c0 = kb._pub_cases(pub)
+    # mã công khai ổn định: case có thêm file (đứng trước work/sample theo thứ tự chữ cái) vẫn ra cùng mã, share add thay bản cũ, share rm theo tên gỡ được
+    os.makedirs(os.path.join(ws, 'CASE_B', 'work', 'aaa')); xp = os.path.join(ws, 'CASE_B', 'work', 'aaa', 'x.bin'); open(xp, 'wb').write(b'extra-payload\x00' * 90)
+    os.makedirs(os.path.join(ws, 'CASE_B', 'work', 'runs', 'triage_1')); json.dump({'path': xp}, open(os.path.join(ws, 'CASE_B', 'work', 'runs', 'triage_1', 'triage.json'), 'w'))
+    kb.build(ws, quiet=True); assert kb.share_add(['CASE_B']) == 0 and kb._pub_cases(pub) == c0, (kb._pub_cases(pub), c0)
+    assert sum(r.get('kind') != 'case' for r in kb.read_jsonl(os.path.join(pub, 'cases', c0[0]))) == 2
+    m = json.load(open(os.path.join(kb.kb_dir(), 'share_ids.json'))); assert c0[0][:-6] in m.values() and not any(c0[0][1:-6] in hashlib.sha256(x.encode()).hexdigest() for x in m)
+    assert kb.share_rm(['CASE_B']) == 0 and not kb._pub_cases(pub); assert kb.share_add(['CASE_B']) == 0 and kb._pub_cases(pub) == c0
+    review.gate = real
     # update: nhập vào kho khác dưới nhãn upstream; kiểm sha256
     os.environ['REA_KB'] = os.path.join(other, 'kb2'); import reacfg; reacfg.KB = os.environ['REA_KB']; kb.CFG.KB = reacfg.KB
     mp = os.path.join(out, 'manifest.json')
     assert kb.update(mp) == 0
     S2 = kb.read_jsonl(os.path.join(kb.kb_dir(), 'samples.jsonl'))
-    assert S2 and all(r.get('peer') == 'nguon-test' for r in S2), S2
+    assert S2 and all(r.get('peer') == 'upstream' for r in S2), S2
     # sha256 sai: không nhập
     bad = dict(man, sha256='0' * 64); os.makedirs(os.path.join(other, 'bad')); shutil.copy(os.path.join(out, man['file']), os.path.join(other, 'bad', man['file']))
     json.dump(bad, open(os.path.join(other, 'bad', 'manifest.json'), 'w'))
@@ -81,7 +89,7 @@ try:
     kb.CFG.KB_UPSTREAM = os.path.join(other, 'khong-co', 'manifest.json'); it.kb_install()   # nguồn hỏng: chỉ cảnh báo
     assert not it.kb_ready() and os.path.isdir(kb.CFG.KB)
     kb.CFG.KB_UPSTREAM = mp; it.kb_install(); assert it.kb_ready()
-    assert any(r.get('peer') == 'nguon-test' for r in kb.read_jsonl(os.path.join(kb.CFG.KB, 'samples.jsonl')))
+    assert any(r.get('peer') == 'upstream' for r in kb.read_jsonl(os.path.join(kb.CFG.KB, 'samples.jsonl')))
     kb.CFG.KB = 'off'; assert it.kb_ready()   # tắt kho: không cần kéo
 finally:
     shutil.rmtree(ws, ignore_errors=True); shutil.rmtree(other, ignore_errors=True)

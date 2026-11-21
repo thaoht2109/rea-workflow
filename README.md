@@ -36,6 +36,19 @@ rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub C
 
 **Định dạng hỗ trợ:** PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK.
 
+## Hiệu suất
+
+Giả lập CPU là bước chậm nhất. Hook kiểm cờ TF chạy ở mỗi basic block; chuyển ngữ cảnh C→Python mỗi block chiếm phần lớn thời gian, nên phần nóng này được viết bằng Rust (Python vẫn điều phối).
+
+| Phép đo (một mẫu loader thật, giả lập Windows x86-32) | Python | Rust | Tăng tốc |
+| --- | --- | --- | --- |
+| Bài `--full` đầy đủ | 28 phút 8 giây | 4 phút 35 giây | ~6,1 lần |
+| Cùng mốc dừng ngắn (55 giây đầu của bản Python gốc) | 55,5 giây | 12,3 giây | ~4,5 lần |
+
+- Kết quả giống hệt từng byte: `events.jsonl` (145 dòng) và các bản dump giữa chừng chỉ khác trường `seconds`.
+- `REA_CORE=auto` (mặc định) dùng Rust nếu có thư viện, không thì tự lùi về Python, cùng kết quả. `flow.py doctor` báo đã có lõi Rust hay chưa.
+- Phạm vi: chỉ hook block của winemu, đo trên một mẫu họ GuLoader, mỗi lần chạy tuần tự trong thư mục riêng. Số đo trên mẫu khác có thể lệch; quét/giải mã hàng loạt chưa chuyển sang Rust.
+
 ## Cách hoạt động
 
 ```text

@@ -173,7 +173,7 @@ def selftest():
         try: import rcore
         finally: sys.path.remove(wd)
         fb = os.path.join(t, 'bin'); os.makedirs(fb); cd = os.path.join(t, 'crate'); os.makedirs(cd)
-        open(os.path.join(fb, 'cargo'), 'w').write(f'#!/bin/sh\nmkdir -p target/release && echo moi > target/release/{rcore.NAME}\n'); os.chmod(os.path.join(fb, 'cargo'), 0o755)
+        open(os.path.join(fb, 'cargo'), 'w').write(f'#!/bin/sh\nmkdir -p target/release && echo moi > target/release/{rcore.NAME}\n'); os.chmod(os.path.join(fb, 'cargo'), 0o700)
         SHARE = os.path.join(t, 'share'); os.environ['PATH'] = fb + ':' + old['PATH']
         os.makedirs(os.path.join(SHARE, 'lib')); open(os.path.join(SHARE, 'lib', rcore.NAME), 'w').write('cu')
         rust_build(cd)

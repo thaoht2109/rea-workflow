@@ -230,6 +230,11 @@ try:
     assert not kb.playbook_hit({'flags': [], 'nsis': {'files': [{'size': 200000, 'entropy': 7.4}]}}, kb.playbooks()[0]['when'])
     r = run('kb', 'playbook', 'PB_CASE'); assert 'không có playbook khớp' in r.stdout, r.stdout
     assert all(p.get('id') and p.get('steps') and p.get('when') for p in kb.playbooks())
+    # hint (tự in sau new/triage): playbook không phụ thuộc kho; REA_KB=off hoặc kho nằm trong thư mục skill vẫn in
+    json.dump({'flags': ['NSIS'], 'nsis': {'files': [{'name': 'x', 'size': 200000, 'entropy': 7.4}]}}, open(tj, 'w'))
+    for kbv in ('off', os.path.join(T, 'kbstore_in_skill')):
+        r = subprocess.run([sys.executable, '-c', 'import sys; sys.path[:0]=[%r]; import kb; kb.hint(%r)' % (T, pbc)], capture_output=True, text=True, env=dict(env, REA_KB=kbv))
+        assert r.returncode == 0 and 'nsis-shellcode-loader' in r.stdout, (kbv, r.stdout, r.stderr)
 finally:
     shutil.rmtree(ws, ignore_errors=True)
 print('OK check_kb')

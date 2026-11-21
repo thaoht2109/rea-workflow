@@ -238,7 +238,7 @@ def step(c, model, report=None):
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, CMD   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
+from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, cmd_targets   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -299,11 +299,8 @@ def note_of(p):
            and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
     for q in sib:
         if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
-    L = t.splitlines()
-    first = next((x for x in L if x.strip()), '')   # ghi chú thật mở đầu bằng dòng lệnh hoặc tiêu đề `#`, và ngắn; file text dài chỉ chứa một dòng như vậy giữa nội dung vẫn là mẫu
-    for ln in L if len(t) <= 8192 and (CMD.match(first) or first.lstrip().startswith('#')) else ():
-        m = CMD.match(ln)
-        if m and any(os.path.basename(m[1]) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(m[1])}'
+    for g in cmd_targets(t):   # cùng hàm với export.collect: file ngắn, mở đầu bằng dòng lệnh/tiêu đề `#`
+        if any(os.path.basename(g) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(g)}'
     if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
     for q in sib:
         try:

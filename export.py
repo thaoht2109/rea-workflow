@@ -24,6 +24,15 @@ SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|I
 SUMLINE = re.compile(r'(?m)^[0-9a-fA-F]{64}[ \t]+\*?\S')   # dòng của danh sách sha256sum
 HDR_KV = re.compile(r'([\w.-]+)=(.*?)(?=\s+[\w.-]+=|$)')
 CMD = re.compile(r'^\$\s+\S+(?:\s+-\S+)*\s+(\S+)\s*$')
+CMD_MAX = 8192
+
+def cmd_targets(t):
+    """Đường dẫn đích của các dòng lệnh thu mẫu `$ lệnh <file>` trong ghi chú t, MỘT tiêu chí cho watch.note_of (nhận ghi chú) và export.collect (gom ghi chú):
+    chỉ tính khi file ngắn (<= CMD_MAX) và dòng không rỗng đầu tiên là dòng lệnh hoặc tiêu đề `#`. Ngược lại trả [] (file text dài, hoặc dòng lệnh nằm giữa
+    nội dung, vẫn là mẫu)."""
+    L = t.splitlines(); first = next((x for x in L if x.strip()), '')
+    if len(t) > CMD_MAX or not (CMD.match(first) or first.lstrip().startswith('#')): return []
+    return [m[1] for m in map(CMD.match, L) if m]
 HEX64 = re.compile(r'\b([0-9a-f]{64})\b')
 HEAD = 'Dữ liệu phân tích của mẫu '   # dòng đầu README.txt; watch.reported() đọc "(sha256 <hex>)" ở dòng này
 PART_TTL = 6 * 3600   # thư mục tạm .part cũ hơn chừng này (lần xuất bị giết) thì dọn
@@ -112,7 +121,7 @@ def collect(c, st=None):
             if SUMS.search(base):
                 ls = [ln for ln in t.splitlines() if h in ln or any(s and s in ln for _, s in stems)]
                 if ls: sums.append((p, ls))
-            elif h in t or any(os.path.dirname(p) == d and base.startswith(s + '.') for d, s in stems) or any(os.path.dirname(p) == os.path.dirname(x) and os.path.basename(m[1]) == os.path.basename(x) for ln in t.splitlines() if (m := CMD.match(ln)) for x in [src] + aliases):   # cùng tiêu chí watch.note_of: dòng `$ lệnh <mẫu>` và mẫu CÙNG THƯ MỤC với ghi chú
+            elif h in t or any(os.path.dirname(p) == d and base.startswith(s + '.') for d, s in stems) or any(os.path.dirname(p) == os.path.dirname(x) and os.path.basename(g) == os.path.basename(x) for g in cmd_targets(t) for x in [src] + aliases):   # cùng tiêu chí watch.note_of: dòng `$ lệnh <mẫu>` và mẫu CÙNG THƯ MỤC với ghi chú
                 notes.append(dict(parse_note(t, h), file=p))
     return {'name': os.path.basename(src), 'src': src, 'inbox': inbox, 'sha256': h, 'size': size, 'ftype': ftype,
             'aliases': aliases, 'notes': notes, 'sums': sums, 'case': c}

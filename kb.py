@@ -279,11 +279,15 @@ def sanitize(S):
     """Bản ghi chia sẻ: chỉ trường đặc trưng của mẫu/IOC, không có đường dẫn máy, tên case, thời gian chạy, đính chính. Tên case thay bằng mã không đảo ngược
     được (sha256 của mẫu đầu tiên hoặc của tập hash), nên tên khách hàng/vụ việc không lộ qua tên thư mục case."""
     import hashlib
-    key = {}
+    key, samp = {}, {}
     for r in S:
         k = (r.get('ws'), r['case'])
-        if r.get('kind') != 'case' and r.get('sha256'): key.setdefault(k, r['sha256'])
+        if r.get('kind') != 'case' and r.get('sha256'):
+            # khóa không phụ thuộc thứ tự file: ưu tiên mẫu gốc (work/sample), sha256 nhỏ nhất; payload triage thêm sau không làm đổi mã
+            d = samp if str(r.get('file', '')).replace(os.sep, '/').startswith('work/sample/') else key
+            d[k] = min(d.get(k, r['sha256']), r['sha256'])
         elif r.get('kind') == 'case' and r.get('hashes'): key.setdefault(k, sorted(r['hashes'])[0])
+    key.update(samp)
     out = []
     for r in S:
         cid = 'c' + hashlib.sha256(key.get((r.get('ws'), r['case']), r['case']).encode()).hexdigest()[:10]

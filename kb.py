@@ -266,11 +266,14 @@ def import_(path, name=None):
 SHARE_KEEP = ('sha256', 'type', 'size', 'imp_n', 'exports', 'sec_md5', 'certs', 'signer', 'imphash', 'rich', 'pdb', 'pdb_guid', 'build_id', 'impfuncs_md5', 'tlsh', 'pv')
 MANIFEST_KIND, MAX_PUBLISH_DL = 'rea-kb-manifest', 64 << 20
 
-def share_ids(d):
-    """Case được phép công khai: mỗi dòng của <kho>/share.txt (bỏ dòng trống và dòng bắt đầu bằng #). Mặc định không case nào."""
-    p = os.path.join(d, 'share.txt')
-    if not os.path.isfile(p): return set()
-    return {l.strip() for l in open(p, encoding='utf-8') if l.strip() and not l.lstrip().startswith('#')}
+def pub_dir():
+    """Kho CÔNG KHAI (có thể phát hành): chỉ chứa bản ghi đã làm sạch do `kb share add` đưa vào, mỗi case một file cases/<mã>.jsonl. Tách khỏi kho cá nhân
+    (REA_KB, đầy đủ, không rời máy). Mặc định <kho cá nhân>-public; đặt REA_KB_PUBLIC để đổi. Phải nằm ngoài thư mục skill."""
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không có kho')
+    p = os.path.realpath(CFG.get('REA_KB_PUBLIC') or d + '-public')
+    if p == d or p.startswith(d + os.sep) or d.startswith(p + os.sep): raise SystemExit(f'kho công khai {p} không được trùng hoặc lồng với kho cá nhân {d}')
+    outside_skill(p); return p
 
 def sanitize(S):
     """Bản ghi chia sẻ: chỉ trường đặc trưng của mẫu/IOC, không có đường dẫn máy, tên case, thời gian chạy, đính chính. Tên case thay bằng mã không đảo ngược
@@ -288,23 +291,59 @@ def sanitize(S):
         else: out.append(dict({k: r[k] for k in SHARE_KEEP if r.get(k) is not None}, case=cid, file=r['sha256'][:12]))
     return out
 
-def publish(outdir, name=None, cases=None):
-    """Sinh bản phát hành từ kho của máy này: chỉ case được phép (share.txt hoặc --cases) VÀ đã qua cổng phản biện; ra rea-kb-<ngày>.jsonl.gz + manifest.json."""
-    import hashlib, review
-    d = kb_dir()
-    if not d: raise SystemExit('REA_KB=off: không có kho để phát hành')
-    outside_skill(outdir); name = clean_name(name or 'upstream') or 'upstream'
-    allow = set(cases or []) or share_ids(d)
-    if not allow: raise SystemExit(f'chưa chọn case nào: ghi tên case (mỗi dòng một tên) vào {os.path.join(d, "share.txt")} hoặc dùng --cases A,B. Mặc định không công khai case nào')
-    S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    ok, skip = set(), []
-    for k in sorted({(r.get('ws'), r['case']) for r in S0 if r['case'] in allow}, key=str):
-        g = review.gate(os.path.join(k[0] or '', k[1]))
-        (ok.add(k) if g[0] else skip.append(f'{safe(k[1], 40)}: {safe(g[1], 80)}'))
-    S = sanitize([r for r in S0 if (r.get('ws'), r['case']) in ok])
-    miss = sorted(allow - {r['case'] for r in S0})
-    for x in miss: skip.append(f'{safe(x, 40)}: không có trong kho')
-    if not S: raise SystemExit('không có case nào đủ điều kiện:\n  ' + '\n  '.join(skip))
+def _pub_cases(p):
+    cd = os.path.join(p, 'cases')
+    return sorted(x for x in os.listdir(cd) if re.fullmatch(r'c[0-9a-f]{10}\.jsonl', x)) if os.path.isdir(cd) else []
+
+def share_add(names):
+    """Đưa case (tên trong kho cá nhân) vào kho công khai: qua cổng phản biện, làm sạch, ghi cases/<mã>.jsonl. Ghi lại thì thay bản cũ của chính case đó."""
+    import review
+    d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    os.makedirs(os.path.join(p, 'cases'), mode=0o700, exist_ok=True); n = 0
+    for nm in names:
+        keys = sorted({(r.get('ws'), r['case']) for r in S0 if r['case'] == nm}, key=str)
+        if not keys: print(f'  bỏ {safe(nm, 40)}: không có trong kho cá nhân (chạy kb build)'); continue
+        for k in keys:
+            ok, why = review.gate(os.path.join(k[0] or '', k[1]))
+            if not ok: print(f'  bỏ {safe(nm, 40)}: {safe(why, 80)}'); continue
+            rows = sanitize([r for r in S0 if (r.get('ws'), r['case']) == k]); cid = rows[0]['case']
+            write_jsonl(os.path.join(p, 'cases', cid + '.jsonl'), rows); n += 1
+            print(f"  đã đưa {safe(nm, 40)} -> cases/{cid}.jsonl ({sum(r.get('kind') != 'case' for r in rows)} file)")
+    print(f'kb share add: {n} case -> {p}')
+    return 0 if n else 1
+
+def share_rm(names):
+    """Gỡ khỏi kho công khai theo mã (cXXXXXXXXXX) hoặc theo tên case trong kho cá nhân. Chỉ xóa file trong cases/ của kho công khai."""
+    d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    by_name = {}
+    keys = sorted({(r.get('ws'), r['case']) for r in S0}, key=str)
+    for k in keys:
+        rows = sanitize([r for r in S0 if (r.get('ws'), r['case']) == k]); by_name.setdefault(k[1], set()).add(rows[0]['case'])
+    n = 0
+    for nm in names:
+        for cid in (by_name.get(nm) or ({nm} if re.fullmatch(r'c[0-9a-f]{10}', nm) else set())):
+            f = os.path.join(p, 'cases', cid + '.jsonl')
+            if os.path.isfile(f): os.unlink(f); n += 1; print(f'  đã gỡ {cid}')
+    print(f'kb share rm: gỡ {n} case khỏi {p}')
+    return 0 if n else 1
+
+def share_list():
+    p = pub_dir(); cs = _pub_cases(p)
+    print(f'kho công khai {p}: {len(cs)} case')
+    for x in cs:
+        rows = read_jsonl(os.path.join(p, 'cases', x)); print(f"  {x[:-6]}  {sum(r.get('kind') != 'case' for r in rows)} file")
+    return 0
+
+def publish(outdir=None, name=None):
+    """Sinh bản phát hành CHỈ từ kho công khai (không đọc kho cá nhân): rea-kb-<ngày>.jsonl.gz + manifest.json. Mọi dòng qua norm (allowlist trường)."""
+    import hashlib
+    p = pub_dir(); outdir = outdir or os.path.join(p, 'dist'); outside_skill(outdir); name = clean_name(name or 'upstream') or 'upstream'
+    S = []
+    for x in _pub_cases(p):
+        for r in read_jsonl(os.path.join(p, 'cases', x)):
+            y = norm(r, 's')
+            if y is not None: S.append(y)
+    if not S: raise SystemExit(f'kho công khai {p} trống: kb share add CASE trước')
     os.makedirs(outdir, exist_ok=True)
     fn = f"rea-kb-{datetime.date.today():%Y%m%d}.jsonl.gz"; path = os.path.join(outdir, fn)
     write_export(path, name, S, [])
@@ -313,8 +352,8 @@ def publish(outdir, name=None, cases=None):
            'sha256': hashlib.sha256(blob).hexdigest(), 'size': len(blob), 'files': sum(r.get('kind') != 'case' for r in S),
            'cases': sum(r.get('kind') == 'case' for r in S)}
     open(os.path.join(outdir, 'manifest.json'), 'w', encoding='utf-8').write(json.dumps(man, ensure_ascii=False, indent=1) + '\n')
-    print(f"kb publish {name}: {man['files']} file, {man['cases']} case -> {path} (+ manifest.json)" + ''.join(f'\n  bỏ {x}' for x in skip) +
-          '\n  file chứa hash và IOC (không có mẫu, đường dẫn máy, tên case): đọc lại trước khi đưa lên repo dữ liệu')
+    print(f"kb publish {name}: {man['files']} file, {man['cases']} case -> {path} (+ manifest.json)"
+          '\n  chỉ gồm kho công khai; vẫn chứa hash và IOC (không có mẫu, đường dẫn máy, tên case): đọc lại trước khi đưa lên repo dữ liệu')
     return 0
 
 def _fetch(src, limit):
@@ -540,12 +579,17 @@ def main(a):
     if a[:1] == ['tools']: return tools()
     if a[:1] == ['match'] and len(a) > 1: match(a[1]); return 0
     if a[:1] == ['playbook'] and len(a) > 1: playbook(a[1]); return 0
-    if a[:1] == ['publish']: return publish(a[a.index('--out') + 1] if '--out' in a and a.index('--out') + 1 < len(a) else 'rea-kb-release', a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None, a[a.index('--cases') + 1].split(',') if '--cases' in a and a.index('--cases') + 1 < len(a) else None)
+    if a[:1] == ['share']:
+        if a[1:2] == ['add'] and len(a) > 2: return share_add(a[2:])
+        if a[1:2] == ['rm'] and len(a) > 2: return share_rm(a[2:])
+        if a[1:2] == ['list']: return share_list()
+        print('flow.py kb share add CASE... | rm CASE|MÃ... | list'); return 2
+    if a[:1] == ['publish']: return publish(a[a.index('--out') + 1] if '--out' in a and a.index('--out') + 1 < len(a) else None, a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None)
     if a[:1] == ['update']: return update(a[1] if len(a) > 1 else None)
     if a[:1] == ['corrections']: return stats(a[a.index('--since') + 1] if '--since' in a else '', '--all' in a)
     nm = a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None
     if a[:1] == ['export'] and len(a) > 1: return export(a[1], nm)
     if a[:1] == ['import'] and len(a) > 1: return import_(a[1], nm)
-    print('flow.py kb build | match CASE | playbook CASE | publish [--out DIR] [--name TÊN] [--cases A,B] | update [URL|PATH] | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
+    print('flow.py kb build | match CASE | playbook CASE | share add|rm|list | publish [--out DIR] [--name TÊN] | update [URL|PATH] | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
 
 if __name__ == '__main__': sys.exit(main(sys.argv[1:]))

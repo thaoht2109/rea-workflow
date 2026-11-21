@@ -26,20 +26,25 @@ try:
     mk('CASE_B', sb, [dict(id='b.c2', kind='c2', value='evil-b.example.net:443')])
     mk('CASE_C', sc, [dict(id='c.c2', kind='c2', value='evil-c.example.net:443')])
     kb.build(ws, quiet=True); d = kb.kb_dir()
-    out = os.path.join(other, 'rel')
-    # mặc định không công khai case nào
-    assert 'chưa chọn case nào' in (die(lambda: kb.publish(out)) or '')
-    # trong thư mục skill: từ chối
-    assert 'thư mục skill' in (die(lambda: kb.publish(os.path.join(T, 'x'), cases=['CASE_B'])) or '')
-    # cổng phản biện chưa PASS: bỏ case, không có gì để phát hành
+    out = os.path.join(other, 'rel'); pub = os.path.join(other, 'pub'); os.environ['REA_KB_PUBLIC'] = pub; os.environ['REA_KB_PUBLIC'] = pub
+    # kho công khai trống: không phát hành gì
+    assert 'trống' in (die(lambda: kb.publish(out)) or '')
+    # kho công khai trong thư mục skill hoặc lồng kho cá nhân: từ chối
+    os.environ['REA_KB_PUBLIC'] = os.path.join(T, 'pubx'); assert 'thư mục skill' in (die(lambda: kb.pub_dir()) or '')
+    os.environ['REA_KB_PUBLIC'] = os.path.join(d, 'sub'); assert 'không được trùng hoặc lồng' in (die(lambda: kb.pub_dir()) or '')
+    os.environ['REA_KB_PUBLIC'] = pub
+    # cổng phản biện chưa PASS: không vào kho công khai
     real = review.gate
     review.gate = lambda c: (False, 'chưa có review PASS')
-    m = die(lambda: kb.publish(out, cases=['CASE_B'])); assert m and 'không có case nào đủ điều kiện' in m and 'chưa có review PASS' in m, m
-    # cổng PASS chỉ cho CASE_B; CASE_C được chọn nhưng không qua; tên không có trong kho được báo
+    assert kb.share_add(['CASE_B']) == 1 and not kb._pub_cases(pub)
+    # chỉ CASE_B qua cổng; CASE_C không qua; tên không có trong kho bị bỏ
     review.gate = lambda c: (os.path.basename(c) == 'CASE_B', 'chưa có review PASS')
-    open(os.path.join(d, 'share.txt'), 'w').write('# được phép\nCASE_B\nCASE_C\nKHONG_CO\n')
-    kb.publish(out, name='nguon-test')
+    assert kb.share_add(['CASE_B', 'CASE_C', 'KHONG_CO']) == 0 and len(kb._pub_cases(pub)) == 1
     review.gate = real
+    # kho cá nhân không bị đổi; kho công khai không có kho cá nhân trong đó
+    assert os.path.isfile(os.path.join(d, 'samples.jsonl')) and not os.path.exists(os.path.join(d, 'cases'))
+    assert kb.share_list() == 0
+    kb.publish(out, name='nguon-test')
     man = json.load(open(os.path.join(out, 'manifest.json')))
     blob = open(os.path.join(out, man['file']), 'rb').read()
     assert man['kind'] == 'rea-kb-manifest' and man['sha256'] == hashlib.sha256(blob).hexdigest() and man['size'] == len(blob) and man['files'] == 1 and man['cases'] == 1, man
@@ -48,6 +53,12 @@ try:
     for bad in ('CASE_B', 'CASE_C', 'KHACH_HANG', 'ACME', ws, 'mtime_ns', 'drop.bin', 'work/sample'): assert bad not in txt, bad   # không đường dẫn, tên case, tên file
     assert 'evil-b.example.net:443' in txt and 'evil-c' not in txt and 'HỌ-BÍ-MẬT' not in txt
     assert all(r.get('t') in ('s', 'c') for r in rows[1:]) and not any(r['t'] == 'c' for r in rows[1:])   # không có đính chính
+    # gỡ khỏi kho công khai theo tên case hoặc theo mã
+    cid = kb._pub_cases(pub)[0][:-6]
+    assert kb.share_rm(['CASE_B']) == 0 and not kb._pub_cases(pub) and kb.share_rm([cid]) == 1
+    os.environ['REA_KB_PUBLIC'] = pub
+    review.gate = lambda c: (True, '')
+    assert kb.share_add(['CASE_B']) == 0; review.gate = real; assert len(kb._pub_cases(pub)) == 1
     # update: nhập vào kho khác dưới nhãn upstream; kiểm sha256
     os.environ['REA_KB'] = os.path.join(other, 'kb2'); import reacfg; reacfg.KB = os.environ['REA_KB']; kb.CFG.KB = reacfg.KB
     mp = os.path.join(out, 'manifest.json')

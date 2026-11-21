@@ -201,7 +201,8 @@ def parse(stream):
     res = next((e for e in reversed(ev) if e.get('type') == 'result'), {})
     init = next((e for e in ev if e.get('subtype') == 'init'), {})
     init['_skill_used'] = any(b.get('name') == 'Skill' for b in uses)
-    init['_error'] = '' if res and not res.get('is_error') else (str(res.get('result') or 'không có sự kiện result (hết giờ hoặc CLI lỗi)'))[:300]
+    why = res.get('result') or '; '.join(str(x) for x in res.get('errors') or []) or res.get('subtype')   # error_max_turns: không có result, lý do ở errors
+    init['_error'] = '' if res and not res.get('is_error') else str(why or 'không có sự kiện result (hết giờ hoặc CLI lỗi)')[:300]
     return cmds, str(res.get('result') or ''), init
 
 def check(name, w, cmds, answer, meta):

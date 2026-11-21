@@ -2,7 +2,7 @@
 """Test flow.py watch với claude giả trong PATH: nhận mẫu theo sha256 (chống trùng, chờ file đứng yên), mỗi vòng một phiên theo next,
 khóa theo case, dừng khi fact không đổi / đủ trần / hậu kiểm thấy lệnh chạy mẫu / STOPPED, chọn model.
 Chạy: python3 tests/check_watch.py"""
-import os, sys, json, glob, time, fcntl, shutil, tempfile, subprocess
+import os, sys, json, glob, time, fcntl, shutil, tempfile, subprocess, types
 
 SKILL = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 sys.path.insert(0, SKILL); import watch   # noqa: E402
@@ -27,6 +27,8 @@ print(json.dumps({'type': 'assistant', 'message': {'content': [use]}}))
 if os.environ.get('FAKE_LIMIT'):   # hết hạn mức: sự kiện rejected kèm resetsAt (rỗng: không có giờ) + result 429
     print(json.dumps({'type': 'rate_limit_event', 'rate_limit_info': {'status': 'rejected', **({'resetsAt': int(os.environ['FAKE_LIMIT'])} if os.environ['FAKE_LIMIT'] != '-' else {})}}))
     print(json.dumps({'type': 'result', 'is_error': True, 'api_error_status': 429, 'result': "You've hit your limit"}))
+elif os.environ.get('FAKE_CUT'):   # phiên hết lượt: result lỗi không có trường result, lý do ở errors
+    open(c + '/report/evidence/orphan.txt', 'w').write('x\n'); print(json.dumps({'type': 'result', 'is_error': True, 'subtype': 'error_max_turns', 'errors': ['Reached maximum number of turns (80)']}))
 else: print(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}))
 '''.replace('HELP_TEXT', repr(HELP))
 assert watch.models(HELP) == ['fable', 'opus', 'sonnet']
@@ -141,6 +143,7 @@ try:
     j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
     W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_TOUCH='1'); j = st(lm)   # làm được việc rồi mới chạm hạn mức: phiên vẫn tính, vẫn nghỉ
     assert j['sessions'] == j0['sessions'] + 2 and j['stall'] == 0 and j['wait_until'] == R + 30, j
+    assert 'bị cắt' in open(os.path.join(ws, lm, 'work', 'NOTES.md'), encoding='utf-8').read(), 'chạm hạn mức giữa chừng (đã có tiến độ): vẫn chốt NOTES'
     j['wait_until'] = 1; json.dump(j, open(os.path.join(ws, lm, 'work', 'watch.json'), 'w'))
     W('--model', 'mx', FAKE_LIMIT=str(R), FAKE_EXEC='sh'); assert 'hậu kiểm' in st(lm).get('stop', ''), st(lm)   # chạy mẫu rồi chạm hạn mức: vẫn dừng
     tr = sorted(os.listdir(os.path.join(ws, lm, 'work', 'runs', 'watch'))); assert len([x for x in tr if '-limit-' in x]) >= 2, tr   # transcript lần bị từ chối không bị ghi đè
@@ -158,6 +161,12 @@ try:
         watch._LIMIT[0] = 0.0; watch.step(l2, 'mx'); assert len(calls()) == n + 1
     finally: os.environ.clear(); os.environ.update(env0); os.chdir(cwd0); watch._LIMIT[0] = 0.0
     j = st(l2); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, l2, 'work', 'watch.json'), 'w'))   # không chạy tiếp ở các bước sau
+    # phiên bị cắt (hết lượt): lý do đúng trong nhật ký, watcher tự checkpoint và ghi NOTES.md; prompt có ngân sách phiên
+    assert 'NGÂN SÁCH PHIÊN: tối đa 80 lượt và 30 phút' in calls()[-1][calls()[-1].index('-p') + 1]
+    drop('cu.sh', 'echo cu\n'); out = W('--model', 'mx', FAKE_CUT='1', FAKE_SOFT='1'); cu = [x for x in cases() if x.startswith('cu_')][0]
+    nt2 = open(os.path.join(ws, cu, 'work', 'NOTES.md'), encoding='utf-8').read()
+    assert 'Reached maximum number of turns' in out and 'Phiên 1 bị cắt' in nt2 and 'orphan.txt' in nt2 and 's01.jsonl' not in nt2 and nt2.lstrip().startswith('## Phiên 1'), (out, nt2)
+    j = st(cu); j['stop'] = 'test: dừng'; json.dump(j, open(os.path.join(ws, cu, 'work', 'watch.json'), 'w'))
     # watch.json hỏng (sửa tay gõ sai): bỏ qua case, không ghi đè, không mở phiên, không nhận lại mẫu thành case mới
     drop('cj.sh', 'echo cj\n'); W('--model', 'mx', FAKE_TOUCH='1')
     cj = [x for x in cases() if x.startswith('cj_')][0]; pj = os.path.join(ws, cj, 'work', 'watch.json'); bad = '{"sessions": 1, "stop": "x",}'
@@ -231,5 +240,24 @@ try:
     assert set(cases()) == old
     r = subprocess.run([sys.executable, os.path.join(SKILL, 'flow.py'), 'watch', inbox, '--once', '--model', 'mx'], cwd=inbox, env=E0, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 2 and 'không được trùng INBOX' in r.stdout, r.stdout + r.stderr   # workspace trùng INBOX: từ chối
+    # cut_notes: NOTES.md có byte không phải UTF-8 vẫn được giữ (errors='replace'), mục mới nằm đầu; ghi lỗi thì không để lại .tmp
+    cn = os.path.join(T, 'cut_case'); os.makedirs(os.path.join(cn, 'work')); npth = os.path.join(cn, 'work', 'NOTES.md')
+    open(npth, 'wb').write(b'## cu\nghi chu \xff\xfe cu\n')
+    real_flow = watch.flow; watch.flow = lambda *a: types.SimpleNamespace(stdout='lưu ý: evidence chưa có fact: x.txt\n', stderr='', returncode=0)
+    try:
+        watch.cut_notes(cn, 3, 'hết lượt')
+        t = open(npth, encoding='utf-8').read()
+        assert t.lstrip().startswith('## Phiên 3 bị cắt') and 'x.txt' in t and 'ghi chu' in t and not os.path.exists(npth + '.tmp'), t
+        os.chmod(os.path.join(cn, 'work'), 0o500)   # thư mục không ghi được: không ném, không để lại .tmp, NOTES.md gốc còn nguyên
+        try:
+            if os.access(os.path.join(cn, 'work'), os.W_OK): print('bỏ qua ca ghi lỗi: chạy với quyền ghi mọi nơi')
+            else:
+                watch.cut_notes(cn, 4, 'lỗi'); assert not os.path.exists(npth + '.tmp') and open(npth, encoding='utf-8').read() == t
+        finally: os.chmod(os.path.join(cn, 'work'), 0o700)
+        # checkpoint lỗi (mã khác 0, không có dòng nào khớp bộ lọc): NOTES phải nói lỗi, không được viết 'Không thấy kết quả nào chưa ghi'
+        watch.flow = lambda *a: types.SimpleNamespace(stdout='', stderr='Traceback: facts.jsonl hỏng\n', returncode=1)
+        watch.cut_notes(cn, 5, 'hết giờ'); t = open(npth, encoding='utf-8').read()
+        assert 'checkpoint lỗi (mã 1)' in t and 'facts.jsonl hỏng' in t.split('## Phiên 3')[0] and 'Không thấy kết quả nào chưa ghi' not in t.split('## Phiên 3')[0], t
+    finally: watch.flow = real_flow
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

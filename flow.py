@@ -22,7 +22,7 @@
 #                                      --migrate: khối shell đang trỏ bản cài OLD thì chuyển sang bản này (bộ cài gọi khi đổi tên)
 #   flow.py rules [--global|--project [DIR]] [--check|--remove]   chép 'Quy tắc bắt buộc' vào CLAUDE.md/AGENTS.md (mặc định theo phạm vi cài skill)
 #   flow.py opencode [DIR] [--model M] [--base-url URL] [--print]   sinh opencode.json: dùng Ollama, chặn sẵn cách chạy mẫu và mạng (mặc định qwen3-coder:30b)
-#   flow.py kb build | match CASE | tools | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
+#   flow.py kb build | match CASE | playbook CASE | tools | corrections [--since NGÀY] [--all]   kho tra chéo local (REA_KB, ngoài skill): dựng tăng dần từ mọi case |
 #                                      gợi ý mẫu tương tự (KHÔNG phải fact, phải tự chứng minh lại) | thống kê đính chính để theo dõi luật lint sau này
 #   flow.py kb export FILE [--name TÊN] | import FILE [--name TÊN]   chia sẻ/backup kho giữa các server (không có mẫu, có IOC)
 #   flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   chạy liên tục: mẫu mới trong INBOX và thư mục con (theo sha256) thành case, mỗi mốc một phiên `claude -p` theo `next`;

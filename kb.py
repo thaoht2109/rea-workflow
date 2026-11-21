@@ -177,14 +177,8 @@ def outside_skill(p):
     r, t = os.path.realpath(p), os.path.realpath(TOOLS)
     if r == t or r.startswith(t + os.sep): raise SystemExit(f'{p} nằm trong thư mục skill (repo public, file có IOC): chọn nơi khác')
 
-def export(path, name=None):
-    """Xuất bản ghi của máy này (không gồm bản ghi đã nhập từ máy khác, không có mẫu) ra jsonl nén. File chứa hash/IOC."""
-    d = kb_dir()
-    if not d: raise SystemExit('REA_KB=off: không có kho để xuất')
-    outside_skill(path); name = clean_name(name or socket.gethostname()) or 'rea'
-    S = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    K = [r for r in read_jsonl(os.path.join(d, 'corrections.jsonl')) if not r.get('peer')]
-    if not S: raise SystemExit(f'kho {d} chưa có bản ghi nào của máy này: chạy flow.py kb build trước')
+def write_export(path, name, S, K):
+    """Ghi jsonl nén của kb export (dòng đầu là header, tiếp theo các bản ghi gắn t=s|c) bằng mkstemp + os.replace (0600)."""
     fd, t = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)) or '.', prefix='.kbexp-')
     try:
         with gzip.open(open(fd, 'wb'), 'wt', encoding='utf-8') as fh:
@@ -196,6 +190,16 @@ def export(path, name=None):
     except BaseException:
         if os.path.exists(t): os.unlink(t)
         raise
+
+def export(path, name=None):
+    """Xuất bản ghi của máy này (không gồm bản ghi đã nhập từ máy khác, không có mẫu) ra jsonl nén. File chứa hash/IOC."""
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không có kho để xuất')
+    outside_skill(path); name = clean_name(name or socket.gethostname()) or 'rea'
+    S = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    K = [r for r in read_jsonl(os.path.join(d, 'corrections.jsonl')) if not r.get('peer')]
+    if not S: raise SystemExit(f'kho {d} chưa có bản ghi nào của máy này: chạy flow.py kb build trước')
+    write_export(path, name, S, K)
     print(f"kb export {name}: {sum(r.get('kind') != 'case' for r in S)} file, {sum(r.get('kind') == 'case' for r in S)} case, {len(K)} đính chính -> {path}"
           '\n  file chứa hash và IOC, không có mẫu: chỉ chép qua kênh tin cậy, không đưa lên repo public')
     return 0
@@ -258,6 +262,156 @@ def import_(path, name=None):
     print(f"kb import {name}: {sum(r.get('kind') != 'case' for r in S)} file, {sum(r.get('kind') == 'case' for r in S)} case, {len(K)} đính chính"
           f" (xuất lúc {safe(hdr.get('ts', '?'), 20)}; nhập lại cùng tên sẽ thay)" + (f'; bỏ {bad} bản ghi sai dạng' if bad else ''))
     return 0
+
+SHARE_KEEP = ('sha256', 'type', 'size', 'imp_n', 'exports', 'sec_md5', 'certs', 'signer', 'imphash', 'rich', 'pdb', 'pdb_guid', 'build_id', 'impfuncs_md5', 'tlsh', 'pv')
+MANIFEST_KIND, MAX_PUBLISH_DL = 'rea-kb-manifest', 64 << 20
+
+def pub_dir():
+    """Kho CÔNG KHAI (có thể phát hành): chỉ chứa bản ghi đã làm sạch do `kb share add` đưa vào, mỗi case một file cases/<mã>.jsonl. Tách khỏi kho cá nhân
+    (REA_KB, đầy đủ, không rời máy). Mặc định <kho cá nhân>-public; đặt REA_KB_PUBLIC để đổi. Phải nằm ngoài thư mục skill."""
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không có kho')
+    p = os.path.realpath(CFG.get('REA_KB_PUBLIC') or d + '-public')
+    if p == d or p.startswith(d + os.sep) or d.startswith(p + os.sep): raise SystemExit(f'kho công khai {p} không được trùng hoặc lồng với kho cá nhân {d}')
+    outside_skill(p); return p
+
+def share_map(d):
+    """share_ids.json: {"<ws>\\0<case>": mã}. Chưa có file = rỗng; file hỏng/không đọc được thì DỪNG (ghi đè sẽ làm mất mọi mã đã gán)."""
+    f = os.path.join(d, 'share_ids.json')
+    try: m = json.load(open(f, encoding='utf-8'))
+    except FileNotFoundError: return {}
+    except (OSError, ValueError) as e: raise SystemExit(f'{f} hỏng hoặc không đọc được ({type(e).__name__}): sửa hoặc khôi phục trước khi share')
+    if not isinstance(m, dict): raise SystemExit(f'{f} không đúng dạng: sửa hoặc khôi phục trước khi share')
+    return m
+
+def cid_of(d, ws, case, create=True):
+    """Mã công khai của một case: ngẫu nhiên, sinh một lần rồi lưu ở <kho cá nhân>/share_ids.json (ngoài kho công khai). Không suy ra từ tên case hay từ hash
+    mẫu nên không dò ngược được, và không đổi khi case thêm/bớt file (share add lại thay đúng bản cũ, share rm theo tên gỡ đúng bản)."""
+    import secrets
+    k = f'{ws or ""}\0{case}'
+    if not create:
+        c = share_map(d).get(k); return c if re.fullmatch(r'c[0-9a-f]{10}', str(c)) else None
+    writable(d)
+    with locked(d):   # đọc-sinh-ghi trong khóa: hai lệnh share add cùng lúc không làm mất mã của nhau
+        m = share_map(d)
+        if re.fullmatch(r'c[0-9a-f]{10}', str(m.get(k))): return m[k]
+        used = set(m.values())
+        while True:
+            c = 'c' + secrets.token_hex(5)
+            if c not in used: break
+        m[k] = c; f = os.path.join(d, 'share_ids.json'); t = f + '.tmp'
+        with open(t, 'w', encoding='utf-8') as fh: json.dump(m, fh, ensure_ascii=False, indent=1)
+        os.replace(t, f); return c
+
+def sanitize(S, cid):
+    """Bản ghi chia sẻ: chỉ trường đặc trưng của mẫu/IOC, không có đường dẫn máy, tên case, thời gian chạy, đính chính. Tên case thay bằng mã công khai
+    cid(ws, case) (xem cid_of), nên tên khách hàng/vụ việc không lộ qua tên thư mục case."""
+    out = []
+    for r in S:
+        c = cid(r.get('ws'), r['case'])
+        if r.get('kind') == 'case': out.append({'case': c, 'kind': 'case', 'hashes': r.get('hashes', []), 'atoms': r.get('atoms', {})})
+        else: out.append(dict({k: r[k] for k in SHARE_KEEP if r.get(k) is not None}, case=c, file=r['sha256'][:12]))
+    return out
+
+def _pub_cases(p):
+    cd = os.path.join(p, 'cases')
+    return sorted(x for x in os.listdir(cd) if re.fullmatch(r'c[0-9a-f]{10}\.jsonl', x)) if os.path.isdir(cd) else []
+
+def share_add(names):
+    """Đưa case (tên trong kho cá nhân) vào kho công khai: qua cổng phản biện, làm sạch, ghi cases/<mã>.jsonl. Ghi lại thì thay bản cũ của chính case đó."""
+    import review
+    d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    os.makedirs(os.path.join(p, 'cases'), mode=0o700, exist_ok=True); n = 0
+    for nm in names:
+        keys = sorted({(r.get('ws'), r['case']) for r in S0 if r['case'] == nm}, key=str)
+        if not keys: print(f'  bỏ {safe(nm, 40)}: không có trong kho cá nhân (chạy kb build)'); continue
+        for k in keys:
+            ok, why = review.gate(os.path.join(k[0] or '', k[1]))
+            if not ok: print(f'  bỏ {safe(nm, 40)}: {safe(why, 80)}'); continue
+            cid = cid_of(d, *k); rows = sanitize([r for r in S0 if (r.get('ws'), r['case']) == k], lambda w, c: cid)
+            write_jsonl(os.path.join(p, 'cases', cid + '.jsonl'), rows); n += 1
+            print(f"  đã đưa {safe(nm, 40)} -> cases/{cid}.jsonl ({sum(r.get('kind') != 'case' for r in rows)} file)")
+    print(f'kb share add: {n} case -> {p}')
+    return 0 if n else 1
+
+def share_rm(names):
+    """Gỡ khỏi kho công khai theo mã (cXXXXXXXXXX) hoặc theo tên case trong kho cá nhân. Chỉ xóa file trong cases/ của kho công khai."""
+    d, p = kb_dir(), pub_dir()
+    by_name = {}   # từ share_ids.json, không từ kho cá nhân: case đã xóa/đổi tên khỏi workspace vẫn gỡ được theo tên
+    for k, c in share_map(d).items():
+        if re.fullmatch(r'c[0-9a-f]{10}', str(c)): by_name.setdefault(k.split('\0', 1)[-1], set()).add(c)
+    n = 0
+    for nm in names:
+        for cid in (by_name.get(nm) or ({nm} if re.fullmatch(r'c[0-9a-f]{10}', nm) else set())):
+            f = os.path.join(p, 'cases', cid + '.jsonl')
+            if os.path.isfile(f): os.unlink(f); n += 1; print(f'  đã gỡ {cid}')
+    print(f'kb share rm: gỡ {n} case khỏi {p}')
+    return 0 if n else 1
+
+def share_list():
+    p = pub_dir(); cs = _pub_cases(p)
+    print(f'kho công khai {p}: {len(cs)} case')
+    for x in cs:
+        rows = read_jsonl(os.path.join(p, 'cases', x)); print(f"  {x[:-6]}  {sum(r.get('kind') != 'case' for r in rows)} file")
+    return 0
+
+def publish(outdir=None, name=None):
+    """Sinh bản phát hành CHỈ từ kho công khai (không đọc kho cá nhân): rea-kb-<ngày>.jsonl.gz + manifest.json. Mọi dòng qua norm (allowlist trường)."""
+    import hashlib
+    p = pub_dir(); outdir = outdir or os.path.join(p, 'dist'); outside_skill(outdir); name = clean_name(name or 'upstream') or 'upstream'
+    S = []
+    for x in _pub_cases(p):
+        for r in read_jsonl(os.path.join(p, 'cases', x)):
+            y = norm(r, 's')
+            if y is not None: S.append(y)
+    if not S: raise SystemExit(f'kho công khai {p} trống: kb share add CASE trước')
+    os.makedirs(outdir, exist_ok=True)
+    fn = f"rea-kb-{datetime.date.today():%Y%m%d}.jsonl.gz"; path = os.path.join(outdir, fn)
+    write_export(path, name, S, [])
+    blob = open(path, 'rb').read()
+    man = {'kind': MANIFEST_KIND, 'ver': EXPORT_VER, 'name': name, 'ts': datetime.datetime.now().isoformat(timespec='seconds'), 'file': fn,
+           'sha256': hashlib.sha256(blob).hexdigest(), 'size': len(blob), 'files': sum(r.get('kind') != 'case' for r in S),
+           'cases': sum(r.get('kind') == 'case' for r in S)}
+    open(os.path.join(outdir, 'manifest.json'), 'w', encoding='utf-8').write(json.dumps(man, ensure_ascii=False, indent=1) + '\n')
+    print(f"kb publish {name}: {man['files']} file, {man['cases']} case -> {path} (+ manifest.json)"
+          '\n  chỉ gồm kho công khai; vẫn chứa hash và IOC (không có mẫu, đường dẫn máy, tên case): đọc lại trước khi đưa lên repo dữ liệu')
+    return 0
+
+def _fetch(src, limit):
+    """Đọc src (https://, file:// hoặc đường dẫn) có giới hạn kích thước. Không theo http thường."""
+    import urllib.request
+    if re.match(r'https?://', src, re.I) and not src.lower().startswith('https://'): raise SystemExit(f'{safe(src, 100)}: chỉ nhận https://, file:// hoặc đường dẫn')
+    if not re.match(r'[a-z][a-z0-9+.-]*://', src, re.I): src = 'file://' + os.path.abspath(src)
+    if not re.match(r'(https|file)://', src, re.I): raise SystemExit(f'{safe(src, 100)}: chỉ nhận https://, file:// hoặc đường dẫn')
+    try:
+        with urllib.request.urlopen(src, timeout=30) as r: b = r.read(limit + 1)   # nosec B310: scheme đã giới hạn ở https/file ngay phía trên
+    except (OSError, ValueError) as e: raise SystemExit(f'không tải được {safe(src, 100)}: {type(e).__name__}: {safe(e, 100)}')
+    if len(b) > limit: raise SystemExit(f'{safe(src, 100)}: lớn hơn {limit >> 20} MiB, dừng')
+    return b
+
+def update(src=None):
+    """Nạp bản phát hành do người khác công bố: tải manifest.json, tải file dữ liệu cạnh nó, KIỂM sha256/kích thước khớp manifest rồi nhập dưới tên nguồn
+    (upstream). src mặc định REA_KB_UPSTREAM (có giá trị mặc định công khai; URL hoặc đường dẫn manifest.json). Chỉ là gợi ý: nhập qua import_ nên mọi trường qua norm."""
+    import hashlib
+    src = src or CFG.KB_UPSTREAM
+    if not src or src.lower() in ('off', '0', 'none', 'no'): raise SystemExit('chưa có nguồn: kb update <URL|đường dẫn manifest.json> hoặc đặt REA_KB_UPSTREAM')
+    try: man = json.loads(_fetch(src, 1 << 16))
+    except ValueError: raise SystemExit('manifest.json không hợp lệ')
+    if not (isinstance(man, dict) and man.get('kind') == MANIFEST_KIND and isinstance(man.get('ver'), int) and man['ver'] <= EXPORT_VER
+            and isinstance(man.get('file'), str) and re.fullmatch(r'[\w.-]+', man['file']) and re.fullmatch(r'[0-9a-f]{64}', str(man.get('sha256')))):
+        raise SystemExit('manifest không đúng dạng (hoặc bản mới hơn skill này)')
+    base = src.rsplit('/', 1)[0] + '/' if '/' in src else './'
+    blob = _fetch(base + man['file'], MAX_PUBLISH_DL)
+    if hashlib.sha256(blob).hexdigest() != man['sha256'] or len(blob) != man.get('size', len(blob)): raise SystemExit('sha256/kích thước của file dữ liệu không khớp manifest: bỏ, không nhập')
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không nhập')
+    writable(d)
+    fd, t = tempfile.mkstemp(dir=d, prefix='.kbupd-')
+    try:
+        with open(fd, 'wb') as fh: fh.write(blob)
+        return import_(t, 'upstream')   # nhãn cố định: tên trong manifest do bên phát hành quyết định, không được xóa đè dữ liệu nhập khác
+    finally:
+        if os.path.exists(t): os.unlink(t)
 
 def tlsh_diff(a, b):
     try: import tlsh; return tlsh.diff(a, b)
@@ -446,10 +600,17 @@ def main(a):
     if a[:1] == ['tools']: return tools()
     if a[:1] == ['match'] and len(a) > 1: match(a[1]); return 0
     if a[:1] == ['playbook'] and len(a) > 1: playbook(a[1]); return 0
+    if a[:1] == ['share']:
+        if a[1:2] == ['add'] and len(a) > 2: return share_add(a[2:])
+        if a[1:2] == ['rm'] and len(a) > 2: return share_rm(a[2:])
+        if a[1:2] == ['list']: return share_list()
+        print('flow.py kb share add CASE... | rm CASE|MÃ... | list'); return 2
+    if a[:1] == ['publish']: return publish(a[a.index('--out') + 1] if '--out' in a and a.index('--out') + 1 < len(a) else None, a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None)
+    if a[:1] == ['update']: return update(a[1] if len(a) > 1 else None)
     if a[:1] == ['corrections']: return stats(a[a.index('--since') + 1] if '--since' in a else '', '--all' in a)
     nm = a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None
     if a[:1] == ['export'] and len(a) > 1: return export(a[1], nm)
     if a[:1] == ['import'] and len(a) > 1: return import_(a[1], nm)
-    print('flow.py kb build | match CASE | playbook CASE | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
+    print('flow.py kb build | match CASE | playbook CASE | share add|rm|list | publish [--out DIR] [--name TÊN] | update [URL|PATH] | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
 
 if __name__ == '__main__': sys.exit(main(sys.argv[1:]))

@@ -31,9 +31,14 @@ GHIDRA = get('GHIDRA_INSTALL_DIR')               # thư mục cài Ghidra (có s
 JAVA_HOME = get('JAVA_HOME')                     # JDK 21 cho Ghidra; trống = Ghidra tự tìm java trên PATH
 SHARE_PYLIB = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'pylib')   # ngoài skill: update không mất
 PYLIB = get('REA_PYLIB') or next((p for p in (os.path.join(TOOLS, 'pylib'), SHARE_PYLIB) if os.path.isdir(p)), SHARE_PYLIB)   # unicorn cho winemu
-# kho tra chéo (flow.py kb): dữ liệu dựng lại được từ các case nên đặt ở cache của người dùng. Có trên mọi máy Linux, không phụ thuộc
-# thư mục hiện tại, sandbox của agent thường cho ghi. Chứa IOC: phải ngoài skill; off = tắt
-KB = get('REA_KB') or os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'rea-flow', 'kb')
+# kho tra chéo (flow.py kb): dữ liệu của người dùng, đặt cạnh pylib/Ghidra ở thư mục dữ liệu chuẩn (~/.local/share/rea-flow/kb, theo XDG_DATA_HOME):
+# không phụ thuộc thư mục hiện tại hay tên người dùng, nên cùng một cấu hình chạy được trên mọi máy. Không để trong cache vì kho cá nhân không dựng lại
+# được khi case đã xóa. Bản cũ ở ~/.cache/rea-flow/kb vẫn được dùng nếu bản mới chưa có. Chứa IOC: phải ngoài skill; off = tắt
+_KB_NEW = os.path.join(os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'rea-flow', 'kb')
+_KB_OLD = os.path.join(os.environ.get('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), 'rea-flow', 'kb')
+KB = get('REA_KB') or (_KB_OLD if os.path.isdir(_KB_OLD) and not os.path.isdir(_KB_NEW) else _KB_NEW)
+# nguồn bản phát hành kho công khai (flow.py kb update, tự gọi khi flow.py setup --yes); off = không tự kéo
+KB_UPSTREAM = get('REA_KB_UPSTREAM', 'https://raw.githubusercontent.com/thaoht2109/rea-kb/main/manifest.json', path=False)
 WINE_DLL_DIR = get('WINE_DLL_DIR', '/usr/lib/x86_64-linux-gnu/wine')   # chỉ đọc tên export DLL builtin, không chạy wine
 REVIEW_LLM = get('REVIEW_LLM', 'auto', path=False)            # lớp 2: auto|claude|codex|gemini|copilot|cursor|api|cmd|manual
 REVIEW_API_BASE = get('REVIEW_API_BASE', 'https://api.openai.com/v1', path=False)   # api: endpoint OpenAI-compatible

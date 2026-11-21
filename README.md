@@ -19,7 +19,7 @@
 
 rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub Copilot, Cursor, Gemini CLI, OpenCode…) thành người phân tích mã độc làm việc có quy trình. Agent đi từ triage đến báo cáo. Mỗi kết luận đều phải có bằng chứng mà máy kiểm được, và phải qua một phiên phản biện độc lập trước khi được đưa vào báo cáo cuối.
 
-> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, `~/.cache/rea-flow`). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
+> Skill được cài với định danh `rea-workflow`. Định danh này dùng cho thư mục cài (`~/.claude/skills/rea-workflow`) và khi gọi skill trong agent. Cấu hình và dữ liệu theo máy vẫn giữ tên cũ (`~/.config/rea-flow`, `~/.local/share/rea-flow`, gồm cả kho tri thức). Bản cài cũ tên `rea-flow` qua skills CLI được `update` chuyển sang tên mới. Bản cài bằng `git clone` giữ tên thư mục; muốn đổi thì chạy `mv ~/.claude/skills/rea-flow ~/.claude/skills/rea-workflow && python3 ~/.claude/skills/rea-workflow/flow.py session --migrate ~/.claude/skills/rea-flow && python3 ~/.claude/skills/rea-workflow/flow.py rules`.
 
 ## Tính năng
 
@@ -33,6 +33,7 @@ rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub C
 | **Báo cáo chuẩn hóa** | Báo cáo tiếng Việt có bảng IOC, bảng đính chính và mục hạn chế/OPSEC. Các bảng sinh tự động từ fact. |
 | **Giả lập nhanh hơn ~6 lần** | Python điều phối, phần nóng (hook block của winemu) viết bằng Rust. Bài `--full` trên một mẫu loader thật: 28 phút 8 giây xuống 4 phút 35 giây, kết quả giống hệt từng byte. Có `cargo` thì `flow.py setup --yes` tự dựng; không có thì tự dùng Python, cùng kết quả, chậm hơn. |
 | **Gợi ý hướng xử lý** | Sau `new`/`triage`, nếu dấu hiệu triage khớp (ví dụ bộ cài NSIS chứa blob shellcode entropy cao), `flow.py kb playbook CASE` in các bước nên thử: lệnh winemu, plugin, lấy keystream, những điều không được ghi thành fact. Chỉ là gợi ý, không phải fact; dữ liệu ở `winemu/playbooks.json`. |
+| **Hai kho tri thức: cá nhân và công khai** | Kho cá nhân (`REA_KB`) giữ đầy đủ dữ liệu và không bao giờ rời máy. Kho công khai (`REA_KB_PUBLIC`) chỉ chứa bản ghi đã làm sạch do `flow.py kb share add CASE` đưa vào (case phải qua cổng phản biện; không có mẫu, đường dẫn máy, tên case). `flow.py kb publish` sinh bản phát hành (`jsonl.gz` + `manifest.json`) chỉ từ kho công khai. Người dùng chạy `flow.py kb update` (nguồn `REA_KB_UPSTREAM`) để nạp bản mới sau khi kiểm sha256; dữ liệu nhập chỉ là gợi ý, không phải fact. |
 | **Chạy được trong mạng nội bộ** | Cả phân tích lẫn phản biện chạy được bằng LLM tự dựng (Ollama, vLLM, llama.cpp). Dữ liệu mẫu không rời khỏi hạ tầng của bạn. |
 
 **Định dạng hỗ trợ:** PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK.
@@ -210,7 +211,8 @@ mkdir -p ~/.config/rea-flow && cp $SKILL/rea.env.example ~/.config/rea-flow/rea.
 | `JAVA_HOME` | trống (dùng `java` trên `PATH`) | JDK 21 cho Ghidra |
 | `REA_TMP` | `.tmp` | thư mục tạm; đặt trên đĩa thật nếu `/tmp` nhỏ |
 | `REVIEW_LLM`, `REVIEW_MODEL` | `auto`, trống | LLM dùng để phản biện |
-| `REA_KB` | `~/.cache/rea-flow/kb` | kho tra chéo; `off` để tắt |
+| `REA_KB` | `~/.local/share/rea-flow/kb` | kho tra chéo cá nhân (không đặt cũng chạy trên mọi máy; bản cũ ở `~/.cache/rea-flow/kb` vẫn được dùng nếu chưa có bản mới); `off` để tắt |
+| `REA_KB_UPSTREAM` | nguồn công khai của skill | nơi `flow.py setup --yes` và `kb update` kéo kho đã công bố; `off` để không kéo |
 
 File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhật. Biến môi trường cùng tên được ưu tiên hơn file. Danh sách đầy đủ có giải thích nằm trong [`rea.env.example`](rea.env.example).
 

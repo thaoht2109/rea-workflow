@@ -171,6 +171,7 @@ def cut_notes(c, n, why):
         old = open(np, encoding='utf-8', errors='replace').read() if os.path.exists(np) else ''
         with open(np + '.tmp', 'w', encoding='utf-8') as f:   # ghi lên ĐẦU file: resume chỉ in phần đầu NOTES.md
             f.write(f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nXử lý trước khi làm tiếp (kết quả đã có trên đĩa nhưng chưa thành fact):\n' + ''.join(f'- {x[:300]}\n' for x in L[:12]) if L else
+                    f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\ncheckpoint lỗi (mã {r.returncode}), chưa biết còn gì chưa ghi: {(r.stdout + r.stderr).strip()[-300:]}\n' if r.returncode else
                     f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nKhông thấy kết quả nào chưa ghi.\n')
             f.write('\n' + old)
         os.replace(np + '.tmp', np)

@@ -111,7 +111,7 @@ def collect(c, st=None):
             if SUMS.search(base):
                 ls = [ln for ln in t.splitlines() if h in ln or any(s and s in ln for _, s in stems)]
                 if ls: sums.append((p, ls))
-            elif h in t or any(os.path.dirname(p) == d and base.startswith(s + '.') for d, s in stems) or parse_note(t, h)['path'] and os.path.basename(parse_note(t, h)['path']) in {os.path.basename(x) for x in [src] + aliases}:   # cùng tiêu chí watch.note_of: dòng `$ lệnh <mẫu>`
+            elif h in t or any(os.path.dirname(p) == d and base.startswith(s + '.') for d, s in stems) or any(os.path.dirname(p) == os.path.dirname(x) and os.path.basename(m[1]) == os.path.basename(x) for ln in t.splitlines() if (m := CMD.match(ln)) for x in [src] + aliases):   # cùng tiêu chí watch.note_of: dòng `$ lệnh <mẫu>` và mẫu CÙNG THƯ MỤC với ghi chú
                 notes.append(dict(parse_note(t, h), file=p))
     return {'name': os.path.basename(src), 'src': src, 'inbox': inbox, 'sha256': h, 'size': size, 'ftype': ftype,
             'aliases': aliases, 'notes': notes, 'sums': sums, 'case': c}

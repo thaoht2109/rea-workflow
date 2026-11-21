@@ -254,6 +254,10 @@ try:
             else:
                 watch.cut_notes(cn, 4, 'lỗi'); assert not os.path.exists(npth + '.tmp') and open(npth, encoding='utf-8').read() == t
         finally: os.chmod(os.path.join(cn, 'work'), 0o700)
+        # checkpoint lỗi (mã khác 0, không có dòng nào khớp bộ lọc): NOTES phải nói lỗi, không được viết 'Không thấy kết quả nào chưa ghi'
+        watch.flow = lambda *a: types.SimpleNamespace(stdout='', stderr='Traceback: facts.jsonl hỏng\n', returncode=1)
+        watch.cut_notes(cn, 5, 'hết giờ'); t = open(npth, encoding='utf-8').read()
+        assert 'checkpoint lỗi (mã 1)' in t and 'facts.jsonl hỏng' in t.split('## Phiên 3')[0] and 'Không thấy kết quả nào chưa ghi' not in t.split('## Phiên 3')[0], t
     finally: watch.flow = real_flow
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

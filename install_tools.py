@@ -89,17 +89,23 @@ def set_env(k, v):
     s = re.sub(rf'^#?\s*{k}=.*$', f'{k}={v}', s, flags=re.M) if re.search(rf'^#?\s*{k}=', s, re.M) else s.rstrip('\n') + f'\n{k}={v}\n'
     open(p, 'w', encoding='utf-8').write(s); print(f'  ghi {k}={v} vào {p}')
 
-def rust_build():
-    """Dựng lõi Rust và chép vào SHARE/lib (sống qua lần cập nhật skill). Thiếu cargo hoặc build lỗi thì bỏ qua: winemu tự dùng Python."""
-    if not shutil.which('cargo'): print('  bỏ qua lõi Rust: chưa có cargo (apt install cargo hoặc rustup); winemu dùng Python'); return
-    d = os.path.join(HERE, 'rust', 'rea_hook')
-    if subprocess.run(['cargo', 'build', '--release', '--locked'], cwd=d).returncode: print('  build lõi Rust lỗi: winemu dùng Python'); return
-    wd = os.path.join(HERE, 'winemu'); sys.path.insert(0, wd)
-    try: import rcore
-    finally: sys.path.remove(wd)
-    src = os.path.join(d, 'target', 'release', rcore.NAME); dst = os.path.join(SHARE, 'lib', rcore.NAME)
-    if not os.path.exists(src): print(f'  không thấy {src}: winemu dùng Python'); return
-    os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy2(src, dst); print(f'  đã chép lõi Rust vào {dst}')
+def rust_build(d=None):
+    """Dựng lõi Rust và chép vào SHARE/lib (sống qua lần cập nhật skill). Mọi lỗi (thiếu cargo, build lỗi, không ghi được) chỉ in cảnh báo:
+    bước này tùy chọn, không được chặn cài Ghidra/rea; winemu tự dùng Python."""
+    try:
+        if not shutil.which('cargo'): print('  bỏ qua lõi Rust: chưa có cargo (apt install cargo hoặc rustup); winemu dùng Python'); return
+        d = d or os.path.join(HERE, 'rust', 'rea_hook')
+        if not os.path.isdir(d): print(f'  bỏ qua lõi Rust: không có {d}'); return
+        if subprocess.run(['cargo', 'build', '--release', '--locked'], cwd=d).returncode: print('  build lõi Rust lỗi: winemu dùng Python'); return
+        wd = os.path.join(HERE, 'winemu'); sys.path.insert(0, wd)
+        try: import rcore
+        finally: sys.path.remove(wd)
+        src = os.path.join(d, 'target', 'release', rcore.NAME); dst = os.path.join(SHARE, 'lib', rcore.NAME)
+        if not os.path.exists(src): print(f'  không thấy {src}: winemu dùng Python'); return
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        tmp = dst + '.tmp'; shutil.copy2(src, tmp); os.replace(tmp, dst)   # thay nguyên tử: tiến trình đang map bản cũ không bị ghi đè tại chỗ
+        print(f'  đã chép lõi Rust vào {dst}')
+    except Exception as e: print(f'  lõi Rust lỗi ({type(e).__name__}: {e}): winemu dùng Python')
 
 def rea_install():
     npm = shutil.which('npm')
@@ -157,6 +163,25 @@ def selftest():
         r = [c for c in checks() if c[5] == 'rust']; assert len(r) == 1 and not r[0][1] and not r[0][2] and r[0][3] == ['cargo'], r
         rust_build()
     finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    global SHARE
+    sh0 = SHARE
+    try:   # nhánh có cargo (giả) build xong: chép vào SHARE/lib, thay nguyên tử, không để lại .tmp
+        wd = os.path.join(HERE, 'winemu'); sys.path.insert(0, wd)
+        try: import rcore
+        finally: sys.path.remove(wd)
+        fb = os.path.join(t, 'bin'); os.makedirs(fb); cd = os.path.join(t, 'crate'); os.makedirs(cd)
+        open(os.path.join(fb, 'cargo'), 'w').write(f'#!/bin/sh\nmkdir -p target/release && echo moi > target/release/{rcore.NAME}\n'); os.chmod(os.path.join(fb, 'cargo'), 0o755)
+        SHARE = os.path.join(t, 'share'); os.environ['PATH'] = fb + ':' + old['PATH']
+        os.makedirs(os.path.join(SHARE, 'lib')); open(os.path.join(SHARE, 'lib', rcore.NAME), 'w').write('cu')
+        rust_build(cd)
+        assert open(os.path.join(SHARE, 'lib', rcore.NAME)).read() == 'moi\n' and os.listdir(os.path.join(SHARE, 'lib')) == [rcore.NAME]
+        open(os.path.join(fb, 'cargo'), 'w').write('#!/bin/sh\nexit 1\n'); rust_build(cd)   # build lỗi: không ném ngoại lệ
+        SHARE = '/proc/khong-ghi-duoc'; open(os.path.join(fb, 'cargo'), 'w').write(f'#!/bin/sh\nmkdir -p target/release && echo x > target/release/{rcore.NAME}\n'); rust_build(cd)   # không ghi được: không ném
+    finally:
+        SHARE = sh0
         for k, v in old.items():
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v

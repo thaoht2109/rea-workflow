@@ -83,5 +83,5 @@ print('OK check_winemu_rcore (lùi về Python, đường tìm thư viện)')
 src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'winemu', 'winemu.py'), encoding='utf-8').read()
 for need in ('rcore.attach(mu,', 'CORE.reset_count()', 'CORE.take_pending()', 'CORE.nblk'):
     assert need in src, f'winemu.py thiếu {need}'
-assert rcore.uclib_ok()[0], rcore.uclib_ok()
+if CI or lib is not None: assert rcore.uclib_ok()[0], rcore.uclib_ok()
 print('OK check_winemu_rcore (nối dây winemu.py, uclib_ok)')

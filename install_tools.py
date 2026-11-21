@@ -54,7 +54,7 @@ def checks():
         ('python: py-tlsh', has_mod('tlsh'), False, [], 'py-tlsh', None, 'flow.py kb: so khớp mờ mẫu tương tự (TLSH)'),
         ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
-        ('winemu: lõi Rust', rust_ok(), False, ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
+        ('winemu: lõi Rust', rust_ok(), False, [] if shutil.which('cargo') else ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
         ('JDK 21', java_major() >= 21, True, ['openjdk-21-jdk-headless'], None, None, 'chạy Ghidra'),
         (f'Ghidra {GHIDRA_VER}', bool(CFG.GHIDRA) and os.path.exists(os.path.join(CFG.GHIDRA, 'support', 'analyzeHeadless')), True,
@@ -103,7 +103,10 @@ def rust_build(d=None):
         src = os.path.join(d, 'target', 'release', rcore.NAME); dst = os.path.join(SHARE, 'lib', rcore.NAME)
         if not os.path.exists(src): print(f'  không thấy {src}: winemu dùng Python'); return
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        tmp = dst + '.tmp'; shutil.copy2(src, tmp); os.replace(tmp, dst)   # thay nguyên tử: tiến trình đang map bản cũ không bị ghi đè tại chỗ
+        tmp = dst + '.tmp'   # thay nguyên tử: tiến trình đang map bản cũ không bị ghi đè tại chỗ
+        try: shutil.copy2(src, tmp); os.replace(tmp, dst)
+        finally:
+            if os.path.exists(tmp): os.remove(tmp)   # chép lỗi giữa chừng thì không để sót file tạm
         print(f'  đã chép lõi Rust vào {dst}')
     except Exception as e: print(f'  lõi Rust lỗi ({type(e).__name__}: {e}): winemu dùng Python')
 
@@ -160,7 +163,7 @@ def selftest():
     old = {k: os.environ.get(k) for k in ('REA_CORE_LIB', 'PATH')}
     try:   # lõi Rust là tùy chọn: thiếu thư viện thì mục THIẾU không bắt buộc; không có cargo thì rust_build bỏ qua, không lỗi
         os.environ['REA_CORE_LIB'] = os.path.join(t, 'khong-co'); os.environ['PATH'] = t
-        r = [c for c in checks() if c[5] == 'rust']; assert len(r) == 1 and not r[0][1] and not r[0][2] and r[0][3] == ['cargo'], r
+        r = [c for c in checks() if c[5] == 'rust']; assert len(r) == 1 and not r[0][1] and not r[0][2] and r[0][3] == ['cargo'], r   # PATH rỗng: không có cargo nên cần gói apt
         rust_build()
     finally:
         for k, v in old.items():
@@ -174,7 +177,7 @@ def selftest():
         finally: sys.path.remove(wd)
         fb = os.path.join(t, 'bin'); os.makedirs(fb); cd = os.path.join(t, 'crate'); os.makedirs(cd)
         open(os.path.join(fb, 'cargo'), 'w').write(f'#!/bin/sh\nmkdir -p target/release && echo moi > target/release/{rcore.NAME}\n'); os.chmod(os.path.join(fb, 'cargo'), 0o700)
-        SHARE = os.path.join(t, 'share'); os.environ['PATH'] = fb + ':' + old['PATH']
+        SHARE = os.path.join(t, 'share'); os.environ['PATH'] = fb + ':' + (old['PATH'] or '')
         os.makedirs(os.path.join(SHARE, 'lib')); open(os.path.join(SHARE, 'lib', rcore.NAME), 'w').write('cu')
         rust_build(cd)
         assert open(os.path.join(SHARE, 'lib', rcore.NAME)).read() == 'moi\n' and os.listdir(os.path.join(SHARE, 'lib')) == [rcore.NAME]

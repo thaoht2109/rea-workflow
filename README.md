@@ -31,6 +31,7 @@ rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub C
 | **Tiết kiệm token** | Script làm phần việc lặp, agent chỉ đọc tóm tắt. Skill dẫn đường từng bước, tách phiên theo mốc và làm tiếp được sau khi xóa ngữ cảnh. |
 | **Học từ case cũ** | Khi triage mẫu mới, skill so với các case đã phân tích (imphash, PDB, chứng thư số, C2…) và gợi ý hướng điều tra. Kho này xuất/nhập được giữa các server. |
 | **Báo cáo chuẩn hóa** | Báo cáo tiếng Việt có bảng IOC, bảng đính chính và mục hạn chế/OPSEC. Các bảng sinh tự động từ fact. |
+| **Giả lập nhanh hơn ~6 lần** | Python điều phối, phần nóng (hook block của winemu) viết bằng Rust. Bài `--full` trên một mẫu loader thật: 28 phút 8 giây xuống 4 phút 35 giây, kết quả giống hệt từng byte. Có `cargo` thì `flow.py setup --yes` tự dựng; không có thì tự dùng Python, cùng kết quả, chậm hơn. |
 | **Chạy được trong mạng nội bộ** | Cả phân tích lẫn phản biện chạy được bằng LLM tự dựng (Ollama, vLLM, llama.cpp). Dữ liệu mẫu không rời khỏi hạ tầng của bạn. |
 
 **Định dạng hỗ trợ:** PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK.
@@ -57,7 +58,7 @@ Agent chỉ chuyển sang bước tốn kém hơn khi checklist còn mục chưa
 - Python ≥ 3.9 và Node.js ≥ 22.20
 - Một coding agent đã cài và đăng nhập
 
-Bộ cài tự kiểm và cài các công cụ phân tích còn thiếu: 7-Zip, pefile, Capstone, Unicorn, JDK 21, Ghidra 12, [`rea`](https://github.com/morluto/rea). Không cần, và **không được**, cài wine.
+Bộ cài tự kiểm và cài các công cụ phân tích còn thiếu: 7-Zip, pefile, Capstone, Unicorn, JDK 21, Ghidra 12, [`rea`](https://github.com/morluto/rea), và (tùy chọn) lõi Rust cho winemu qua `cargo`. Không cần, và **không được**, cài wine.
 
 ### Cài một lệnh
 

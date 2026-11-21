@@ -3,7 +3,7 @@
 # mỗi phiên làm một mốc theo `flow.py next` rồi thoát. Không bao giờ thực thi mẫu.
 # Trạng thái nằm trong case (work/watch.json) nên dừng/chạy lại không mất gì; khóa flock theo case nên chạy nhiều watcher song song được.
 # Không có người duyệt: an toàn dựa vào allowlist công cụ + hậu kiểm lệnh Bash của từng phiên. Nên chạy trong VM không có mạng ra ngoài.
-import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, threading, subprocess
+import os, re, sys, glob, json, time, fcntl, shlex, hashlib, datetime, threading, subprocess, types
 from concurrent.futures import ThreadPoolExecutor, wait
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
@@ -165,9 +165,11 @@ def session(c, st, model):
 def cut_notes(c, n, why):
     """Phiên n kết thúc bất thường nên agent chưa kịp checkpoint/ghi NOTES: chạy checkpoint thay và ghi vào work/NOTES.md những gì phiên sau phải xử lý
     trước (kết quả chạy mới hơn fact cuối, evidence chưa có fact, fact lỗi/lệch)."""
-    r = flow('checkpoint', c); L = [x.strip() for x in (r.stdout + r.stderr).splitlines() if re.match(r'\s*(CHƯA GHI\?|lưu ý:|FAIL|LỆCH)', x) and 'runs/watch' not in x]
     np = os.path.join(c, 'work', 'NOTES.md')
     try:
+        try: r = flow('checkpoint', c)
+        except Exception as e: r = types.SimpleNamespace(stdout='', stderr=f'{type(e).__name__}: {e}', returncode=-1)   # subprocess ném (UnicodeDecodeError, OSError): ghi vào NOTES, không làm sập phiên
+        L = [x.strip() for x in (r.stdout + r.stderr).splitlines() if re.match(r'\s*(CHƯA GHI\?|lưu ý:|FAIL|LỆCH)', x) and 'runs/watch' not in x]
         old = open(np, encoding='utf-8', errors='replace').read() if os.path.exists(np) else ''
         with open(np + '.tmp', 'w', encoding='utf-8') as f:   # ghi lên ĐẦU file: resume chỉ in phần đầu NOTES.md
             f.write(f'\n## Phiên {n} bị cắt ({why[:120]}), watcher tự checkpoint\nXử lý trước khi làm tiếp (kết quả đã có trên đĩa nhưng chưa thành fact):\n' + ''.join(f'- {x[:300]}\n' for x in L[:12]) if L else
@@ -298,7 +300,8 @@ def note_of(p):
     for q in sib:
         if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
     L = t.splitlines()
-    for ln in L:
+    first = next((x for x in L if x.strip()), '')   # ghi chú thật mở đầu bằng dòng lệnh hoặc tiêu đề `#`, và ngắn; file text dài chỉ chứa một dòng như vậy giữa nội dung vẫn là mẫu
+    for ln in L if len(t) <= 8192 and (CMD.match(first) or first.lstrip().startswith('#')) else ():
         m = CMD.match(ln)
         if m and any(os.path.basename(m[1]) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(m[1])}'
     if not re.search(r'\b[0-9a-f]{64}\b', t): return ''

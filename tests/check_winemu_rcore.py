@@ -78,3 +78,10 @@ finally:
         if v is None: os.environ.pop(k, None)
         else: os.environ[k] = v
 print('OK check_winemu_rcore (lùi về Python, đường tìm thư viện)')
+
+# nối dây trong winemu.py (không chạy được cả giả lập ở test này): phải dùng rcore.attach và các hàm của core
+src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'winemu', 'winemu.py'), encoding='utf-8').read()
+for need in ('rcore.attach(mu,', 'CORE.reset_count()', 'CORE.take_pending()', 'CORE.nblk'):
+    assert need in src, f'winemu.py thiếu {need}'
+if CI or lib is not None: assert rcore.uclib_ok()[0], rcore.uclib_ok()
+print('OK check_winemu_rcore (nối dây winemu.py, uclib_ok)')

@@ -79,6 +79,16 @@ class RustCore:
         self.st.tf_pend = 0; return self.st.tf_addr
 
 
+def uclib_ok():
+    """(ok, lý do): libunicorn của Python có đủ hàm C mà lõi Rust cần không (doctor và attach dùng chung)."""
+    try:
+        from unicorn.unicorn_py3.unicorn import uclib
+        miss = [f for f in ('uc_reg_read', 'uc_emu_stop', 'uc_hook_add') if not hasattr(uclib, f)]
+        return (not miss, 'thiếu ' + ', '.join(miss) if miss else 'đủ hàm')
+    except Exception as e:
+        return False, f'không nạp được unicorn: {type(e).__name__}: {e}'
+
+
 def attach(mu, begin, end, eflags_id, mode=None, log=lambda *a: None):
     """Gắn hook block vào mu; trả đối tượng core (.nblk, .reset_count(), .take_pending(), .kind)."""
     mode = (mode or os.environ.get('REA_CORE') or 'auto').lower()
@@ -87,6 +97,8 @@ def attach(mu, begin, end, eflags_id, mode=None, log=lambda *a: None):
         lib, why = load_lib()
         if lib is not None:
             try:
+                uok, uwhy = uclib_ok()
+                if not uok: raise RuntimeError(uwhy)
                 from unicorn.unicorn_py3.unicorn import uclib
                 c = RustCore(mu, begin, end, eflags_id, lib, uclib); log(f'[core] rust ({why})'); return c
             except Exception as e:

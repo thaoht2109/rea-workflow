@@ -132,13 +132,13 @@ def doctor():
         lib, rl = rcore.load_lib()
         if lib is not None:
             uok, uwhy = rcore.uclib_ok()
-            if not uok: lib, rl = None, f'unicorn không dùng được với lõi Rust ({uwhy})'
+            if not uok: lib, rl = None, f'{rl}: unicorn không dùng được với lõi Rust ({uwhy})'
     except ImportError as e: rl = f'không import được winemu/rcore.py: {e}'
     except Exception as e: rl = f'lỗi khi dò thư viện: {type(e).__name__}: {e}'
     finally:
         if wd in sys.path: sys.path.remove(wd)
     row(lib is not None, 'winemu lõi Rust', rl if lib is not None else f'{rl} → dùng hook Python (chậm hơn ~2,7 lần)',
-        f'tùy chọn: cd rust/rea_hook && cargo build --release, rồi chép {libname} (trong target/release/) vào {os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "rea-flow", "lib")}/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn', False)
+        f'tùy chọn: cd rust/rea_hook && cargo build --release, rồi chép {libname} (trong target/release/) vào {os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "rea-flow", "lib")}/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn' + ('; REA_CORE_LIB đang ghi đè đường dò nên thư mục trên không có tác dụng' if os.environ.get('REA_CORE_LIB') else ''), False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

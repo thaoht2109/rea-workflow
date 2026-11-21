@@ -258,6 +258,10 @@ try:
         watch.flow = lambda *a: types.SimpleNamespace(stdout='', stderr='Traceback: facts.jsonl hỏng\n', returncode=1)
         watch.cut_notes(cn, 5, 'hết giờ'); t = open(npth, encoding='utf-8').read()
         assert 'checkpoint lỗi (mã 1)' in t and 'facts.jsonl hỏng' in t.split('## Phiên 3')[0] and 'Không thấy kết quả nào chưa ghi' not in t.split('## Phiên 3')[0], t
+        # flow('checkpoint') tự ném (vd UnicodeDecodeError): không lan ra session, NOTES ghi lỗi
+        def boom(*x): raise UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad')
+        watch.flow = boom; watch.cut_notes(cn, 6, 'hết lượt'); t = open(npth, encoding='utf-8').read()
+        assert t.lstrip().startswith('## Phiên 6 bị cắt') and 'checkpoint lỗi (mã -1)' in t and 'UnicodeDecodeError' in t, t
     finally: watch.flow = real_flow
     print('OK test_watch')
 finally: shutil.rmtree(T, ignore_errors=True)

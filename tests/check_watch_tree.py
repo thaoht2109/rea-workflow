@@ -23,13 +23,15 @@ d2 = w(os.path.join(inbox, 'U1_extracted', 'a', 's.log'), b'Set o = CreateObject
 n4 = w(os.path.join(inbox, 'U1_extracted', 'a', 'thu.txt'), '# host=srv1 collector=x\n$ ls -la /x/s.bin\nthu\n'.encode())   # tiêu đề + lệnh thu mẫu
 n5 = w(os.path.join(inbox, 'U1_extracted', 'a', 'cmd.txt'), '$ sha256sum /x/s.bin\nok\n'.encode())   # lệnh thu mẫu trên file cùng thư mục
 m1 = w(os.path.join(inbox, 'U1_extracted', 'a', 'cfg.txt'), b'# a=1\nx\n'); m3 = w(os.path.join(inbox, 'U1_extracted', 'a', 'conf.txt'), b'# c2=a.test port=443\nkey=1\n'); m2 = w(os.path.join(inbox, 'U1_extracted', 'a', 'cmd2.txt'), '$ ls /x/khac.bin\n'.encode())   # một cặp khóa, lệnh trên file không có: là mẫu
+m4 = w(os.path.join(inbox, 'U1_extracted', 'a', 'mid.txt'), ('dữ liệu bất kỳ\n$ ls /x/s.bin\nthu\n').encode())   # dòng lệnh giữa nội dung, không mở đầu: vẫn là mẫu
+m5 = w(os.path.join(inbox, 'U1_extracted', 'a', 'big.txt'), ('$ ls /x/s.bin\n' + 'x' * 9000 + '\n').encode())   # mở đầu bằng dòng lệnh nhưng dài quá 8 KiB: không phải ghi chú
 ws = os.path.join(T, 'Report_IN', '.cases'); os.makedirs(ws); os.chdir(ws)
 try:
     watch.ALIAS = ''
     got = set(watch.samples(inbox)); assert a in got and s in got, got   # không cấu hình hậu tố: quét cả hai
     watch.ALIAS = '_extracted'
     got = set(watch.samples(inbox)); assert a not in got and s in got and b in got, got   # có U1_extracted thì bỏ U1
-    assert all(watch.note_of(p) for p in (n1, n2, n3, n4, n5)) and not any(watch.note_of(p) for p in (m1, m2, m3, s, sc, t1, t2, b, d1, d2, f4))
+    assert all(watch.note_of(p) for p in (n1, n2, n3, n4, n5)) and not any(watch.note_of(p) for p in (m1, m2, m3, m4, m5, s, sc, t1, t2, b, d1, d2, f4))
     root = watch.report_root(inbox, 'IN'); assert root == os.path.join(T, 'Report_IN') and watch.report_root(inbox, None) is None
     assert watch.report_root(inbox, os.path.join(T, 'khac')) == os.path.join(T, 'khac')
     assert watch.stem('x.tar.gz') == 'x' and watch.stem('a.bin') == 'a.bin'
@@ -51,7 +53,7 @@ try:
     made = lambda: sorted(x for x in os.listdir(ws) if os.path.exists(os.path.join(ws, x, 'work', 'watch.json')))
     watch.MAXN = 2; watch.ingest(inbox, 'IN'); assert len(made()) == 2, made()
     watch.MAXN = 20; watch.ingest(inbox, 'IN'); m = made()
-    assert len(m) == 10 and sorted(x.split('_')[0] for x in m) == ['cfg', 'cmd2', 'conf', 'install', 'k', 'k', 'r', 's', 's', 'tool'], m   # s.bin đã có báo cáo: không làm lại
+    assert len(m) == 12 and sorted(x.split('_')[0] for x in m) == ['big', 'cfg', 'cmd2', 'conf', 'install', 'k', 'k', 'mid', 'r', 's', 's', 'tool'], m   # s.bin đã có báo cáo: không làm lại
     watch._NOTED.clear(); watch.ingest(inbox, 'IN')   # khởi động lại watcher: không ghi lặp vào log
     L = open(os.path.join(ws, watch.NOTES_LOG), encoding='utf-8').read().splitlines()   # ghi chú bị bỏ qua được ghi lại, mỗi file một lần
     assert sorted(x.split('\t')[1] for x in L) == sorted([n1, n2, n3, n4, n5]) and 'nhắc sha256 của s.bin' in '\n'.join(L), L

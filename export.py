@@ -16,7 +16,7 @@ ZIP_PW, ZIP = 'infected', 'mau_va_payload.7z'
 PACK_DIRS = ('work/sample', 'work/extract', 'work/unpacked')   # tiền tố đường dẫn: luôn gói, kể cả file text
 SKIP_DIRS = ('.claude', '__pycache__', '.git', 'work/ghidra')
 SKIP_FILES = ('.watch.lock',)
-PROCESS = (('work/NOTES.md', ('.md',)), ('work/review/', ('.json', '.md')))   # file của chính quy trình (ghi chú phiên, phản biện) theo vị trí VÀ đuôi (transcript watch có thể chứa payload đã giải mã: vẫn xét SCRIPT): văn bản thì để dạng rõ; script/payload đặt ở đó (đuôi khác) vẫn bị gói
+PROCESS = re.compile(r'work/NOTES\.md|work/review/(?:r\d+/)?[\w.-]+\.(?:json|md)')   # file của chính quy trình (ghi chú phiên, phản biện) theo vị trí VÀ đuôi (transcript watch có thể chứa payload đã giải mã: vẫn xét SCRIPT): văn bản thì để dạng rõ; script/payload đặt ở đó (đuôi khác) vẫn bị gói
 NOTE_EXT, NOTE_MAX = ('.txt', '.log', '.md', '.note', '.notes'), 256 * 1024
 SUMS = re.compile(r'(?:^|[._-])(?:sha256sums?|sha256)(?:\.txt)?$', re.I)
 SCRIPT = re.compile(r'\A#!|\|\s*(?:ba|z|da)?sh\b|\b(?:curl|wget|powershell|iex|Invoke-\w+|certutil|bitsadmin|nc|ncat|socat)\b|base64\s+-d|\beval\b|CreateObject|WScript|Add-Type|FromBase64String|<script|\bfunction\b|\bimport\s+\w|\brequire\s*\(', re.I)   # nội dung giống script: là mẫu, không phải ghi chú
@@ -61,7 +61,7 @@ def packed(rel, p):
     r = rel.replace(os.sep, '/'); parts = r.split('/')
     if any(r == d or r.startswith(d) for d in PACK_DIRS) or (len(parts) >= 5 and parts[:3] == ['work', 'runs', 'tool']): return True
     if not is_text(p): return True
-    if parts[0] in ('report', 'facts.jsonl') or any((r == d or r.startswith(d)) and r.endswith(x) for d, x in PROCESS): return False
+    if parts[0] in ('report', 'facts.jsonl') or PROCESS.fullmatch(r): return False
     t = text_of(p, 0)
     return t is None or bool(SCRIPT.search(t))
 

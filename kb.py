@@ -177,14 +177,8 @@ def outside_skill(p):
     r, t = os.path.realpath(p), os.path.realpath(TOOLS)
     if r == t or r.startswith(t + os.sep): raise SystemExit(f'{p} nằm trong thư mục skill (repo public, file có IOC): chọn nơi khác')
 
-def export(path, name=None):
-    """Xuất bản ghi của máy này (không gồm bản ghi đã nhập từ máy khác, không có mẫu) ra jsonl nén. File chứa hash/IOC."""
-    d = kb_dir()
-    if not d: raise SystemExit('REA_KB=off: không có kho để xuất')
-    outside_skill(path); name = clean_name(name or socket.gethostname()) or 'rea'
-    S = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    K = [r for r in read_jsonl(os.path.join(d, 'corrections.jsonl')) if not r.get('peer')]
-    if not S: raise SystemExit(f'kho {d} chưa có bản ghi nào của máy này: chạy flow.py kb build trước')
+def write_export(path, name, S, K):
+    """Ghi jsonl nén của kb export (dòng đầu là header, tiếp theo các bản ghi gắn t=s|c) bằng mkstemp + os.replace (0600)."""
     fd, t = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)) or '.', prefix='.kbexp-')
     try:
         with gzip.open(open(fd, 'wb'), 'wt', encoding='utf-8') as fh:
@@ -196,6 +190,16 @@ def export(path, name=None):
     except BaseException:
         if os.path.exists(t): os.unlink(t)
         raise
+
+def export(path, name=None):
+    """Xuất bản ghi của máy này (không gồm bản ghi đã nhập từ máy khác, không có mẫu) ra jsonl nén. File chứa hash/IOC."""
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không có kho để xuất')
+    outside_skill(path); name = clean_name(name or socket.gethostname()) or 'rea'
+    S = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    K = [r for r in read_jsonl(os.path.join(d, 'corrections.jsonl')) if not r.get('peer')]
+    if not S: raise SystemExit(f'kho {d} chưa có bản ghi nào của máy này: chạy flow.py kb build trước')
+    write_export(path, name, S, K)
     print(f"kb export {name}: {sum(r.get('kind') != 'case' for r in S)} file, {sum(r.get('kind') == 'case' for r in S)} case, {len(K)} đính chính -> {path}"
           '\n  file chứa hash và IOC, không có mẫu: chỉ chép qua kênh tin cậy, không đưa lên repo public')
     return 0
@@ -258,6 +262,96 @@ def import_(path, name=None):
     print(f"kb import {name}: {sum(r.get('kind') != 'case' for r in S)} file, {sum(r.get('kind') == 'case' for r in S)} case, {len(K)} đính chính"
           f" (xuất lúc {safe(hdr.get('ts', '?'), 20)}; nhập lại cùng tên sẽ thay)" + (f'; bỏ {bad} bản ghi sai dạng' if bad else ''))
     return 0
+
+SHARE_KEEP = ('sha256', 'type', 'size', 'imp_n', 'exports', 'sec_md5', 'certs', 'signer', 'imphash', 'rich', 'pdb', 'pdb_guid', 'build_id', 'impfuncs_md5', 'tlsh', 'pv')
+MANIFEST_KIND, MAX_PUBLISH_DL = 'rea-kb-manifest', 64 << 20
+
+def share_ids(d):
+    """Case được phép công khai: mỗi dòng của <kho>/share.txt (bỏ dòng trống và dòng bắt đầu bằng #). Mặc định không case nào."""
+    p = os.path.join(d, 'share.txt')
+    if not os.path.isfile(p): return set()
+    return {l.strip() for l in open(p, encoding='utf-8') if l.strip() and not l.lstrip().startswith('#')}
+
+def sanitize(S):
+    """Bản ghi chia sẻ: chỉ trường đặc trưng của mẫu/IOC, không có đường dẫn máy, tên case, thời gian chạy, đính chính. Tên case thay bằng mã không đảo ngược
+    được (sha256 của mẫu đầu tiên hoặc của tập hash), nên tên khách hàng/vụ việc không lộ qua tên thư mục case."""
+    import hashlib
+    key = {}
+    for r in S:
+        k = (r.get('ws'), r['case'])
+        if r.get('kind') != 'case' and r.get('sha256'): key.setdefault(k, r['sha256'])
+        elif r.get('kind') == 'case' and r.get('hashes'): key.setdefault(k, sorted(r['hashes'])[0])
+    out = []
+    for r in S:
+        cid = 'c' + hashlib.sha256(key.get((r.get('ws'), r['case']), r['case']).encode()).hexdigest()[:10]
+        if r.get('kind') == 'case': out.append({'case': cid, 'kind': 'case', 'hashes': r.get('hashes', []), 'atoms': r.get('atoms', {})})
+        else: out.append(dict({k: r[k] for k in SHARE_KEEP if r.get(k) is not None}, case=cid, file=r['sha256'][:12]))
+    return out
+
+def publish(outdir, name=None, cases=None):
+    """Sinh bản phát hành từ kho của máy này: chỉ case được phép (share.txt hoặc --cases) VÀ đã qua cổng phản biện; ra rea-kb-<ngày>.jsonl.gz + manifest.json."""
+    import hashlib, review
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không có kho để phát hành')
+    outside_skill(outdir); name = clean_name(name or 'upstream') or 'upstream'
+    allow = set(cases or []) or share_ids(d)
+    if not allow: raise SystemExit(f'chưa chọn case nào: ghi tên case (mỗi dòng một tên) vào {os.path.join(d, "share.txt")} hoặc dùng --cases A,B. Mặc định không công khai case nào')
+    S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
+    ok, skip = set(), []
+    for k in sorted({(r.get('ws'), r['case']) for r in S0 if r['case'] in allow}, key=str):
+        g = review.gate(os.path.join(k[0] or '', k[1]))
+        (ok.add(k) if g[0] else skip.append(f'{safe(k[1], 40)}: {safe(g[1], 80)}'))
+    S = sanitize([r for r in S0 if (r.get('ws'), r['case']) in ok])
+    miss = sorted(allow - {r['case'] for r in S0})
+    for x in miss: skip.append(f'{safe(x, 40)}: không có trong kho')
+    if not S: raise SystemExit('không có case nào đủ điều kiện:\n  ' + '\n  '.join(skip))
+    os.makedirs(outdir, exist_ok=True)
+    fn = f"rea-kb-{datetime.date.today():%Y%m%d}.jsonl.gz"; path = os.path.join(outdir, fn)
+    write_export(path, name, S, [])
+    blob = open(path, 'rb').read()
+    man = {'kind': MANIFEST_KIND, 'ver': EXPORT_VER, 'name': name, 'ts': datetime.datetime.now().isoformat(timespec='seconds'), 'file': fn,
+           'sha256': hashlib.sha256(blob).hexdigest(), 'size': len(blob), 'files': sum(r.get('kind') != 'case' for r in S),
+           'cases': sum(r.get('kind') == 'case' for r in S)}
+    open(os.path.join(outdir, 'manifest.json'), 'w', encoding='utf-8').write(json.dumps(man, ensure_ascii=False, indent=1) + '\n')
+    print(f"kb publish {name}: {man['files']} file, {man['cases']} case -> {path} (+ manifest.json)" + ''.join(f'\n  bỏ {x}' for x in skip) +
+          '\n  file chứa hash và IOC (không có mẫu, đường dẫn máy, tên case): đọc lại trước khi đưa lên repo dữ liệu')
+    return 0
+
+def _fetch(src, limit):
+    """Đọc src (https://, file:// hoặc đường dẫn) có giới hạn kích thước. Không theo http thường."""
+    import urllib.request
+    if re.match(r'https?://', src, re.I) and not src.lower().startswith('https://'): raise SystemExit(f'{safe(src, 100)}: chỉ nhận https://, file:// hoặc đường dẫn')
+    if not re.match(r'[a-z][a-z0-9+.-]*://', src, re.I): src = 'file://' + os.path.abspath(src)
+    if not re.match(r'(https|file)://', src, re.I): raise SystemExit(f'{safe(src, 100)}: chỉ nhận https://, file:// hoặc đường dẫn')
+    try:
+        with urllib.request.urlopen(src, timeout=30) as r: b = r.read(limit + 1)
+    except (OSError, ValueError) as e: raise SystemExit(f'không tải được {safe(src, 100)}: {type(e).__name__}: {safe(e, 100)}')
+    if len(b) > limit: raise SystemExit(f'{safe(src, 100)}: lớn hơn {limit >> 20} MiB, dừng')
+    return b
+
+def update(src=None):
+    """Nạp bản phát hành do người khác công bố: tải manifest.json, tải file dữ liệu cạnh nó, KIỂM sha256/kích thước khớp manifest rồi nhập dưới tên nguồn
+    (upstream). src mặc định REA_KB_UPSTREAM (URL hoặc đường dẫn manifest.json). Chỉ là gợi ý: nhập qua import_ nên mọi trường qua norm."""
+    import hashlib
+    src = src or CFG.get('REA_KB_UPSTREAM', '', False)
+    if not src: raise SystemExit('chưa có nguồn: kb update <URL|đường dẫn manifest.json> hoặc đặt REA_KB_UPSTREAM')
+    try: man = json.loads(_fetch(src, 1 << 16))
+    except ValueError: raise SystemExit('manifest.json không hợp lệ')
+    if not (isinstance(man, dict) and man.get('kind') == MANIFEST_KIND and isinstance(man.get('ver'), int) and man['ver'] <= EXPORT_VER
+            and isinstance(man.get('file'), str) and re.fullmatch(r'[\w.-]+', man['file']) and re.fullmatch(r'[0-9a-f]{64}', str(man.get('sha256')))):
+        raise SystemExit('manifest không đúng dạng (hoặc bản mới hơn skill này)')
+    base = src.rsplit('/', 1)[0] + '/' if '/' in src else './'
+    blob = _fetch(base + man['file'], MAX_PUBLISH_DL)
+    if hashlib.sha256(blob).hexdigest() != man['sha256'] or len(blob) != man.get('size', len(blob)): raise SystemExit('sha256/kích thước của file dữ liệu không khớp manifest: bỏ, không nhập')
+    d = kb_dir()
+    if not d: raise SystemExit('REA_KB=off: không nhập')
+    writable(d)
+    fd, t = tempfile.mkstemp(dir=d, prefix='.kbupd-')
+    try:
+        with open(fd, 'wb') as fh: fh.write(blob)
+        return import_(t, clean_name(man.get('name')) or 'upstream')
+    finally:
+        if os.path.exists(t): os.unlink(t)
 
 def tlsh_diff(a, b):
     try: import tlsh; return tlsh.diff(a, b)
@@ -446,10 +540,12 @@ def main(a):
     if a[:1] == ['tools']: return tools()
     if a[:1] == ['match'] and len(a) > 1: match(a[1]); return 0
     if a[:1] == ['playbook'] and len(a) > 1: playbook(a[1]); return 0
+    if a[:1] == ['publish']: return publish(a[a.index('--out') + 1] if '--out' in a and a.index('--out') + 1 < len(a) else 'rea-kb-release', a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None, a[a.index('--cases') + 1].split(',') if '--cases' in a and a.index('--cases') + 1 < len(a) else None)
+    if a[:1] == ['update']: return update(a[1] if len(a) > 1 else None)
     if a[:1] == ['corrections']: return stats(a[a.index('--since') + 1] if '--since' in a else '', '--all' in a)
     nm = a[a.index('--name') + 1] if '--name' in a and a.index('--name') + 1 < len(a) else None
     if a[:1] == ['export'] and len(a) > 1: return export(a[1], nm)
     if a[:1] == ['import'] and len(a) > 1: return import_(a[1], nm)
-    print('flow.py kb build | match CASE | playbook CASE | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
+    print('flow.py kb build | match CASE | playbook CASE | publish [--out DIR] [--name TÊN] [--cases A,B] | update [URL|PATH] | tools | corrections [--since YYYY-MM-DD] [--all] | export FILE [--name TÊN] | import FILE [--name TÊN]'); return 2
 
 if __name__ == '__main__': sys.exit(main(sys.argv[1:]))

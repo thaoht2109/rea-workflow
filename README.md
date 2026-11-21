@@ -33,6 +33,7 @@ rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub C
 | **Báo cáo chuẩn hóa** | Báo cáo tiếng Việt có bảng IOC, bảng đính chính và mục hạn chế/OPSEC. Các bảng sinh tự động từ fact. |
 | **Giả lập nhanh hơn ~6 lần** | Python điều phối, phần nóng (hook block của winemu) viết bằng Rust. Bài `--full` trên một mẫu loader thật: 28 phút 8 giây xuống 4 phút 35 giây, kết quả giống hệt từng byte. Có `cargo` thì `flow.py setup --yes` tự dựng; không có thì tự dùng Python, cùng kết quả, chậm hơn. |
 | **Gợi ý hướng xử lý** | Sau `new`/`triage`, nếu dấu hiệu triage khớp (ví dụ bộ cài NSIS chứa blob shellcode entropy cao), `flow.py kb playbook CASE` in các bước nên thử: lệnh winemu, plugin, lấy keystream, những điều không được ghi thành fact. Chỉ là gợi ý, không phải fact; dữ liệu ở `winemu/playbooks.json`. |
+| **Kho tri thức dùng chung** | Người duy trì chạy `flow.py kb publish` để xuất bản phát hành (`rea-kb-<ngày>.jsonl.gz` + `manifest.json`) từ các case đã qua cổng phản biện và được chọn công khai trong `share.txt`; không có mẫu, đường dẫn máy hay tên case. Người dùng chạy `flow.py kb update` (nguồn `REA_KB_UPSTREAM`) để nạp bản mới sau khi kiểm sha256; dữ liệu nhập chỉ là gợi ý, không phải fact. |
 | **Chạy được trong mạng nội bộ** | Cả phân tích lẫn phản biện chạy được bằng LLM tự dựng (Ollama, vLLM, llama.cpp). Dữ liệu mẫu không rời khỏi hạ tầng của bạn. |
 
 **Định dạng hỗ trợ:** PE, ELF (mọi kiến trúc), Go, .NET, shellcode, installer NSIS, file nén, script, Office/PDF, APK.

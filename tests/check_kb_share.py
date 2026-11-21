@@ -66,6 +66,14 @@ try:
     assert sum(r.get('kind') != 'case' for r in kb.read_jsonl(os.path.join(pub, 'cases', c0[0]))) == 2
     m = json.load(open(os.path.join(kb.kb_dir(), 'share_ids.json'))); assert c0[0][:-6] in m.values() and not any(c0[0][1:-6] in hashlib.sha256(x.encode()).hexdigest() for x in m)
     assert kb.share_rm(['CASE_B']) == 0 and not kb._pub_cases(pub); assert kb.share_add(['CASE_B']) == 0 and kb._pub_cases(pub) == c0
+    # share rm theo tên khi case đã biến mất khỏi workspace và kho cá nhân (mã vẫn nằm trong share_ids.json)
+    shutil.rmtree(os.path.join(ws, 'CASE_B')); kb.build(ws, quiet=True)
+    assert not any(r['case'] == 'CASE_B' for r in kb.read_jsonl(os.path.join(kb.kb_dir(), 'samples.jsonl')))
+    assert kb.share_rm(['CASE_B']) == 0 and not kb._pub_cases(pub)
+    # share_ids.json hỏng: dừng, không ghi đè
+    fi = os.path.join(kb.kb_dir(), 'share_ids.json'); good = open(fi).read(); open(fi, 'w').write('{hong')
+    assert 'hỏng' in (die(lambda: kb.cid_of(kb.kb_dir(), ws, 'CASE_C')) or '') and open(fi).read() == '{hong'
+    open(fi, 'w').write(good)
     review.gate = real
     # update: nhập vào kho khác dưới nhãn upstream; kiểm sha256
     os.environ['REA_KB'] = os.path.join(other, 'kb2'); import reacfg; reacfg.KB = os.environ['REA_KB']; kb.CFG.KB = reacfg.KB

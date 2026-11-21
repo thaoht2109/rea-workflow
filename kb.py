@@ -275,23 +275,33 @@ def pub_dir():
     if p == d or p.startswith(d + os.sep) or d.startswith(p + os.sep): raise SystemExit(f'kho công khai {p} không được trùng hoặc lồng với kho cá nhân {d}')
     outside_skill(p); return p
 
+def share_map(d):
+    """share_ids.json: {"<ws>\\0<case>": mã}. Chưa có file = rỗng; file hỏng/không đọc được thì DỪNG (ghi đè sẽ làm mất mọi mã đã gán)."""
+    f = os.path.join(d, 'share_ids.json')
+    try: m = json.load(open(f, encoding='utf-8'))
+    except FileNotFoundError: return {}
+    except (OSError, ValueError) as e: raise SystemExit(f'{f} hỏng hoặc không đọc được ({type(e).__name__}): sửa hoặc khôi phục trước khi share')
+    if not isinstance(m, dict): raise SystemExit(f'{f} không đúng dạng: sửa hoặc khôi phục trước khi share')
+    return m
+
 def cid_of(d, ws, case, create=True):
     """Mã công khai của một case: ngẫu nhiên, sinh một lần rồi lưu ở <kho cá nhân>/share_ids.json (ngoài kho công khai). Không suy ra từ tên case hay từ hash
     mẫu nên không dò ngược được, và không đổi khi case thêm/bớt file (share add lại thay đúng bản cũ, share rm theo tên gỡ đúng bản)."""
     import secrets
-    f = os.path.join(d, 'share_ids.json'); k = f'{ws or ""}\0{case}'
-    try: m = json.load(open(f, encoding='utf-8'))
-    except (OSError, ValueError): m = {}
-    if not isinstance(m, dict): m = {}
-    if k in m and re.fullmatch(r'c[0-9a-f]{10}', str(m[k])): return m[k]
-    if not create: return None
-    used = set(m.values())
-    while True:
-        c = 'c' + secrets.token_hex(5)
-        if c not in used: break
-    m[k] = c; writable(d); t = f + '.tmp'
-    with open(t, 'w', encoding='utf-8') as fh: json.dump(m, fh, ensure_ascii=False, indent=1)
-    os.replace(t, f); return c
+    k = f'{ws or ""}\0{case}'
+    if not create:
+        c = share_map(d).get(k); return c if re.fullmatch(r'c[0-9a-f]{10}', str(c)) else None
+    writable(d)
+    with locked(d):   # đọc-sinh-ghi trong khóa: hai lệnh share add cùng lúc không làm mất mã của nhau
+        m = share_map(d)
+        if re.fullmatch(r'c[0-9a-f]{10}', str(m.get(k))): return m[k]
+        used = set(m.values())
+        while True:
+            c = 'c' + secrets.token_hex(5)
+            if c not in used: break
+        m[k] = c; f = os.path.join(d, 'share_ids.json'); t = f + '.tmp'
+        with open(t, 'w', encoding='utf-8') as fh: json.dump(m, fh, ensure_ascii=False, indent=1)
+        os.replace(t, f); return c
 
 def sanitize(S, cid):
     """Bản ghi chia sẻ: chỉ trường đặc trưng của mẫu/IOC, không có đường dẫn máy, tên case, thời gian chạy, đính chính. Tên case thay bằng mã công khai
@@ -326,12 +336,10 @@ def share_add(names):
 
 def share_rm(names):
     """Gỡ khỏi kho công khai theo mã (cXXXXXXXXXX) hoặc theo tên case trong kho cá nhân. Chỉ xóa file trong cases/ của kho công khai."""
-    d, p = kb_dir(), pub_dir(); S0 = [r for r in read_jsonl(os.path.join(d, 'samples.jsonl')) if not r.get('peer')]
-    by_name = {}
-    keys = sorted({(r.get('ws'), r['case']) for r in S0}, key=str)
-    for k in keys:
-        c = cid_of(d, *k, create=False)
-        if c: by_name.setdefault(k[1], set()).add(c)
+    d, p = kb_dir(), pub_dir()
+    by_name = {}   # từ share_ids.json, không từ kho cá nhân: case đã xóa/đổi tên khỏi workspace vẫn gỡ được theo tên
+    for k, c in share_map(d).items():
+        if re.fullmatch(r'c[0-9a-f]{10}', str(c)): by_name.setdefault(k.split('\0', 1)[-1], set()).add(c)
     n = 0
     for nm in names:
         for cid in (by_name.get(nm) or ({nm} if re.fullmatch(r'c[0-9a-f]{10}', nm) else set())):

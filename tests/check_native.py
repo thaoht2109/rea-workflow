@@ -25,6 +25,19 @@ else:
     assert native.entropy(bytes(1000)) == 0.0 and native.entropy(bytes(range(256)) * 4) == 8.0
     print(f'OK check_native (Rust và Python khớp trên {len(data)} bộ dữ liệu)')
 
+# strings: Rust quét, kết quả phải trùng re.findall (ASCII và UTF-16LE từ mọi offset), kể cả khi vượt bộ đệm ban đầu
+wide = lambda t: ''.join(c + '\x00' for c in t).encode('latin1')
+sd = [b'', b'abc', b'hello world, this is a test\x00\x01more text here', wide('Software\\Run') + b'\x00' * 3 + b'plain ascii run',
+      b'x' + wide('offset one'), b'\x00' + wide('abcdefg') + b'\xff' + wide('abcde') + wide('abcdef'), bytearray(b'abcdefgh' * 100)]
+alpha = [0, 0x20, 0x41, 0x7e, 0x7f, 0xff, 0x61]
+sd += [bytes(rnd.choice(alpha) for _ in range(n)) for n in (300, 3000, 40000) for _ in range(6)] + [os.urandom(1 << 16)]
+for n in (1, 4, 6, 9):
+    for b in sd: assert native.scan_strings(b, n) == native.scan_strings_py(bytes(b), n), (n, bytes(b)[:40])
+native.scan_strings(bytes(rnd.choice([0x41, 0x20, 0]) for _ in range(300000)), 3)   # nhiều hơn 65536 chuỗi: phải cấp lại bộ đệm
+big = bytes(rnd.choice([0x41, 0x42, 0x20]) for _ in range(400000))
+assert native.scan_strings(big, 1) == native.scan_strings_py(big, 1)
+print('OK check_native (strings khớp re.findall)')
+
 # REA_CORE: py ép Python, rust với thư viện hỏng thì dừng, auto với thư viện hỏng thì lùi về Python
 code = "import sys; sys.path.insert(0, sys.argv[1]); from static import native; print(native.lib() is not None, native.entropy(bytes(range(256)) * 4))"
 def probe(**kw):

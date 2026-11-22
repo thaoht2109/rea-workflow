@@ -10,13 +10,12 @@ import pefile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: reacfg.py
-from static.native import entropy   # Rust nếu có (REA_CORE), không thì Python
+from static.native import entropy, scan_strings   # Rust nếu có (REA_CORE), không thì Python
 from static.ziptype import zip_kind   # noqa: E402  (ZIP là chính mẫu: APK, OOXML, JAR, ODF)
 NSIS_SIG = b'\xef\xbe\xad\xdeNullsoftInst'
 
 def strings(d, n=6):
-    a = [m.decode() for m in re.findall(rb'[\x20-\x7e]{%d,}' % n, d)]
-    u = [m.decode('utf-16le') for m in re.findall(rb'(?:[\x20-\x7e]\x00){%d,}' % n, d)]
+    a, u = scan_strings(d, n)
     hot = re.compile(r'https?://|\\\\|[A-Za-z]:\\|\.(dll|exe|ps1|vbs|bat)\b|HKEY_|Software\\|::|%[a-z]+%', re.I)
     seen, out = set(), []
     for s in sorted(a + u, key=lambda s: (not hot.search(s), -len(s))):

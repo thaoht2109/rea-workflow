@@ -95,7 +95,11 @@ def lookup_issue(base, full):
     tổng ≤ 2 KiB, mỗi dòng là một token cấu hình (URL, tên miền, IP, khóa=giá trị; không khoảng trắng, ≤ 200 ký tự). Còn rủi ro nhỏ: một mảnh dữ liệu mã hóa dưới 2 KiB vẫn qua. Mọi thứ khác (script, base64, hex, JSON dài, nhị phân)
     đi vào work/extract (export đóng 7z), evidence chỉ giữ sha256, kích thước, content-type và trích đoạn. Dùng chung cho lint và cổng phản biện."""
     if not base.startswith('lookup_'): return None
-    raw = open(full, 'rb').read(); body = raw.split(LOOKUP_SEP, 1)[1] if LOOKUP_SEP in raw else raw
+    raw = open(full, 'rb').read(); head, _, body = raw.partition(LOOKUP_SEP) if LOOKUP_SEP in raw else (b'', b'', raw)
+    hl = [x for x in head.split(b'\n') if x.strip()]   # phần đầu chỉ là metadata ngắn: lệnh, URL, thời điểm, mã trạng thái
+    if len(hl) > 6 or len(head) > 1024 or any(len(x) > 300 or x.lstrip().startswith(b'#!') for x in hl) or re.search(rb'[^\x20-\x7e\n\r\t]', head):
+        return (f'phần đầu lookup_* ({len(head)} B, {len(hl)} dòng) không phải metadata ngắn: tối đa 6 dòng, 1 KiB, ASCII in được, không shebang',
+                'phần đầu chỉ ghi lệnh, URL, thời điểm UTC, mã trạng thái; nội dung trả về đặt sau dòng --- body --- hoặc ở work/extract/')
     lines = [x.rstrip(b'\r') for x in body.split(b'\n') if x.strip(b'\r')]
     if len(body) > LOOKUP_MAX or len(lines) > LOOKUP_LINES or not all(LOOKUP_LINE.fullmatch(x) for x in lines):
         return (f'thân lookup_* ({len(body)} B, {len(lines)} dòng) không phải cấu hình ngắn: chỉ nhận tối đa {LOOKUP_LINES} dòng, mỗi dòng một token (URL, tên miền, IP, khóa=giá trị) không khoảng trắng',

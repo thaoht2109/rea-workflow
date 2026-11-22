@@ -16,7 +16,7 @@
 #                                      báo cáo viết tay: report/report-<ngày phân tích>.md; case cũ còn report/README.md thì report tự đổi tên
 #   flow.py doctor                     kiểm cấu hình theo máy (rea.env) trước khi chạy trên server mới
 #   flow.py version                    bản đang cài (package.json, nguồn cài) và các bản đã gắn tag trên GitHub
-#   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, pefile, capstone, unicorn, upx, JDK, Ghidra, Node, rea); --yes thì cài
+#   flow.py setup [--yes] [--no-ghidra]   kiểm công cụ phân tích (7z, readelf, pefile, capstone, unicorn, go, cargo/rustc, upx, JDK, Ghidra, Node, rea); --yes thì cài
 #   flow.py session [--print] [THAM SỐ CLAUDE...]   mở Claude Code cho phiên phân tích: chỉ giữ MCP/plugin dịch ngược, tắt hook, nạp rea-workflow; chạy ở workspace
 #   flow.py session --install [WORKSPACE] | --uninstall | --migrate OLD   cài/gỡ hàm shell: gõ `claude` trong workspace là tự mở phiên gọn;
 #                                      --migrate: khối shell đang trỏ bản cài OLD thì chuyển sang bản này (bộ cài gọi khi đổi tên)

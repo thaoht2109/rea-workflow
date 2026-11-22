@@ -10,13 +10,14 @@ assert not ok(sections=[{'entropy': 7.6, 'raw': 9000}]) and not ok(overlay={'ent
 ws = tempfile.mkdtemp(prefix='rea-light-'); open(os.path.join(ws, 'a.sh'), 'w').write('#!/bin/sh\necho one\n')
 run = lambda *a: subprocess.run([sys.executable, os.path.join(T, 'flow.py'), *a], cwd=ws, capture_output=True, text=True)
 assert run('new', 'F1', 'a.sh').returncode == 0 and run('mode', 'F1').stdout.strip() == 'F1: chế độ full'
-for cmd in ('tool', 'v8'): assert run(cmd, 'F1', 'list').returncode != 0 or cmd == 'tool'   # full: không bị khóa (có thể lỗi vì lý do khác)
+for cmd in ('tool', 'v8'): r = run(cmd, 'F1', 'list'); assert 'light' not in (r.stdout + r.stderr), (cmd, r)   # full: không bị khóa
 r = run('new', 'L1', '--light', 'a.sh'); assert r.returncode == 0 and 'chế độ light' in r.stdout, r.stderr[-300:]
 assert os.path.isfile(os.path.join(ws, 'L1', 'work', 'sample', 'a.sh')) and run('mode', 'L1').stdout.strip() == 'L1: chế độ light'
 for cmd in ('tool', 'v8'):
     r = run(cmd, 'L1', 'list'); assert r.returncode != 0 and 'light' in (r.stdout + r.stderr) and 'mode L1 full' in (r.stdout + r.stderr), (cmd, r)
 assert 'light' in run('resume', 'L1').stdout
 r = run('next', 'L1'); assert 'NEED_MORE (light)' in r.stdout and 'mode L1 full' in r.stdout, r.stdout[-400:]
+assert run('mode', 'KHONG_CO', 'light').returncode != 0 and not os.path.exists(os.path.join(ws, 'KHONG_CO'))
 assert run('mode', 'L1', 'xyz').returncode != 0 and run('mode', 'L1', 'full').returncode == 0 and run('mode', 'L1').stdout.strip() == 'L1: chế độ full'
 r = run('next', 'L1'); assert 'NEED_MORE (light)' not in r.stdout   # full: hướng dẫn cũ
 open(os.path.join(ws, 'L1', 'work', 'mode.json'), 'w').write('hỏng'); assert run('mode', 'L1').stdout.strip() == 'L1: chế độ full'   # file hỏng: lùi về full

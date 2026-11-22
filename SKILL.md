@@ -13,7 +13,7 @@ compatibility: Linux x86-64; Python >= 3.9; Node.js >= 22.20; JDK 21 + Ghidra 12
 
 ## Quy tắc bắt buộc
 
-- **Không bao giờ thực thi mẫu.** Không chạy qua wine/qemu, không chạy script mẫu, không dùng `rea capture-*` hay `debug-with-gdb` trên mẫu. Không chạm C2 hay hạ tầng phát tán, không tra mẫu trên dịch vụ ngoài. Chỉ được phân tích tĩnh và giả lập CPU (`$SKILL/winemu`).
+- **Không bao giờ thực thi mẫu.** Không chạy qua wine/qemu, không chạy script mẫu, không dùng `rea capture-*` hay `debug-with-gdb` trên mẫu. Không chạm hạ tầng của kẻ tấn công: không gửi request nào tới C2 (tên miền, IP, cổng trong IOC), URL tải payload hay host phân phối; không đưa mẫu, hash hay IOC của mẫu lên dịch vụ chia sẻ/chỉ mục mẫu (VirusTotal, sandbox công khai…). Ngoại lệ hẹp, chỉ khi người dùng đồng ý riêng cho case đó và chỉ qua đường mạng riêng: tra thụ động theo FLOW.md mục 0 (RDAP/WHOIS, DNS-over-HTTPS, metadata api.github.com của repo dead-drop; nội dung raw của dead-drop chỉ khi người dùng duyệt đúng URL đó; ghi evidence `lookup_*`). Chỉ được phân tích tĩnh và giả lập CPU (`$SKILL/winemu`).
 - Mỗi case bắt đầu bằng `flow.py new`. Mỗi kết luận là một fact trong `<CASE>/facts.jsonl` (ghi qua `case.py add`), có nguồn `src=S|E|V` (tĩnh / giả lập / VM) và evidence nằm trong `<CASE>/report/evidence/`. Sửa fact bằng fact mới có `supersedes=<id cũ>`, không sửa hay xóa dòng cũ.
 - Báo cáo viết tiếng Việt, có bảng đính chính và mục hạn chế/OPSEC. Mỗi mẫu hoặc chiến dịch có báo cáo riêng, không quy kết chéo giữa các case.
 - Đọc tóm tắt, không đọc log thô (dùng `grep`, `sed -n`, `head`).

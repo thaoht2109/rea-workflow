@@ -86,10 +86,29 @@ def evidence_now(case, f):
     except OSError: return f['evidence']
     mv = _relocate(lines, int(m.group(1)), f['ev_line'])
     return f['evidence'][:m.start()] + f'#L{mv}' if mv else f['evidence']
+LOOKUP_MAX = 2048
+LOOKUP_SEP = b'\n--- body ---\n'   # FLOW.md mục 0: phần đầu (lệnh, URL, thời điểm, mã trạng thái) rồi dòng này rồi thân trả về
+LOOKUP_LINE = re.compile(rb'[A-Za-z0-9][A-Za-z0-9_.:/@?&=%+,#~-]{0,199}')   # một dòng cấu hình: URL, tên miền, IP, khóa=giá trị; không khoảng trắng
+LOOKUP_LINES = 10
+def lookup_issue(base, full):
+    """Evidence lookup_* (tra cứu thụ động) theo DANH SÁCH CHO PHÉP: thân trả về (sau dòng '--- body ---', không có dòng đó thì cả file) chỉ gồm tối đa 10 dòng,
+    tổng ≤ 2 KiB, mỗi dòng là một token cấu hình (URL, tên miền, IP, khóa=giá trị; không khoảng trắng, ≤ 200 ký tự). Còn rủi ro nhỏ: một mảnh dữ liệu mã hóa dưới 2 KiB vẫn qua. Mọi thứ khác (script, base64, hex, JSON dài, nhị phân)
+    đi vào work/extract (export đóng 7z), evidence chỉ giữ sha256, kích thước, content-type và trích đoạn. Dùng chung cho lint và cổng phản biện."""
+    if not base.startswith('lookup_'): return None
+    raw = open(full, 'rb').read(); head, _, body = raw.partition(LOOKUP_SEP) if LOOKUP_SEP in raw else (b'', b'', raw)
+    hl = [x for x in head.split(b'\n') if x.strip()]   # phần đầu chỉ là metadata ngắn: lệnh, URL, thời điểm, mã trạng thái
+    if len(hl) > 6 or len(head) > 1024 or any(len(x) > 300 or x.lstrip().startswith(b'#!') for x in hl) or re.search(rb'[^\x20-\x7e\n\r\t]', head):
+        return (f'phần đầu lookup_* ({len(head)} B, {len(hl)} dòng) không phải metadata ngắn: tối đa 6 dòng, 1 KiB, ASCII in được, không shebang',
+                'phần đầu chỉ ghi lệnh, URL, thời điểm UTC, mã trạng thái; nội dung trả về đặt sau dòng --- body --- hoặc ở work/extract/')
+    lines = [x.rstrip(b'\r') for x in body.split(b'\n') if x.strip(b'\r')]
+    if len(body) > LOOKUP_MAX or len(lines) > LOOKUP_LINES or not all(LOOKUP_LINE.fullmatch(x) for x in lines):
+        return (f'thân lookup_* ({len(body)} B, {len(lines)} dòng) không phải cấu hình ngắn: chỉ nhận tối đa {LOOKUP_LINES} dòng, mỗi dòng một token (URL, tên miền, IP, khóa=giá trị) không khoảng trắng',
+                'thân thật lưu ở work/extract/ (0400); lookup_*.txt chỉ giữ sha256, kích thước, content-type và trích đoạn ngắn đã lọc (RDAP/API: jq lấy trường cần). Thân giống payload thì dừng hỏi người dùng')
 def src_evidence_issue(src, base):
     """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
     host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""
     if src == 'S' and base.startswith(('emu_', 'vm_', 'host_')): return 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh'
+    if base.startswith('lookup_') and src != 'S': return 'evidence lookup_* là tra cứu thụ động bên ngoài (không phải giả lập/VM) nhưng src khác S', 'ghi src=S, note nêu tra cứu thụ động và ngày tra'
     if src == 'V' and not base.startswith(('vm_', 'host_')): return 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src'
 
 def work_files(case, dirs=('sample', 'extract'), limit=64 << 20):
@@ -120,6 +139,8 @@ def lint_fact(case, f):
     base = os.path.basename(rel)
     sv = src_evidence_issue(f['src'], base)
     if sv: bad('fail', 'src_vs_evidence', *sv)
+    li = lookup_issue(base, full)
+    if li: bad('fail', 'lookup_content', *li)
     for ck, pb, rd in adhoc.issues(case, f, rel, '\n'.join(lines)): bad('fail', ck, pb, rd)   # evidence của công cụ tự viết: phải tự kiểm đạt, công cụ chưa đổi
     for ck, pb, rd in adhoc.notes(case, f, rel, '\n'.join(lines)): bad('warn', ck, pb, rd)    # chạy không trong vỏ không mạng: cảnh báo
     scope, anchor = whole, None

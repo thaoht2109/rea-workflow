@@ -47,8 +47,11 @@ def scan_strings_py(d, n=6):
             [m.decode('utf-16le') for m in re.findall(rb'(?:[\x20-\x7e]\x00){%d,}' % n, d)])
 
 
+CAP_MAX = 1 << 20   # số cặp (offset, độ dài) cấp sẵn tối đa; vượt thì Rust báo tổng số và ta cấp lại đúng cỡ
+
+
 def _runs(l, d, n, kind):
-    cap = 1 << 20
+    cap = max(1, min(CAP_MAX, len(d) // (n + 1) + 1))   # cận trên số chuỗi: mỗi chuỗi >= n ký tự và cách nhau >= 1 byte (UTF-16 còn thưa hơn)
     while True:
         buf = array('Q', bytes(16 * cap))
         k = l.rea_strings(d, len(d), n, kind, buf.buffer_info()[0], cap)

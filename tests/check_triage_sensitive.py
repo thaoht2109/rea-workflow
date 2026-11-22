@@ -39,10 +39,11 @@ big = S([f'curl_easy_opt{i}' for i in range(40)])
 assert len(big['C5 IOC mạng']) == 24, big
 
 # 6. pe_info điền imported_funcs: duy nhất, sắp xếp, bỏ import theo ordinal (name None)
+parsed = []
 imp = lambda *n: [types.SimpleNamespace(name=x.encode() if x else None) for x in n]
 pe = types.SimpleNamespace(
     OPTIONAL_HEADER=types.SimpleNamespace(Magic=0x10b, DATA_DIRECTORY=[types.SimpleNamespace(VirtualAddress=0, Size=0)] * 16),
-    sections=[], get_overlay_data_start_offset=lambda: None, parse_data_directories=lambda: None,
+    sections=[], get_overlay_data_start_offset=lambda: None, parse_data_directories=lambda **k: parsed.append(k.get('directories')),
     DIRECTORY_ENTRY_IMPORT=[types.SimpleNamespace(dll=b'KERNEL32.dll', imports=imp('WriteProcessMemory', None, 'CloseHandle')),
                             types.SimpleNamespace(dll=b'WS2_32.dll', imports=imp(None, 'connect', 'CloseHandle'))])
 orig = triage.pefile.PE
@@ -50,6 +51,8 @@ try:
     triage.pefile.PE = lambda **k: pe
     R = {'flags': []}; triage.pe_info(b'MZ', R)
 finally: triage.pefile.PE = orig
+# chỉ parse import, export, debug (bảng ngoại lệ/relocation/resource tốn hàng chục giây trên mẫu lớn mà triage không dùng)
+assert parsed == [[1, 0, 6]], parsed
 assert R['imported_funcs'] == ['CloseHandle', 'WriteProcessMemory', 'connect'], R
 assert R['imports'] == {'KERNEL32.dll': 3, 'WS2_32.dll': 3}, R['imports']
 assert S(R['imported_funcs']) == {'C5 IOC mạng': ['connect'], 'C6 tiêm mã': ['WriteProcessMemory']}

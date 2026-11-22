@@ -170,7 +170,9 @@ def pe_pivots(pe, d, R):
         if cs is not None: P['certs'] = cs
 
 def pe_info(d, R):
-    pe = pefile.PE(data=d, fast_load=True); pe.parse_data_directories()
+    pe = pefile.PE(data=d, fast_load=True)
+    D = pefile.DIRECTORY_ENTRY
+    pe.parse_data_directories(directories=[D['IMAGE_DIRECTORY_ENTRY_IMPORT'], D['IMAGE_DIRECTORY_ENTRY_EXPORT'], D['IMAGE_DIRECTORY_ENTRY_DEBUG']])   # chỉ phần triage dùng; bảng ngoại lệ/relocation/resource của mẫu lớn tốn hàng chục giây
     R['type'] = 'PE32+' if pe.OPTIONAL_HEADER.Magic == 0x20b else 'PE32'
     R['sections'] = [{'name': s.Name.rstrip(b'\0').decode('latin1'), 'raw': s.SizeOfRawData, 'entropy': entropy(s.get_data()),
                       'md5': hashlib.md5(s.get_data(), usedforsecurity=False).hexdigest() if s.SizeOfRawData else None} for s in pe.sections]

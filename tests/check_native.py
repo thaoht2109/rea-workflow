@@ -34,7 +34,7 @@ sd += [bytes(rnd.choice(alpha) for _ in range(n)) for n in (300, 3000, 40000) fo
 for n in (1, 4, 6, 9):
     for b in sd: assert native.scan_strings(b, n) == native.scan_strings_py(bytes(b), n), (n, bytes(b)[:40])
 # bộ đệm ban đầu cố ý nhỏ (4 cặp) để buộc đường cấp lại: nhiều chuỗi hơn cap, cả ASCII và UTF-16
-many = [b'abcdefgh ' * 50, b'\x01'.join(wide('abcdefgh') for _ in range(20)), bytes(rnd.choice([0x41, 0x20, 0]) for _ in range(30000))]
+many = [b'abcdefgh\x01' * 50, b'\x01'.join(wide('abcdefgh') for _ in range(20)), bytes(rnd.choice([0x41, 0x20, 0]) for _ in range(30000))]
 old_cap = native.CAP_MAX; native.CAP_MAX = 4
 try:
     for b in many:

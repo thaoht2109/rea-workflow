@@ -369,7 +369,7 @@ def next_step(c, accept=''):
         s = state(c); last = (s.get('rounds') or [{}])[-1]
         if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"); return 1
-        print(f'NEED_REVIEW: {why} -> flow.py review {shlex.quote(c)} --llm --detach'); return 1
+        print(f'NEED_REVIEW: {why} -> trước hết ghi đủ fact và chạy `flow.py review {shlex.quote(c)}` (xem trước lớp máy, không tốn lượt) cho tới khi sạch; rồi MỘT lần `flow.py review {shlex.quote(c)} --llm --detach` (mỗi lượt lớp 2 ~3-5 phút, ~0,5-1 USD; thêm fact giữa các lượt làm tốn thêm lượt)'); return 1
     rb = report_blank(c)
     if rb:
         print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} vẫn còn phần giữ chỗ của template (phần chữ chưa viết); viết báo cáo tiếng Việt từ facts: '

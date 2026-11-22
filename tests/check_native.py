@@ -33,7 +33,16 @@ alpha = [0, 0x20, 0x41, 0x7e, 0x7f, 0xff, 0x61]
 sd += [bytes(rnd.choice(alpha) for _ in range(n)) for n in (300, 3000, 40000) for _ in range(6)] + [os.urandom(1 << 16)]
 for n in (1, 4, 6, 9):
     for b in sd: assert native.scan_strings(b, n) == native.scan_strings_py(bytes(b), n), (n, bytes(b)[:40])
-native.scan_strings(bytes(rnd.choice([0x41, 0x20, 0]) for _ in range(300000)), 3)   # nhiều hơn 65536 chuỗi: phải cấp lại bộ đệm
+# bộ đệm ban đầu cố ý nhỏ (4 cặp) để buộc đường cấp lại: nhiều chuỗi hơn cap, cả ASCII và UTF-16
+many = [b'abcdefgh\x01' * 50, b'\x01'.join(wide('abcdefgh') for _ in range(20)), bytes(rnd.choice([0x41, 0x20, 0]) for _ in range(30000))]
+old_cap = native.CAP_MAX; native.CAP_MAX = 4
+try:
+    for b in many:
+        for n in (1, 3, 6):
+            r = native.scan_strings(b, n); assert r == native.scan_strings_py(b, n), n
+    assert len(native.scan_strings(many[0], 6)[0]) > 4 and len(native.scan_strings(many[1], 6)[1]) > 4
+finally: native.CAP_MAX = old_cap
+assert native.CAP_MAX == 1 << 20
 big = bytes(rnd.choice([0x41, 0x42, 0x20]) for _ in range(400000))
 assert native.scan_strings(big, 1) == native.scan_strings_py(big, 1)
 print('OK check_native (strings khớp re.findall)')

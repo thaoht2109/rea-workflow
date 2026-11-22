@@ -124,6 +124,9 @@ def doctor():
         row(bool(shutil.which(b)), k, shutil.which(b) or b, use, req)
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,
         'engine decompile của rea trên Linux + Ghidra headless cho MIPS/PPC', True)
+    row(bool(shutil.which('readelf')), 'readelf', shutil.which('readelf') or 'binutils', 'triage ELF (thiếu thì ELF ra trống mà không báo lỗi); cài: apt install binutils', True)
+    row(bool(shutil.which('go')), 'go', shutil.which('go') or 'golang-go', 'triage nhận dạng Go (go version -m); cài: apt install golang-go', False)
+    row(bool(shutil.which('cargo') and shutil.which('rustc')), 'cargo/rustc', shutil.which('cargo') or 'cargo rustc', 'dựng lõi Rust (winemu, triage); cài: apt install cargo rustc, hoặc rustup', False)
     row(True, 'AF_UNIX', 'tạo được' if unix_socket_ok() else 'bị chặn (sandbox): flow.py dec tự dùng Ghidra headless, chậm hơn lần đầu',
         'bridge Ghidra của rea', False)
     row(not JAVA_HOME or os.path.exists(os.path.join(JAVA_HOME, 'bin', 'java')), 'JAVA_HOME', JAVA_HOME, 'JDK 21 cho Ghidra', True)

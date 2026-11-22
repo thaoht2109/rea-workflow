@@ -43,6 +43,10 @@ def rust_ok():
     finally:
         if wd in sys.path: sys.path.remove(wd)
 
+def cargo_ok():
+    """cargo và rustc đều có trên PATH và cargo >= 1.56 (edition 2021)."""
+    return bool(shutil.which('cargo') and shutil.which('rustc')) and (ver(out('cargo', '--version')) or (0,)) >= (1, 56)
+
 def kb_ready():
     """Kho tra chéo đã có dữ liệu, hoặc cố ý tắt (REA_KB=off) / không có nguồn để kéo."""
     try:
@@ -68,12 +72,15 @@ def checks():
     node = ver(out('node', '--version'))
     return [
         ('7z', any(map(shutil.which, (CFG.SEVENZ, '7z', '7zz'))), True, ['7zip'], None, None, 'giải nén mẫu và file nén'),
+        ('readelf (binutils)', bool(shutil.which('readelf')), True, ['binutils'], None, None, 'triage ELF: section, import, symbol (thiếu thì ELF ra trống mà không báo lỗi)'),
         ('python: pefile', has_mod('pefile'), True, ['python3-pefile'], 'pefile', None, 'triage PE'),
         ('python: capstone', has_mod('capstone'), True, ['python3-capstone'], 'capstone', None, 'disassembly, winemu'),
         ('python: unicorn 2.1.4', unicorn_ok(), True, [], 'unicorn==2.1.4', None, 'giả lập CPU (winemu, tầng T3)'),
         ('python: py-tlsh', has_mod('tlsh'), False, [], 'py-tlsh', None, 'flow.py kb: so khớp mờ mẫu tương tự (TLSH)'),
         ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
+        ('go', bool(shutil.which('go')), False, ['golang-go'], None, None, 'triage Go: `go version -m` đọc buildinfo (thiếu thì mẫu Go không được gắn cờ Go)'),
+        ('rust: cargo + rustc >= 1.56', cargo_ok() or rust_ok(), False, ['cargo', 'rustc'], None, None, 'dựng lõi Rust của winemu và triage (đã có thư viện dựng sẵn thì không cần; edition 2021; bản apt đủ dùng, Cargo.lock giữ version 3)'),
         ('winemu: lõi Rust', rust_ok(), False, [] if shutil.which('cargo') else ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
         ('kho tri thức (kb)', kb_ready(), False, [], None, 'kb', 'flow.py kb: gợi ý từ mẫu đã phân tích; kéo kho đã công bố (tùy chọn: thiếu thì chỉ không có gợi ý chéo)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
@@ -146,7 +153,7 @@ def main(a):
     for name, ok, req, *_ , use in C:
         print(f"{'OK   ' if ok else ('THIẾU' if req else 'WARN ')} {name:<24} [{use}]")
     if not miss: print('Đủ công cụ. Kiểm cấu hình: python3 flow.py doctor'); return 0
-    apt_pkgs = [p for c in miss for p in c[3]] if apt else []
+    apt_pkgs = list(dict.fromkeys(p for c in miss for p in c[3])) if apt else []   # bỏ gói trùng, giữ thứ tự
     pip_pkgs = [c[4] for c in miss if c[4] and not (apt and c[3])]
     steps = [c[5] for c in miss if c[5] and not (c[5] == 'ghidra' and '--no-ghidra' in a)]
     print('\nKế hoạch cài:')
@@ -188,6 +195,10 @@ def selftest():
         os.environ['REA_CORE_LIB'] = os.path.join(t, 'khong-co'); os.environ['PATH'] = t
         r = [c for c in checks() if c[5] == 'rust']; assert len(r) == 1 and not r[0][1] and not r[0][2] and r[0][3] == ['cargo'], r   # PATH rỗng: không có cargo nên cần gói apt
         rust_build()
+        C0 = {c[0].split(' ')[0]: c for c in checks()}   # PATH rỗng: thiếu go, readelf, cargo/rustc; chỉ readelf bắt buộc
+        assert not C0['go'][1] and not C0['go'][2] and C0['go'][3] == ['golang-go'], C0['go']
+        assert not C0['readelf'][1] and C0['readelf'][2] and C0['readelf'][3] == ['binutils'], C0['readelf']
+        assert not C0['rust:'][1] and not C0['rust:'][2] and C0['rust:'][3] == ['cargo', 'rustc'], C0['rust:']
     finally:
         for k, v in old.items():
             if v is None: os.environ.pop(k, None)

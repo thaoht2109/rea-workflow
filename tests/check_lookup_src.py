@@ -22,7 +22,6 @@ for k in body:
     if k != 'ok': assert 'lookup_content' in chk(k), (k, chk(k))
 print('OK check_lookup_src (thân lookup_*)')
 import review   # cổng phản biện (lớp máy) cũng chặn
-from review import mech  # noqa: E402,F401
 it = {(i['id'], i['check']) for i in review.mech(c) if i['verdict'] == 'fail'}
 assert ('l.big', 'lookup_content') in it and ('l.elf', 'lookup_content') in it and ('l.ok', 'lookup_content') not in it, it
 print('OK check_lookup_src (cổng)')

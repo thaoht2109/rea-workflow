@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Điều phối flow phân tích dịch ngược cho mọi mẫu (FLOW.md). Không bao giờ thực thi mẫu.
 #   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), report/report-<ngày>.md từ template, triage tất cả
+#   flow.py mode CASE [light|full]     chế độ case: light = mẫu đơn giản, chỉ tầng tĩnh (khóa `tool`, `v8`; không giả lập, không tách phiên); full (mặc định). Cổng phản biện giống nhau. Không tham số = xem
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
@@ -182,6 +183,7 @@ def resume(c):
     import review
     F, acc, (ok, why) = case.load(c), review.accepted(c), review.gate(c)
     act = [f for f in F.values() if f['status'] == 'active']; hyp = [f for f in F.values() if f['status'] == 'hypothesis']
+    if case.mode(c) == 'light': print('chế độ light: chỉ tầng tĩnh, không bắt buộc tách phiên; cần giả lập/công cụ thì flow.py mode CASE full')
     print(f'# resume {c}: {len(act)} fact active, {len(hyp)} hypothesis. Nguồn chân lý: {c}/facts.jsonl; tra lại: case.py show {c} --id ID | case.py search {c} TỪ')
     todo = [(k, v, n) for k, v, n in case.check(c) if not (v == 'ok' or v.startswith('n/a')) and k.split()[0] not in acc]
     print('## Việc kế tiếp' + ('' if todo else ': checklist đủ'))
@@ -446,9 +448,18 @@ if __name__ == '__main__':
     if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])
     cmd, c = a[0], a[1]
-    if cmd == 'new': new(c, a[2:]); import kb; kb.hint(c)
+    if cmd == 'new':
+        light = '--light' in a; new(c, [x for x in a[2:] if x != '--light'])
+        if light: case.set_mode(c, 'light'); print('chế độ light: chỉ tầng tĩnh (khóa tool/v8, không giả lập); đổi lại: flow.py mode CASE full')
+        import kb; kb.hint(c)
+    elif cmd == 'mode':
+        if a[2:3] and a[2] not in ('light', 'full'): raise SystemExit('dùng: flow.py mode CASE [light|full]')
+        if a[2:3]: case.set_mode(c, a[2])
+        print(f'{c}: chế độ {case.mode(c)}')
     elif cmd == 'triage': triage(c, a[2:] or samples(c)); import kb; kb.hint(c)
     elif cmd == 'dec': dec(c, a[2], a[3:])
+    elif cmd in ('v8', 'tool') and case.mode(c) == 'light':
+        raise SystemExit(f'case ở chế độ light (mẫu đơn giản, chỉ tầng tĩnh): `{cmd}` bị khóa. Mẫu cần tầng này thì nâng: flow.py mode {c} full')
     elif cmd == 'v8':
         if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]')
         v8(c, a[2], a[3:])

@@ -86,6 +86,7 @@ def evidence_now(case, f):
     except OSError: return f['evidence']
     mv = _relocate(lines, int(m.group(1)), f['ev_line'])
     return f['evidence'][:m.start()] + f'#L{mv}' if mv else f['evidence']
+LOOKUP_MAX = 8192
 def src_evidence_issue(src, base):
     """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
     host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""
@@ -121,6 +122,10 @@ def lint_fact(case, f):
     base = os.path.basename(rel)
     sv = src_evidence_issue(f['src'], base)
     if sv: bad('fail', 'src_vs_evidence', *sv)
+    if base.startswith('lookup_'):   # tra cứu thụ động: chỉ văn bản ngắn dạng cấu hình; thân lớn/nhị phân/mã chạy được phải ở work/extract (export đóng 7z), evidence chỉ giữ sha256 và trích đoạn
+        raw = open(full, 'rb').read()
+        if len(raw) > LOOKUP_MAX or b'\0' in raw or raw[:2] in (b'MZ', b'#!') or raw[:4] in (b'\x7fELF', b'PK\x03\x04') or sum(c < 9 or 13 < c < 32 for c in raw) > len(raw) // 50:
+            bad('fail', 'lookup_content', f'evidence lookup_* quá {LOOKUP_MAX} B hoặc không phải văn bản thuần ({len(raw)} B): có thể là payload', 'lưu thân vào work/extract/ (0400), evidence chỉ giữ sha256, kích thước, content-type và trích đoạn ngắn; dừng hỏi người dùng như tải payload')
     for ck, pb, rd in adhoc.issues(case, f, rel, '\n'.join(lines)): bad('fail', ck, pb, rd)   # evidence của công cụ tự viết: phải tự kiểm đạt, công cụ chưa đổi
     for ck, pb, rd in adhoc.notes(case, f, rel, '\n'.join(lines)): bad('warn', ck, pb, rd)    # chạy không trong vỏ không mạng: cảnh báo
     scope, anchor = whole, None

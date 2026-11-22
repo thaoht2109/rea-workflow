@@ -218,7 +218,7 @@ File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhậ
 
 ## Bảo mật
 
-- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công, không tra mẫu trên dịch vụ bên ngoài.** Quy tắc chi tiết nằm ở [`SKILL.md`](SKILL.md). Chỉ tải payload thật khi người dùng cho phép.
+- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công, không đưa mẫu/IOC lên dịch vụ chia sẻ mẫu.** Ngoại lệ hẹp: tra thụ động dữ liệu công khai (RDAP/WHOIS, DoH, metadata GitHub, nội dung dead-drop do người dùng duyệt đúng URL), chỉ khi người dùng đồng ý riêng cho case và đi qua đường mạng riêng. Quy tắc chi tiết ở [`SKILL.md`](SKILL.md) và `FLOW.md` mục 0. Chỉ tải payload thật khi người dùng cho phép.
 - Phản biện gửi fact, bằng chứng và chuỗi trích từ mẫu tới nhà cung cấp LLM bạn chọn. Dữ liệu nhạy cảm thì dùng LLM local.
 - Kho tra chéo và file `kb export` chứa hash và IOC. File chỉ chủ máy đọc được (quyền 0600). Chỉ chép qua kênh tin cậy (SSH, ổ mã hoá); không gửi qua email hay chat, không đưa lên repo công khai.
 - Với agent khác Claude Code, quy tắc không thực thi mẫu chỉ là hướng dẫn bằng chữ. Hãy bật chế độ xác nhận lệnh hoặc sandbox của agent.

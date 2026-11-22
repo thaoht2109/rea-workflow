@@ -90,6 +90,7 @@ def src_evidence_issue(src, base):
     """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
     host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""
     if src == 'S' and base.startswith(('emu_', 'vm_', 'host_')): return 'src=S nhưng evidence sinh từ giả lập/VM/quan sát máy thật', 'đổi src hoặc dẫn evidence tĩnh'
+    if base.startswith('lookup_') and src != 'S': return 'evidence lookup_* là tra cứu thụ động bên ngoài (không phải giả lập/VM) nhưng src khác S', 'ghi src=S, note nêu tra cứu thụ động và ngày tra'
     if src == 'V' and not base.startswith(('vm_', 'host_')): return 'src=V nhưng evidence không phải kết quả VM hay quan sát máy thật', 'dẫn evidence vm_* / host_* hoặc đổi src'
 
 def work_files(case, dirs=('sample', 'extract'), limit=64 << 20):

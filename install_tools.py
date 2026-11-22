@@ -4,7 +4,7 @@
 # Gói hệ thống cài bằng apt-get (Debian/Ubuntu/Kali, cần sudo); thư viện Python cài vào REA_PYLIB (pip --target, không cần sudo);
 # Ghidra tải bản đã kiểm từ GitHub, đối chiếu sha256 rồi giải nén vào ~/.local/share/rea-flow; rea cài từ npm (rea-agents).
 # Không bao giờ cài hay cấu hình wine: winemu chỉ cần tên export của DLL, mà wine có thể tự chạy file .exe qua binfmt.
-import sys, os, re, json, shutil, hashlib, zipfile, subprocess, importlib.util, urllib.request
+import sys, os, types, re, json, shutil, hashlib, zipfile, subprocess, importlib.util, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -80,7 +80,7 @@ def checks():
         ('python: brotli', has_mod('brotli'), False, ['python3-brotli'], 'brotli', None, 'flow.py v8: gỡ lớp brotli của code cache V8 (.jsc)'),
         ('python: cryptography', has_mod('cryptography'), False, ['python3-cryptography'], 'cryptography', None, 'triage/kb: chủ thể, serial chứng thư'),
         ('go', bool(shutil.which('go')), False, ['golang-go'], None, None, 'triage Go: `go version -m` đọc buildinfo (thiếu thì mẫu Go không được gắn cờ Go)'),
-        ('rust: cargo + rustc >= 1.56', cargo_ok() or rust_ok(), False, ['cargo', 'rustc'], None, None, 'dựng lõi Rust của winemu và triage (đã có thư viện dựng sẵn thì không cần; edition 2021; bản apt đủ dùng, Cargo.lock giữ version 3)'),
+        ('rust: cargo + rustc >= 1.56', cargo_ok() or rust_ok(), False, [] if shutil.which('cargo') else ['cargo', 'rustc'], None, None, 'dựng lõi Rust của winemu và triage (đã có thư viện dựng sẵn thì không cần; cargo cũ hơn 1.56 thì cài rustup, apt không nâng được; edition 2021; bản apt đủ dùng, Cargo.lock giữ version 3)'),
         ('winemu: lõi Rust', rust_ok(), False, [] if shutil.which('cargo') else ['cargo'], None, 'rust', 'hook block của winemu nhanh ~6 lần (tùy chọn: thiếu thì tự dùng Python, cùng kết quả)'),
         ('kho tri thức (kb)', kb_ready(), False, [], None, 'kb', 'flow.py kb: gợi ý từ mẫu đã phân tích; kéo kho đã công bố (tùy chọn: thiếu thì chỉ không có gợi ý chéo)'),
         ('upx', bool(shutil.which(CFG.UPX)), False, ['upx-ucl'], None, None, 'bóc vỏ UPX'),
@@ -169,8 +169,10 @@ def main(a):
     if not yes: print('\nChưa cài gì. Chạy lại với --yes để cài (apt cần sudo). Bỏ Ghidra: --no-ghidra.'); return 1
     if apt_pkgs:
         subprocess.run(['sudo', 'apt-get', 'update'], check=False)
-        if subprocess.run(['sudo', 'apt-get', 'install', '-y'] + apt_pkgs).returncode and '7zip' in apt_pkgs:   # bản cũ: p7zip-full
-            subprocess.run(['sudo', 'apt-get', 'install', '-y'] + [('p7zip-full' if p == '7zip' else p) for p in apt_pkgs])
+        req = list(dict.fromkeys(p for c in miss if c[2] for p in c[3])); opt = [p for p in apt_pkgs if p not in req]   # gói tùy chọn cài riêng: thiếu trong kho không làm hỏng lệnh cài gói bắt buộc
+        if req and subprocess.run(['sudo', 'apt-get', 'install', '-y'] + req).returncode and '7zip' in req:   # bản cũ: p7zip-full
+            subprocess.run(['sudo', 'apt-get', 'install', '-y'] + [('p7zip-full' if p == '7zip' else p) for p in req])
+        for p in opt: subprocess.run(['sudo', 'apt-get', 'install', '-y', p], check=False)
     req_pip = [c[4] for c in miss if c[4] in pip_pkgs and c[2]]
     for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
@@ -199,6 +201,10 @@ def selftest():
         assert not C0['go'][1] and not C0['go'][2] and C0['go'][3] == ['golang-go'], C0['go']
         assert not C0['readelf'][1] and C0['readelf'][2] and C0['readelf'][3] == ['binutils'], C0['readelf']
         assert not C0['rust:'][1] and not C0['rust:'][2] and C0['rust:'][3] == ['cargo', 'rustc'], C0['rust:']
+        fb0 = os.path.join(t, 'oldbin'); os.makedirs(fb0)   # cargo cũ (< 1.56) trên PATH: apt không nâng được, không thêm gói apt
+        for b in ('cargo', 'rustc'): open(os.path.join(fb0, b), 'w').write('#!/bin/sh\necho "cargo 1.40.0"\n'); os.chmod(os.path.join(fb0, b), 0o700)
+        os.environ['PATH'] = fb0; C1 = {c[0].split(' ')[0]: c for c in checks()}
+        assert not C1['rust:'][1] and C1['rust:'][3] == [], C1['rust:']
     finally:
         for k, v in old.items():
             if v is None: os.environ.pop(k, None)
@@ -222,6 +228,16 @@ def selftest():
         for k, v in old.items():
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
+    calls = []   # --yes: gói bắt buộc một lệnh apt riêng, mỗi gói tùy chọn một lệnh riêng (thiếu trong kho không làm hỏng gói bắt buộc)
+    real_checks, real_run, real_which = globals()['checks'], subprocess.run, shutil.which
+    try:
+        globals()['checks'] = lambda: [('a', False, True, ['binutils'], None, None, 'x'), ('b', False, False, ['golang-go'], None, None, 'x'), ('c', False, False, ['cargo', 'rustc', 'golang-go'], None, None, 'x')]
+        subprocess.run = lambda cmd, **k: calls.append(cmd) or types.SimpleNamespace(returncode=0, stdout='', stderr='')
+        shutil.which = lambda n, *a, **k: '/usr/bin/apt-get' if n == 'apt-get' else real_which(n)
+        main(['--yes'])
+    finally: globals()['checks'], subprocess.run, shutil.which = real_checks, real_run, real_which
+    ins = [c[4:] for c in calls if c[:4] == ['sudo', 'apt-get', 'install', '-y']]
+    assert ins == [['binutils'], ['golang-go'], ['cargo'], ['rustc']], ins
     shutil.rmtree(t); print('OK install_tools selftest')
 
 if __name__ == '__main__':

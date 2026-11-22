@@ -7,7 +7,7 @@
 > - **E**: phân tích động bằng giả lập CPU (winemu/Unicorn, OS giả, không mạng). Nếu đọc tĩnh trên artefact do giả lập sinh ra (bản dump, keystream) thì vẫn ghi E.
 > - **V**: VM/sandbox bên ngoài, hoặc quan sát trên máy thật do người thu mẫu cung cấp (evidence `host_*`).
 >
-> Không chạy mẫu trên hệ điều hành thật. Không gửi request nào tới C2 hay hạ tầng phát tán.
+> Không chạy mẫu trên hệ điều hành thật. Không gửi request nào tới C2. Nếu có tra cứu thụ động dữ liệu công khai (RDAP, DoH, dead-drop trên GitHub), ghi rõ đã tra gì, lúc nào, qua đường nào ở mục hạn chế/OPSEC.
 >
 > Trạng thái: _(đang phân tích / hoàn tất tới …)_. Xem `flow.py status` để biết mục nào còn thiếu.
 >

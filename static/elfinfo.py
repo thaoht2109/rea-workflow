@@ -5,28 +5,32 @@ import struct
 MACH = {3: 'i386', 8: 'mips', 40: 'arm', 62: 'x86_64', 183: 'aarch64'}
 
 def parse(d):
-    """ELF -> dict(cls, be, etype, machine, flags, entry, phdrs, sections) hoặc None nếu không phải ELF."""
+    """ELF -> dict(cls, be, etype, machine, flags, entry, phdrs, sections, broken) hoặc None nếu không phải ELF. ELF hỏng/cắt cụt (kích thước phần tử, offset sai):
+    bỏ phần đọc không được và đặt broken=True, không ném lỗi."""
     if d[:4] != b'\x7fELF' or len(d) < 52 or d[4] not in (1, 2) or d[5] not in (1, 2): return None
     c64, be = d[4] == 2, d[5] == 2; E = '>' if be else '<'
-    if c64: etype, mach, _, entry, phoff, shoff, flags, _, phes, phn, shes, shn, shstr = struct.unpack_from(E + 'HHIQQQIHHHHHH', d, 16)
-    else: etype, mach, _, entry, phoff, shoff, flags, _, phes, phn, shes, shn, shstr = struct.unpack_from(E + 'HHIIIIIHHHHHH', d, 16)
-    I = dict(cls=64 if c64 else 32, be=be, etype=etype, machine=MACH.get(mach, mach), flags=flags, entry=entry, phdrs=[], sections={}, _E=E)
-    for i in range(phn if phes else 0):
+    if len(d) < (64 if c64 else 52): return None
+    try:
+        if c64: etype, mach, _, entry, phoff, shoff, flags, _, phes, phn, shes, shn, shstr = struct.unpack_from(E + 'HHIQQQIHHHHHH', d, 16)
+        else: etype, mach, _, entry, phoff, shoff, flags, _, phes, phn, shes, shn, shstr = struct.unpack_from(E + 'HHIIIIIHHHHHH', d, 16)
+    except struct.error: return None
+    I = dict(cls=64 if c64 else 32, be=be, etype=etype, machine=MACH.get(mach, mach), flags=flags, entry=entry, phdrs=[], sections={}, broken=False, _E=E)
+    pf, sf = E + ('IIQQQQQQ' if c64 else 'IIIIIIII'), E + ('IIQQQQIIQQ' if c64 else 'IIIIIIIIII')   # phdr 64: type, flags, off, vaddr, paddr, filesz, memsz, align; 32: type, off, vaddr, paddr, filesz, memsz, flags, align
+    for i in range(phn):
         o = phoff + i * phes
-        if o + phes > len(d): break
-        I['phdrs'].append(struct.unpack_from(E + ('IIQQQQQQ' if c64 else 'IIIIIIII'), d, o)[:8] if c64 else struct.unpack_from(E + 'IIIIIIII', d, o))
-    # phdr 32: type, offset, vaddr, paddr, filesz, memsz, flags, align ; 64: type, flags, offset, vaddr, paddr, filesz, memsz, align
-    I['loads'] = [(p[2], p[3], p[5]) if c64 else (p[1], p[2], p[4]) for p in I['phdrs'] if p[0] == 1]   # (offset, vaddr, filesz)
+        if phes < struct.calcsize(pf) or o < 0 or o + struct.calcsize(pf) > len(d): I['broken'] = True; break
+        I['phdrs'].append(struct.unpack_from(pf, d, o))
+    I['loads'] = [((p[2], p[3], p[5]) if c64 else (p[1], p[2], p[4])) for p in I['phdrs'] if p[0] == 1]   # (offset, vaddr, filesz)
     secs = []
-    for i in range(shn if shes and shoff else 0):
+    for i in range(shn):
         o = shoff + i * shes
-        if o + shes > len(d): break
-        secs.append(struct.unpack_from(E + ('IIQQQQIIQQ' if c64 else 'IIIIIIIIII'), d, o))
+        if shes < struct.calcsize(sf) or o < 0 or o + struct.calcsize(sf) > len(d): I['broken'] = True; break
+        secs.append(struct.unpack_from(sf, d, o))
     if secs and shstr < len(secs):
-        so, ss = (secs[shstr][4], secs[shstr][5]) if c64 else (secs[shstr][4], secs[shstr][5])
-        names = d[so:so + ss]
+        so, ss = secs[shstr][4], secs[shstr][5]; names = d[so:so + ss]
         for s in secs:
-            n = names[s[0]:names.find(b'\0', s[0])].decode('latin1')
+            if s[0] >= len(names): I['broken'] = True; continue
+            n = names[s[0]:(names.find(b'\0', s[0]) if b'\0' in names[s[0]:] else len(names))].decode('latin1')
             # 32/64 cùng thứ tự: name, type, flags, addr, off, size, link, info, align, entsize
             I['sections'][n] = dict(type=s[1], addr=s[3], off=s[4], size=s[5], link=s[6], entsize=s[9])
     return I
@@ -59,12 +63,15 @@ def symbols(d, I):
         S = I['sections'].get(sn); T = I['sections'].get(strn)
         if not S or not T: continue
         ent = S['entsize'] or (24 if I['cls'] == 64 else 16)
+        if ent < (24 if I['cls'] == 64 else 16): continue
         for i in range(S['size'] // ent):
             o = S['off'] + i * ent
-            if o + ent > len(d): break
+            if o < 0 or o + ent > len(d): break
             if I['cls'] == 64: nm, info, _, shndx, val, sz = struct.unpack_from(E + 'IBBHQQ', d, o)
             else: nm, val, sz, info, _, shndx = struct.unpack_from(E + 'IIIBBH', d, o)
             if not nm or shndx == 0: continue
             a = T['off'] + nm
-            out.append((d[a:d.find(b'\0', a)].decode('latin1'), val, sz, info & 0xf))
+            if a >= len(d): continue
+            e = d.find(b'\0', a)
+            out.append((d[a:(e if e >= 0 else len(d))].decode('latin1'), val, sz, info & 0xf))
     return out

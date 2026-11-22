@@ -148,26 +148,32 @@ def disasm_cmd(c, f, specs):
     f = _sample(c, f); tag = re.sub(r'\W+', '_', os.path.basename(f)); res, lst = DS.disasm(f, specs)
     if lst: print(f'{len(lst)} hàm khớp list: (tối đa 60 dòng)'); print(''.join(f'{a:#x} {n}\n' for n, a in lst[:60]), end='')
     for r in res:
-        rel = f"disasm_{tag}_{re.sub(r'[^A-Za-z0-9]+', '_', r['name'])[:60]}.txt"
+        rel = f"disasm_{tag}_{re.sub(r'[^A-Za-z0-9]+', '_', r['name'])[:50]}_{r['start']:x}.txt"   # kèm địa chỉ: hai tên khác nhau cho cùng chuỗi rút gọn không ghi đè nhau
         _ev(c, rel, f"# {r['name']} {r['start']:#x}-{r['end']:#x}\n" + '\n'.join(r['lines']) + '\n# gọi: ' + ', '.join(r['calls']) + '\n')
         print(f"{r['name']} ({len(r['lines'])} lệnh) -> {c}/report/evidence/{rel}\n  gọi: {', '.join(r['calls'])[:300]}")
     return 0
 
 def dec(c, f, funcs):
+    gh_only = []   # địa chỉ đã cộng base Ghidra: chỉ Ghidra hiểu, KHÔNG đưa cho rea (rea dùng địa chỉ ảo của chính nó)
     if any(x.startswith('va:') for x in funcs):   # địa chỉ ảo ELF (readelf/dynsym) -> địa chỉ Ghidra (base theo loại ELF, static/elfinfo.py)
         from static import elfinfo
         I = elfinfo.parse(open(f, 'rb').read()) if os.path.exists(f) else None
         if I is None: raise SystemExit('va: chỉ dùng cho ELF')
         base, ok = elfinfo.ghidra_base(I)
         if not ok: print(f"cảnh báo: base Ghidra cho {I['machine']} {I['cls']}-bit chưa được đo, dùng {base:#x} theo lớp ELF; kiểm lại địa chỉ hàm trả về")
-        funcs = [hex(int(x[3:], 16) + base) if x.startswith('va:') else x for x in funcs]; print(f'va: -> địa chỉ Ghidra (base {base:#x})')
+        rest = []
+        for x in funcs:
+            if not x.startswith('va:'): rest.append(x); continue
+            try: gh_only.append(hex(int(x[3:], 16) + base))
+            except ValueError: raise SystemExit(f'địa chỉ không hợp lệ: {x} (dùng va:0x...)')
+        funcs = rest; print(f'va: -> địa chỉ Ghidra (base {base:#x}), chạy thẳng bằng Ghidra')
     os.makedirs(TMP, exist_ok=True); od = os.path.join(c, 'work', 'runs', 'dec'); os.makedirs(od, exist_ok=True)
     tag = re.sub(r'\W+', '_', os.path.basename(f))
     snap = os.path.join(c, 'work', 'rea_' + tag + '.snapshot')
     env = CFG.tmpenv()
     use_rea = CFG.unix_socket_ok()
     if not use_rea: print('AF_UNIX bị chặn (sandbox): bỏ qua rea, dùng Ghidra headless (lần đầu phân tích cả file nên chậm)')
-    if use_rea and not any(x.startswith('list:') for x in funcs):
+    if use_rea and funcs and not any(x.startswith('list:') for x in funcs):
         run = lambda fn: subprocess.run([CFG.REA_BIN, 'decompile', f, '--procedure=' + fn, '--snapshot', snap, '--format', 'json'],
                                         capture_output=True, text=True, env=env)
         from concurrent.futures import ThreadPoolExecutor   # mỗi lần rea phân tích lại cả file (~30 s, 2 lõi): chạy song song
@@ -184,6 +190,7 @@ def dec(c, f, funcs):
             p = os.path.join(od, re.sub(r'\W+', '_', f'{tag}_{fn}') + '.c'); open(p, 'w').write(code)
             show(fn, code, p, c)
         funcs = left
+    funcs = funcs + gh_only
     if funcs:
         print(f'Ghidra headless (rea không hỗ trợ kiến trúc, cần list:, hoặc AF_UNIX bị chặn) cho: {" ".join(funcs)}')
         ghidra_dec(c, f, funcs, od, tag)

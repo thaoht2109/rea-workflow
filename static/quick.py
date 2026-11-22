@@ -33,7 +33,11 @@ def build(path, d=None, cap=40):
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
             if not m or (len(s) > 400 and key != 'net') or (key == 'net' and SKIP_NET.search(m.group(0))) or (key == 'path' and SKIP_PATH.search(s)) or s.startswith(('_Z', 'type:', '*')): continue
             L.append(m.group(0) if key == 'net' else s[:160].replace('\n', ' ')); n += 1
-            if key in ('net', 'path') and len(sug) < 12: sug.append((key, m.group(0).strip(' "\'='), len(L)))
+            if key in ('net', 'path') and len(sug) < 12:
+                v = m.group(0).strip(' "\'=')
+                if key == 'path' and not v.startswith('/'):   # nhánh theo đuôi tệp (.conf, .json): lấy cả token chứa nó
+                    t = re.search(r'[\w./-]*' + re.escape(v), s); v = t.group(0) if t else ''
+                if len(v) >= 5: sug.append((key, v, len(L)))
             if n >= cap: break
         if not n: L.append('(không có)')
     if I:

@@ -92,3 +92,47 @@ tx = '\n'.join(disasm.disasm(xp, ['fx'])[0][0]['lines']); assert '"/etc/app.conf
 lp = os.path.join(tempfile.mkdtemp(), 'l.elf'); open(lp, 'wb').write(elf(8, 32, False, 2, 0x1007, le32(0x03e00008, 0, 0x03e00008, 0), 0x400000, syms=[('fl', 0x400000, 8), ('fm', 0x400008, 8)]))
 assert disasm.disasm(lp, ['fl'])[0][0]['lines'][0].split('\t')[1] == 'jr', 'mipsel phải disasm đúng'
 print('OK check_static_tools (endian, ghi đè, delay slot, n32, lea rip)')
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# --- góp ý bot (lượt 2): ELF hỏng không sập, gợi ý path đủ token, tên evidence không trùng, vỏ flow.py, dec va: không đưa địa chỉ Ghidra cho rea
+import subprocess
+good = elf(8, 32, True, 2, 0x1007, mips_text, 0x400000)
+for name, bad in (('cắt cụt', good[:60]), ('e_shentsize hỏng', good[:46] + struct.pack('>H', 3) + good[48:]), ('e_phentsize hỏng', good[:42] + struct.pack('>H', 5) + good[44:]),
+                  ('e_shoff ngoài file', good[:32] + struct.pack('>I', 0x7fffff00) + good[36:]), ('e_shnum lớn', good[:48] + struct.pack('>H', 60000) + good[50:])):
+    Ib = elfinfo.parse(bad)
+    assert Ib is None or Ib['broken'] or Ib['machine'] == 'mips', name
+    try: syscalls.report(bad, 'x')
+    except ValueError: pass   # báo lỗi rõ, không phải struct.error
+    quick.build('x', bad)   # không ném
+assert elfinfo.parse(good[:60]) is None or elfinfo.parse(good[:60])['broken']
+_, sg = quick.build('x', b'\0'.join([b'config.json', b'/etc/ok.conf', b'a.pid']) + b'\0')
+vals = [v for k, v, _ in sg if k == 'path']; assert 'config.json' in vals and '/etc/ok.conf' in vals and '.json' not in vals and '.pid' not in vals, vals   # đủ token; token < 5 ký tự bị bỏ
+W = tempfile.mkdtemp(); C = os.path.join(W, 'C1'); os.makedirs(os.path.join(C, 'work', 'sample')); os.makedirs(os.path.join(C, 'report', 'evidence'))
+two = elf(8, 32, True, 2, 0x1007, be32(0x03e00008, 0, 0x03e00008, 0), 0x400000, syms=[('a.b', 0x400000, 8), ('a_b', 0x400008, 8)])   # hai tên cho cùng chuỗi rút gọn
+open(os.path.join(C, 'work', 'sample', 'm.elf'), 'wb').write(two)
+run = lambda *a: subprocess.run([sys.executable, os.path.join(ROOT, 'flow.py'), *a], cwd=W, capture_output=True, text=True)
+r = run('quick', 'C1', 'm.elf'); assert r.returncode == 0 and 'Traceback' not in r.stderr and os.path.isfile(os.path.join(C, 'report', 'evidence', 'quick_m_elf.txt')), r.stderr[-300:]
+r = run('syscalls', 'C1', 'm.elf'); assert r.returncode == 0 and os.path.isfile(os.path.join(C, 'report', 'evidence', 'syscalls_m_elf.txt')), r.stderr[-300:]
+r = run('disasm', 'C1', 'm.elf', 'a.b', 'a_b'); ev = [f for f in os.listdir(os.path.join(C, 'report', 'evidence')) if f.startswith('disasm_')]
+assert r.returncode == 0 and len(ev) == 2, (r.stdout, r.stderr[-300:], ev)   # hai hàm, hai file (tên kèm địa chỉ)
+r = run('disasm', 'C1', 'm.elf', 'khong.co'); assert r.returncode != 0 and 'không thấy hàm' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
+open(os.path.join(C, 'work', 'sample', 'bad.elf'), 'wb').write(good[:60]); r = run('syscalls', 'C1', 'bad.elf'); assert r.returncode != 0 and 'Traceback' not in r.stderr
+r = run('quick', 'C1', 'khong_co.elf'); assert r.returncode != 0 and 'không thấy mẫu' in (r.stdout + r.stderr)
+# dec va:: địa chỉ cộng base Ghidra chỉ đi Ghidra; hàm thường vẫn qua rea; rea báo capability_unavailable thì rơi về Ghidra
+import flow, types   # noqa: E402
+xd = os.path.join(W, 'x.elf'); open(xd, 'wb').write(elf(62, 64, False, 3, 0, bytes.fromhex('c3'), 0x1000))
+calls = {'rea': [], 'ghidra': []}
+real = (flow.CFG.unix_socket_ok, flow.ghidra_dec, flow.subprocess.run)
+flow.CFG.unix_socket_ok = lambda: True
+flow.ghidra_dec = lambda c, f, funcs, od, tag: calls['ghidra'].append(list(funcs))
+flow.subprocess.run = lambda cmd, **k: calls['rea'].append(cmd) or types.SimpleNamespace(stdout='{"error": 1, "code": "capability_unavailable"}', stderr='', returncode=0)
+try:
+    flow.dec(os.path.join(W, 'C1'), xd, ['va:0x1010', 'main'])
+    assert calls['ghidra'] == [['main', '0x101010']], calls   # main rơi về Ghidra sau capability_unavailable, 0x101010 = 0x1010 + base 0x100000 (x86-64 ET_DYN)
+    assert [c for c in calls['rea'] if any('--procedure=' in x for x in c)] and all('0x101010' not in ' '.join(c) and 'va:' not in ' '.join(c) for c in calls['rea']), calls['rea']
+    calls['rea'].clear(); calls['ghidra'].clear(); flow.dec(os.path.join(W, 'C1'), xd, ['va:0x20'])
+    assert calls['rea'] == [] and calls['ghidra'] == [['0x100020']], calls   # chỉ có va: thì rea không được gọi
+    try: flow.dec(os.path.join(W, 'C1'), xd, ['va:zz']); raise AssertionError('va: sai phải dừng')
+    except SystemExit as e: assert 'không hợp lệ' in str(e)
+finally: flow.CFG.unix_socket_ok, flow.ghidra_dec, flow.subprocess.run = real
+print('OK check_static_tools (ELF hỏng, vỏ flow.py, dec va:)')

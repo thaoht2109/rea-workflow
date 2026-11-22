@@ -1,9 +1,16 @@
 # Hook basic-block nóng của winemu: kiểm cờ TF mỗi block. Có hai bản cùng giao diện:
 #   RustCore: callback nằm trong thư viện Rust (rust/rea_hook), đăng ký thẳng bằng uc_hook_add, không quay lại Python mỗi block;
 #   PyCore:   hook Python như trước (đọc EFLAGS qua fastreg), dùng khi chưa build thư viện Rust hoặc REA_CORE=py.
-# REA_CORE=auto (mặc định): có thư viện hợp lệ thì dùng Rust, không thì Python. REA_CORE=rust: bắt buộc có Rust. REA_CORE_LIB: đường dẫn .so.
+# REA_CORE=auto (mặc định): có thư viện hợp lệ thì dùng Rust, không thì Python. REA_CORE=rust: bắt buộc có Rust. REA_CORE_LIB: đường dẫn .so. Cả hai đặt được bằng biến môi trường hoặc rea.env.
 import ctypes, os, sys
 import fastreg
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try: import reacfg   # REA_CORE / REA_CORE_LIB đọc được cả từ rea.env (biến môi trường vẫn ưu tiên)
+except Exception: reacfg = None
+
+
+def cfg(k):
+    return (reacfg.get(k) if reacfg else os.environ.get(k)) or ''
 
 UC_HOOK_BLOCK = 8
 ABI = 1
@@ -17,7 +24,7 @@ class State(ctypes.Structure):   # khớp `State` trong rust/rea_hook/src/lib.rs
 
 
 def lib_candidates():
-    env = os.environ.get('REA_CORE_LIB')
+    env = cfg('REA_CORE_LIB')
     if env: return [env]
     root = os.path.dirname(HERE)
     return [os.path.join(root, 'rust', 'rea_hook', 'target', 'release', NAME),
@@ -91,7 +98,7 @@ def uclib_ok():
 
 def attach(mu, begin, end, eflags_id, mode=None, log=lambda *a: None):
     """Gắn hook block vào mu; trả đối tượng core (.nblk, .reset_count(), .take_pending(), .kind)."""
-    mode = (mode or os.environ.get('REA_CORE') or 'auto').lower()
+    mode = (mode or cfg('REA_CORE') or 'auto').lower()
     if mode not in ('auto', 'rust', 'py', 'python'): raise SystemExit(f'REA_CORE không hợp lệ: {mode} (auto|rust|py)')
     if mode in ('auto', 'rust'):
         lib, why = load_lib()

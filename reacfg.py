@@ -143,7 +143,7 @@ def doctor():
     finally:
         if wd in sys.path: sys.path.remove(wd)
     row(lib is not None, 'winemu lõi Rust', rl if lib is not None else f'{rl} → dùng hook Python (chậm hơn ~6 lần)',
-        f'tùy chọn (nhanh ~6 lần): flow.py setup --yes tự dựng; hoặc tay: cd rust/rea_hook && cargo build --release, rồi chép {libname} (trong target/release/) vào {os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "rea-flow", "lib")}/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn' + ('; REA_CORE_LIB đang ghi đè đường dò nên thư mục trên không có tác dụng' if os.environ.get('REA_CORE_LIB') else ''), False)
+        f'tùy chọn (nhanh ~6 lần): flow.py setup --yes tự dựng; hoặc tay: cd rust/rea_hook && cargo build --release, rồi chép {libname} (trong target/release/) vào {os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "rea-flow", "lib")}/ (sống qua lần cập nhật skill); REA_CORE_LIB chỉ đường dẫn' + ('; REA_CORE_LIB đang ghi đè đường dò nên thư mục trên không có tác dụng' if get('REA_CORE_LIB') else ''), False)
     be = review_backend()
     row(bool(be), 'lớp 2 phản biện', be or f'REVIEW_LLM={REVIEW_LLM}: backend không dùng được',
         'claude, codex, gemini, copilot, cursor-agent, api (REVIEW_MODEL; key bắt buộc với OpenAI/DeepSeek, không cần với server tự dựng) hoặc manual')

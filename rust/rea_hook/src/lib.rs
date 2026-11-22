@@ -73,9 +73,54 @@ pub unsafe extern "C" fn rea_on_block(
     }
 }
 
+/// Entropy Shannon (bit/byte, chưa làm tròn) của `len` byte tại `data`; trống hoặc con trỏ null cho 0.0.
+/// Cộng các số hạng theo thứ tự byte xuất hiện lần đầu, đúng thứ tự `Counter` của Python, để kết quả làm tròn 2 chữ số khớp bản Python.
+///
+/// # Safety
+/// `data` phải trỏ tới ít nhất `len` byte đọc được (hoặc null).
+#[no_mangle]
+pub unsafe extern "C" fn rea_entropy(data: *const u8, len: usize) -> f64 {
+    if data.is_null() || len == 0 {
+        return 0.0;
+    }
+    let s = std::slice::from_raw_parts(data, len);
+    let mut cnt = [0u64; 256];
+    let mut order = [0u8; 256];
+    let mut k = 0usize;
+    for &b in s {
+        let c = &mut cnt[b as usize];
+        if *c == 0 {
+            order[k] = b;
+            k += 1;
+        }
+        *c += 1;
+    }
+    let n = len as f64;
+    let mut sum = 0.0f64;
+    for &b in &order[..k] {
+        let p = cnt[b as usize] as f64 / n;
+        sum += p * p.log2();
+    }
+    -sum
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ent(b: &[u8]) -> f64 {
+        unsafe { rea_entropy(b.as_ptr(), b.len()) }
+    }
+
+    #[test]
+    fn entropy_cases() {
+        assert_eq!(ent(&[]), 0.0);
+        assert_eq!(unsafe { rea_entropy(std::ptr::null(), 5) }, 0.0);
+        assert_eq!(ent(&[7u8; 1000]), 0.0);
+        let all: Vec<u8> = (0..=255u8).collect();
+        assert!((ent(&all) - 8.0).abs() < 1e-12);
+        assert!((ent(&[0, 1, 0, 1]) - 1.0).abs() < 1e-12);
+    }
 
     /// Ngữ cảnh giả đi theo tham số `uc`: mỗi test một bản riêng nên chạy song song không dẫm lên nhau.
     struct Fake {

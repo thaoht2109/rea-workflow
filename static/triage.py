@@ -5,18 +5,14 @@
 #   python3 -I triage.py FILE --out OUTDIR [--facts CASE]
 # NSIS: tự dịch header, giải nén file bằng 7z, giải "sàng byte" (đọc 1 byte mỗi bước nhảy, dấu kết thúc chuỗi) để lộ chuỗi
 # System::Call, rồi đề xuất --blob/--blob-off cho winemu. Chỉ là heuristic: luôn đối chiếu với nsis_disasm.txt.
-import sys, os, re, json, math, struct, shutil, hashlib, argparse, subprocess, shlex
-from collections import Counter
+import sys, os, re, json, struct, shutil, hashlib, argparse, subprocess, shlex
 import pefile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: reacfg.py
+from static.native import entropy   # Rust nếu có (REA_CORE), không thì Python
 from static.ziptype import zip_kind   # noqa: E402  (ZIP là chính mẫu: APK, OOXML, JAR, ODF)
 NSIS_SIG = b'\xef\xbe\xad\xdeNullsoftInst'
-
-def entropy(b):
-    if not b: return 0.0
-    n = len(b); return round(-sum(c / n * math.log2(c / n) for c in Counter(b).values()), 2)
 
 def strings(d, n=6):
     a = [m.decode() for m in re.findall(rb'[\x20-\x7e]{%d,}' % n, d)]

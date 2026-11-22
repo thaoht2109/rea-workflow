@@ -104,9 +104,91 @@ pub unsafe extern "C" fn rea_entropy(data: *const u8, len: usize) -> f64 {
     -sum
 }
 
+/// Quét chuỗi in được: kind 0 = ASCII `[\x20-\x7e]{min,}`, kind 1 = UTF-16LE `([\x20-\x7e]\x00){min,}`.
+/// Cùng ngữ nghĩa `re.findall` của Python (tham lam, không chồng lấn; UTF-16 thử từ mọi offset). Ghi cặp (offset byte, số ký tự)
+/// vào `out` tối đa `cap` cặp, trả tổng số chuỗi (có thể lớn hơn `cap`: Python cấp lại bộ đệm rồi gọi lại).
+///
+/// # Safety
+/// `data` đọc được `len` byte; `out` ghi được `2 * cap` u64 (hoặc null khi `cap` = 0).
+#[no_mangle]
+pub unsafe extern "C" fn rea_strings(
+    data: *const u8,
+    len: usize,
+    min: usize,
+    kind: u32,
+    out: *mut u64,
+    cap: usize,
+) -> usize {
+    if data.is_null() || len == 0 || min == 0 || (cap > 0 && out.is_null()) {
+        return 0;
+    }
+    let d = std::slice::from_raw_parts(data, len);
+    let pr = |b: u8| (0x20..=0x7e).contains(&b);
+    let mut n = 0usize;
+    let mut emit = |off: usize, chars: usize| {
+        if n < cap {
+            *out.add(2 * n) = off as u64;
+            *out.add(2 * n + 1) = chars as u64;
+        }
+        n += 1;
+    };
+    let mut i = 0usize;
+    if kind == 0 {
+        while i < len {
+            if pr(d[i]) {
+                let st = i;
+                while i < len && pr(d[i]) {
+                    i += 1;
+                }
+                if i - st >= min {
+                    emit(st, i - st);
+                }
+            } else {
+                i += 1;
+            }
+        }
+    } else {
+        while i + 1 < len {
+            let mut k = 0usize;
+            while i + 2 * k + 1 < len && pr(d[i + 2 * k]) && d[i + 2 * k + 1] == 0 {
+                k += 1;
+            }
+            if k >= min {
+                emit(i, k);
+                i += 2 * k;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn runs(b: &[u8], min: usize, kind: u32) -> Vec<(u64, u64)> {
+        let mut o = vec![0u64; 64];
+        let n = unsafe { rea_strings(b.as_ptr(), b.len(), min, kind, o.as_mut_ptr(), 32) };
+        (0..n.min(32)).map(|i| (o[2 * i], o[2 * i + 1])).collect()
+    }
+
+    #[test]
+    fn strings_cases() {
+        assert_eq!(runs(b"ab\x00abcdef\x01xyz123", 6, 0), vec![(3, 6), (10, 6)]);
+        assert_eq!(runs(b"a\x00b\x00c\x00d\x00e\x00f\x00g", 6, 1), vec![(0, 6)]);
+        assert_eq!(
+            runs(b"x\x00a\x00b\x00c\x00d\x00e\x00f\x00", 6, 1),
+            vec![(0, 7)]
+        );
+        assert!(runs(b"abc", 6, 0).is_empty() && runs(b"", 6, 1).is_empty());
+        let mut o = [0u64; 2];
+        assert_eq!(
+            unsafe { rea_strings(b"abcdefgh".as_ptr(), 8, 3, 0, o.as_mut_ptr(), 0) },
+            1
+        );
+    }
 
     fn ent(b: &[u8]) -> f64 {
         unsafe { rea_entropy(b.as_ptr(), b.len()) }

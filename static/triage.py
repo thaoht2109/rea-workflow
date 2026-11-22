@@ -9,7 +9,7 @@ import sys, os, re, json, struct, shutil, hashlib, argparse, subprocess, shlex
 import pefile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ   # cấu hình theo máy: reacfg.py
+sys.path.insert(0, os.path.dirname(HERE)); from reacfg import SEVENZ, GO   # cấu hình theo máy: reacfg.py
 from static.native import entropy, scan_strings   # Rust nếu có (REA_CORE), không thì Python
 from static.ziptype import zip_kind   # noqa: E402  (ZIP là chính mẫu: APK, OOXML, JAR, ODF)
 NSIS_SIG = b'\xef\xbe\xad\xdeNullsoftInst'
@@ -333,7 +333,7 @@ def main():
     if R['type'] == 'unknown' and d: R['probe'] = probe(d)
     if R['type'] in ('PE32', 'PE32+') or R['type'].startswith('ELF'):
         if b'UPX!' in d[:0x1000] or b'UPX!' in d[-0x1000:]: R['flags'].append('UPX') if 'UPX' not in R['flags'] else None
-        go = run('go', 'version', '-m', A.file)
+        go = run(GO, 'version', '-m', A.file)
         if go: R['flags'].append('Go'); R['go'] = go.splitlines()[:8]
     allstr = strings(d)
     R['strings'] = allstr[:40]; R['ioc_candidates'] = iocs(allstr)

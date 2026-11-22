@@ -54,6 +54,7 @@ REVIEW_BATCH = int(get('REVIEW_BATCH', '20', path=False))           # số fact 
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p
 ANALYST_LLM_CMD = get('ANALYST_LLM_CMD', path=False)        # phiên sửa fact cho review-loop khi dùng LLM khác; trống = agent hiện tại tự sửa
 REA_BIN, UPX, SEVENZ, CLAUDE = get('REA_BIN', 'rea'), get('UPX_BIN', 'upx'), get('SEVENZ_BIN', '7z'), get('CLAUDE_BIN', 'claude')
+GO = get('GO_BIN', 'go')   # `go version -m` của triage; flow.py setup tự tải Go về ~/.local/share/rea-flow/go khi apt không có và ghi biến này
 
 CLI_BIN = {'claude': None, 'codex': 'codex', 'gemini': 'gemini', 'copilot': 'copilot', 'cursor': 'cursor-agent'}
 
@@ -125,7 +126,7 @@ def doctor():
     row(bool(GHIDRA) and os.path.exists(os.path.join(GHIDRA, 'support', 'analyzeHeadless')), 'GHIDRA_INSTALL_DIR', GHIDRA,
         'engine decompile của rea trên Linux + Ghidra headless cho MIPS/PPC', True)
     row(bool(shutil.which('readelf')), 'readelf', shutil.which('readelf') or 'binutils', 'triage ELF (thiếu thì ELF ra trống mà không báo lỗi); cài: apt install binutils', True)
-    row(bool(shutil.which('go')), 'go', shutil.which('go') or 'golang-go', 'triage nhận dạng Go (go version -m); cài: apt install golang-go', False)
+    row(bool(shutil.which(GO)), 'go', shutil.which(GO) or 'golang-go', 'triage nhận dạng Go (go version -m); cài: apt install golang-go, hoặc flow.py setup --yes (tự tải)', False)
     row(bool(shutil.which('cargo') and shutil.which('rustc')), 'cargo/rustc', shutil.which('cargo') or 'cargo rustc', 'dựng lõi Rust (winemu, triage); cài: apt install cargo rustc, hoặc rustup', False)
     row(True, 'AF_UNIX', 'tạo được' if unix_socket_ok() else 'bị chặn (sandbox): flow.py dec tự dùng Ghidra headless, chậm hơn lần đầu',
         'bridge Ghidra của rea', False)

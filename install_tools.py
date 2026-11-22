@@ -175,16 +175,21 @@ def main(a):
                'kb': f'  tạo kho tri thức ({CFG.KB}) và kéo bản đã công bố từ {CFG.KB_UPSTREAM} (https, kiểm sha256; lỗi thì bỏ qua)',
                'rea': f'  npm install -g {REA_PKG} (prefix không ghi được thì --prefix ~/.local)'}[s])
     if not yes: print('\nChưa cài gì. Chạy lại với --yes để cài (apt cần sudo). Bỏ Ghidra: --no-ghidra.'); return 1
-    need = [c for c in miss if c[3] and not c[4]]   # công cụ hệ thống chỉ cài được bằng gói hệ điều hành (gói Python có đường pip riêng)
+    need = [c for c in miss if c[2] and c[3] and not c[4]]   # công cụ hệ thống BẮT BUỘC chỉ cài được bằng gói hệ điều hành (gói Python có đường pip riêng)
     if need and not apt: return apt_stop('máy không có apt-get nên không tự cài được', need)
+    if not apt:
+        for c in miss:
+            if c[3] and not c[4]: print(f'  CẢNH BÁO: chưa có {c[0]} (tùy chọn): cài tay gói {" ".join(c[3])} nếu cần [{c[6]}]')
     if apt_pkgs:
         subprocess.run(['sudo', 'apt-get', 'update'], check=False)
         req = list(dict.fromkeys(p for c in miss if c[2] for p in c[3])); opt = [p for p in apt_pkgs if p not in req]   # gói tùy chọn cài riêng: thiếu trong kho không làm hỏng lệnh cài gói bắt buộc
         if req and subprocess.run(['sudo', 'apt-get', 'install', '-y'] + req).returncode and '7zip' in req:   # bản cũ: p7zip-full
             subprocess.run(['sudo', 'apt-get', 'install', '-y'] + [('p7zip-full' if p == '7zip' else p) for p in req])
         for p in opt: subprocess.run(['sudo', 'apt-get', 'install', '-y', p], check=False)
-        left = [c for c in checks() if not c[1] and c[3] and not c[4]]
+        now = [c for c in checks() if not c[1] and c[3] and not c[4]]
+        left = [c for c in now if c[2]]
         if left: return apt_stop('apt-get không cài được hết', left)
+        for c in now: print(f'  CẢNH BÁO: chưa có {c[0]} (tùy chọn): cài tay gói apt {" ".join(c[3])} nếu cần [{c[6]}]')   # tùy chọn: chỉ nhắc, không chặn pip/Ghidra/rea
     req_pip = [c[4] for c in miss if c[4] in pip_pkgs and c[2]]
     for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
@@ -267,6 +272,10 @@ def selftest():
     rc, o = run_main(miss2); assert rc == 1 and 'apt-get không cài được hết' in o and 'binutils-tool' in o, o
     ok_after = lambda: [('binutils-tool', any(c[:4] == ['sudo', 'apt-get', 'install', '-y'] for c in calls), True, ['binutils'], None, None, 'dùng cho X')]
     rc, o = run_main(ok_after); assert rc == 0 and 'DỪNG' not in o, (rc, o)   # apt cài được: chạy tiếp bình thường
+    opt = ('go', False, False, ['golang-go'], None, None, 'x'); pipreq = ('pyx', False, True, ['python3-pyx'], 'pyx', None, 'dùng cho Y')
+    for has in (False, True):   # mục tùy chọn apt-only luôn thiếu không được chặn pip của mục bắt buộc
+        rc, o = run_main(lambda: [opt, pipreq], has_apt=has)
+        assert 'DỪNG' not in o and 'CẢNH BÁO' in o and (has or any('pip' in c for c in calls if isinstance(c, list))), (has, rc, o, calls)   # có apt thì gói Python cài bằng apt, không có thì bằng pip
     shutil.rmtree(t); print('OK install_tools selftest')
 
 if __name__ == '__main__':

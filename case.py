@@ -252,6 +252,16 @@ def history(case):
                 _CUT_WARNED.add((p, i)); print(f'CẢNH BÁO {p}:{i}: dòng fact bị cụt (tiến trình bị giết lúc ghi), bỏ qua; ghi lại fact đó nếu cần', file=sys.stderr)
     return out
 
+def mode(case):
+    """'light' (mẫu đơn giản: chỉ tầng tĩnh, không giả lập/công cụ ad-hoc/V8) hoặc 'full'. Cổng phản biện giống nhau ở cả hai."""
+    try: m = json.load(open(os.path.join(case, 'work', 'mode.json'), encoding='utf-8')).get('mode')
+    except (OSError, ValueError, AttributeError): return 'full'
+    return m if m in ('light', 'full') else 'full'
+
+def set_mode(case, m):
+    os.makedirs(os.path.join(case, 'work'), exist_ok=True)
+    json.dump({'mode': m}, open(os.path.join(case, 'work', 'mode.json'), 'w', encoding='utf-8'))
+
 def load(case):
     cur = {}
     for f in history(case): cur[f['id']] = f

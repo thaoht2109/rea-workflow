@@ -361,6 +361,7 @@ def next_step(c, accept=''):
         print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không phân tích thêm, không tự tạo OVERRIDE)'); return 1
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
+    if todo and C.mode(c) == 'light': print('NEED_MORE (light): làm tiếp bằng tầng tĩnh (flow.py dec, rea inspect-*). Mục còn thiếu cần giả lập hoặc công cụ ad-hoc thì nâng chế độ: flow.py mode ' + shlex.quote(c) + ' full, hoặc chấp nhận hạn chế: next --accept Cx=lý do'); return 1
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
     if not ok:
         s = state(c); last = (s.get('rounds') or [{}])[-1]

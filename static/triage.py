@@ -286,6 +286,12 @@ def probe(d):
             P['wrap'].append({'codec': name, 'inner_head': o[:16].hex(), 'inner_type': it})
     return P
 
+def light_ok(R):
+    """Mẫu đủ đơn giản để dùng `flow.py new --light`: PE/ELF không đóng gói, entropy thấp. Chỉ là gợi ý, người dùng quyết."""
+    if not (R['type'].startswith('PE') or R['type'].startswith('ELF')) or set(R['flags']) - {'stripped', 'static'}: return False
+    hi = R.get('overlay', {}).get('entropy', 0) > 7.0 or any(s['entropy'] > 7.0 and s['raw'] > 4096 for s in R.get('sections', []))
+    return not hi and R['entropy'] < 7.0
+
 def route(R, out):
     f, t, sc = R['flags'], R['type'], R.get('nsis', {}).get('shellcode')
     if sc: return f"T3 winemu --blob {q(os.path.join(out, sc['file']))} --blob-off {sc['offset']}" + (f" --size {sc['alloc']:#x}" if sc['alloc'] else '') + \
@@ -345,7 +351,7 @@ def main():
     if t: R.setdefault('pivot', {})['tlsh'] = t
     if 'NSIS' in R['flags']: nsis(A.file, A.out, R)
     if R.get('imported_funcs'): R['sensitive_api'] = sens_hits(R['imported_funcs'])
-    R['next'] = route(R, A.out)
+    R['next'] = route(R, A.out); R['light'] = light_ok(R)
     json.dump(R, open(os.path.join(A.out, 'triage.json'), 'w'), indent=1, ensure_ascii=False)
 
     sc = R.get('nsis', {}).get('shellcode')
@@ -374,6 +380,7 @@ def main():
         pb = R['probe']; print(f"  probe: đầu {pb['head']} | entropy 8 đoạn {' '.join(str(x) for x in pb['entropy8'])} | lớp nén: " + (', '.join(f"{w['codec']} -> {w['inner_type']} ({w['inner_head'][:16]})" for w in pb['wrap']) or 'không thấy'))
     print('  strings:'); [print('   ', s[:110]) for s in R['strings'][:12]]
     print('next:', R['next'])
+    if R['light']: print('gợi ý: mẫu không đóng gói, entropy thấp -> có thể dùng chế độ nhẹ: flow.py mode CASE light (chỉ tầng tĩnh; cổng phản biện không đổi)')
 
     if A.facts:
         sys.path.insert(0, os.path.dirname(HERE)); import case

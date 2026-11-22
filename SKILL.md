@@ -25,7 +25,7 @@ compatibility: Linux x86-64; Python >= 3.9; Node.js >= 22.20; JDK 21 + Ghidra 12
 
 Code dẫn đường, không cần đọc lại tài liệu:
 
-1. `python3 $SKILL/flow.py new <CASE> <mẫu|zip>...` tạo case và triage.
+1. `python3 $SKILL/flow.py new <CASE> <mẫu|zip>...` tạo case và triage. Triage gợi ý chế độ nhẹ cho PE/ELF không đóng gói: `new ... --light` hoặc `flow.py mode <CASE> light` (chỉ tầng tĩnh, khóa `tool`/`v8`; cổng phản biện không đổi; cần giả lập thì `mode <CASE> full`).
 2. `python3 $SKILL/flow.py next <CASE>` cho việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy; `status` cho checklist, `resume` sau khi ngữ cảnh bị nén. Làm đúng theo output rồi gọi lại.
 3. Triage trả `unknown` (định dạng chưa có đường đi): tự viết công cụ trong khuôn `python3 $SKILL/flow.py tool <CASE> new`, tự chạy nó (vẫn theo quy tắc không chạy mẫu), rồi `tool <CASE> seal` (phải có phép tự kiểm đạt mới dùng được làm bằng chứng; `FLOW.md` mục 2, tầng T1b).
 4. Mọi lệnh và tham số: `python3 $SKILL/flow.py help` (nguồn duy nhất). Ghi fact: `python3 $SKILL/case.py add <CASE> id=... kind=... value=... src=S evidence=report/evidence/F[#Ln]`; tra: `case.py search|show`.

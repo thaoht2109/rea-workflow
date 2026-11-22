@@ -3,10 +3,13 @@
 #   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), report/report-<ngày>.md từ template, triage tất cả
 #   flow.py mode CASE [light|full]     chế độ case: light = mẫu đơn giản, chỉ tầng tĩnh (khóa `tool` và `v8`; winemu/T3 không bị khóa nhưng không dùng, không bắt buộc tách phiên); full (mặc định). Cổng phản biện giống nhau. Không tham số = xem
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
-#   flow.py dec CASE FILE HÀM...       decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
+#   flow.py dec CASE FILE HÀM...       (HÀM = tên | 0xĐỊACHỈ Ghidra | va:0xĐỊACHỈ ELF, tự cộng base Ghidra theo loại ELF) decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
 #   flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]   code cache V8 (.jsc/bytenode, kể cả bọc brotli; V8 10.2/Node 18): không tham số = gỡ vỏ, đọc bytecode,
 #                                      tự giải chuỗi obfuscator.io, ghi evidence v8_*; dis = listing có chú giải hằng (lần đầu ~1 phút, sau đó dùng ctx.json: nhận nhiều BC một lần); grep = tìm trong chuỗi đã giải + hằng; big = liệt kê hằng chuỗi lớn (JS rõ, base64 nhúng)
+#   flow.py quick CASE FILE            đọc nhanh (vài giây): chuỗi/symbol gom nhóm (CLI, mạng, đường dẫn, mật mã, hành vi, lớp C++/hàm Go) -> evidence quick_*.txt, in gợi ý fact (không tự ghi)
+#   flow.py syscalls CASE FILE         thống kê syscall trong .text (MIPS o32, x86-64, i386; bảng từ header kernel) -> evidence syscalls_*.txt; nói rõ số chưa xác định
+#   flow.py disasm CASE FILE SPEC...   disasm theo tên (Go/symbol), 0xĐỊACHỈ hoặc list:CHUỖI, lời gọi đổi sang tên, chú thích hằng chuỗi -> evidence disasm_*.txt (nhanh hơn Ghidra)
 #   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
 #                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
@@ -114,14 +117,63 @@ def ghidra_dec(c, f, funcs, od, tag):
     lst = [l for l in open(out) if l.startswith('// fn ')]
     if lst: print(f'{len(lst)} hàm khớp list: (tối đa 60 dòng)'); print(''.join(lst[:60]), end='')
 
+def _sample(c, f):
+    if os.path.exists(f): return f
+    hit = [p for p in samples(c) if os.path.basename(p) == os.path.basename(f)]
+    if hit: return hit[0]
+    raise SystemExit(f'không thấy mẫu {f} (đường dẫn hoặc tên file trong work/sample)')
+
+def _ev(c, name, text):
+    p = os.path.join(c, 'report', 'evidence', name); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w', encoding='utf-8').write(text); return p
+
+def quick(c, f):
+    import time; from static import quick as Q
+    f = _sample(c, f); t = time.time(); text, sug = Q.build(f); tag = re.sub(r'\W+', '_', os.path.basename(f)); rel = f'quick_{tag}.txt'
+    _ev(c, rel, text); print(f'{text.count(chr(10))} dòng -> {c}/report/evidence/{rel} ({time.time() - t:.1f}s). Đây là ứng viên, chưa phải fact: xref hoặc đọc mã trước khi kết luận.')
+    for key, val, ln in sug[:10]:
+        k = 'url' if key == 'net' else 'file'
+        print(f"  gợi ý: case.py add {c} id=s.{tag[:8]}.{k}{ln} kind={k} value={shlex.quote(val)} src=S evidence=report/evidence/{rel}#L{ln}   # xác nhận vai trò trước khi ghi")
+    return 0
+
+def syscalls_cmd(c, f):
+    from static import syscalls as SC
+    f = _sample(c, f); tag = re.sub(r'\W+', '_', os.path.basename(f))
+    try: text = SC.report(open(f, 'rb').read(), os.path.basename(f))
+    except ValueError as e: raise SystemExit(str(e))
+    rel = f'syscalls_{tag}.txt'; _ev(c, rel, text)
+    print('\n'.join(text.splitlines()[:2]) + f'\n-> {c}/report/evidence/{rel}'); return 0
+
+def disasm_cmd(c, f, specs):
+    from static import disasm as DS
+    f = _sample(c, f); tag = re.sub(r'\W+', '_', os.path.basename(f)); res, lst = DS.disasm(f, specs)
+    if lst: print(f'{len(lst)} hàm khớp list: (tối đa 60 dòng)'); print(''.join(f'{a:#x} {n}\n' for n, a in lst[:60]), end='')
+    for r in res:
+        rel = f"disasm_{tag}_{re.sub(r'[^A-Za-z0-9]+', '_', r['name'])[:50]}_{r['start']:x}.txt"   # kèm địa chỉ: hai tên khác nhau cho cùng chuỗi rút gọn không ghi đè nhau
+        _ev(c, rel, f"# {r['name']} {r['start']:#x}-{r['end']:#x}\n" + '\n'.join(r['lines']) + '\n# gọi: ' + ', '.join(r['calls']) + '\n')
+        print(f"{r['name']} ({len(r['lines'])} lệnh) -> {c}/report/evidence/{rel}\n  gọi: {', '.join(r['calls'])[:300]}")
+    return 0
+
 def dec(c, f, funcs):
+    gh_only = []   # địa chỉ đã cộng base Ghidra: chỉ Ghidra hiểu, KHÔNG đưa cho rea (rea dùng địa chỉ ảo của chính nó)
+    if any(x.startswith('va:') for x in funcs):   # địa chỉ ảo ELF (readelf/dynsym) -> địa chỉ Ghidra (base theo loại ELF, static/elfinfo.py)
+        from static import elfinfo
+        I = elfinfo.parse(open(f, 'rb').read()) if os.path.exists(f) else None
+        if I is None: raise SystemExit('va: chỉ dùng cho ELF')
+        base, ok = elfinfo.ghidra_base(I)
+        if not ok: print(f"cảnh báo: base Ghidra cho {I['machine']} {I['cls']}-bit chưa được đo, dùng {base:#x} theo lớp ELF; kiểm lại địa chỉ hàm trả về")
+        rest = []
+        for x in funcs:
+            if not x.startswith('va:'): rest.append(x); continue
+            try: gh_only.append(hex(int(x[3:], 16) + base))
+            except ValueError: raise SystemExit(f'địa chỉ không hợp lệ: {x} (dùng va:0x...)')
+        funcs = rest; print(f'va: -> địa chỉ Ghidra (base {base:#x}), chạy thẳng bằng Ghidra')
     os.makedirs(TMP, exist_ok=True); od = os.path.join(c, 'work', 'runs', 'dec'); os.makedirs(od, exist_ok=True)
     tag = re.sub(r'\W+', '_', os.path.basename(f))
     snap = os.path.join(c, 'work', 'rea_' + tag + '.snapshot')
     env = CFG.tmpenv()
     use_rea = CFG.unix_socket_ok()
     if not use_rea: print('AF_UNIX bị chặn (sandbox): bỏ qua rea, dùng Ghidra headless (lần đầu phân tích cả file nên chậm)')
-    if use_rea and not any(x.startswith('list:') for x in funcs):
+    if use_rea and funcs and not any(x.startswith('list:') for x in funcs):
         run = lambda fn: subprocess.run([CFG.REA_BIN, 'decompile', f, '--procedure=' + fn, '--snapshot', snap, '--format', 'json'],
                                         capture_output=True, text=True, env=env)
         from concurrent.futures import ThreadPoolExecutor   # mỗi lần rea phân tích lại cả file (~30 s, 2 lõi): chạy song song
@@ -138,6 +190,7 @@ def dec(c, f, funcs):
             p = os.path.join(od, re.sub(r'\W+', '_', f'{tag}_{fn}') + '.c'); open(p, 'w').write(code)
             show(fn, code, p, c)
         funcs = left
+    funcs = funcs + gh_only
     if funcs:
         print(f'Ghidra headless (rea không hỗ trợ kiến trúc, cần list:, hoặc AF_UNIX bị chặn) cho: {" ".join(funcs)}')
         ghidra_dec(c, f, funcs, od, tag)
@@ -465,6 +518,9 @@ if __name__ == '__main__':
         if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]')
         v8(c, a[2], a[3:])
     elif cmd == 'tool': import adhoc; sys.exit(adhoc.main(c, a[2:]))
+    elif cmd == 'quick': sys.exit(quick(c, a[2]))
+    elif cmd == 'syscalls': sys.exit(syscalls_cmd(c, a[2]))
+    elif cmd == 'disasm': sys.exit(disasm_cmd(c, a[2], a[3:]))
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))

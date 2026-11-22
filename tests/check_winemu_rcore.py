@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory() as d:
         except SystemExit as e: assert 'không hợp lệ' in str(e)
 # 5. đường tìm thư viện tôn trọng XDG_DATA_HOME (cùng gốc với reacfg.SHARE_PYLIB) và REA_CORE_LIB
 saved = {k: os.environ.get(k) for k in ('XDG_DATA_HOME', 'REA_CORE_LIB')}
+saved_cfg = (rcore.reacfg._F.pop('REA_CORE_LIB', None) if rcore.reacfg else None)   # rea.env của máy dev không được ảnh hưởng test
 try:
     os.environ.pop('REA_CORE_LIB', None); os.environ['XDG_DATA_HOME'] = '/xdg/x'
     assert os.path.join('/xdg/x', 'rea-flow', 'lib', rcore.NAME) in rcore.lib_candidates()
@@ -77,6 +78,7 @@ finally:
     for k, v in saved.items():
         if v is None: os.environ.pop(k, None)
         else: os.environ[k] = v
+    if saved_cfg is not None: rcore.reacfg._F['REA_CORE_LIB'] = saved_cfg
 print('OK check_winemu_rcore (lùi về Python, đường tìm thư viện)')
 
 # nối dây trong winemu.py (không chạy được cả giả lập ở test này): phải dùng rcore.attach và các hàm của core

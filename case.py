@@ -87,13 +87,16 @@ def evidence_now(case, f):
     mv = _relocate(lines, int(m.group(1)), f['ev_line'])
     return f['evidence'][:m.start()] + f'#L{mv}' if mv else f['evidence']
 LOOKUP_MAX = 8192
+LOOKUP_SEP = b'\n--- body ---\n'   # FLOW.md mục 0: phần đầu (lệnh, URL, thời điểm, mã trạng thái) rồi dòng này rồi thân trả về
+LOOKUP_CODE = re.compile(rb'(?im)^(MZ|#!|\x7fELF|PK)|powershell|\s-enc\b|\bIEX\b|<script|FromBase64String|\beval\(|[A-Za-z0-9+/=]{200,}')
 def lookup_issue(base, full):
-    """Evidence lookup_* (tra cứu thụ động): chỉ văn bản thuần ngắn; thân lớn/nhị phân/mã chạy được phải ở work/extract (export đóng 7z). Dùng chung cho lint và cổng phản biện."""
+    """Evidence lookup_* (tra cứu thụ động): thân trả về (sau dòng '--- body ---', không có dòng đó thì cả file) chỉ được là văn bản thuần ngắn, không giống mã chạy được.
+    Thân lớn/nhị phân/script phải ở work/extract (export đóng 7z). Dùng chung cho lint và cổng phản biện."""
     if not base.startswith('lookup_'): return None
-    raw = open(full, 'rb').read()
-    if len(raw) > LOOKUP_MAX or b'\0' in raw or raw[:2] in (b'MZ', b'#!') or raw[:4] in (b'\x7fELF', b'PK\x03\x04') or sum(c < 9 or 13 < c < 32 for c in raw) > len(raw) // 50:
-        return (f'evidence lookup_* quá {LOOKUP_MAX} B hoặc không phải văn bản thuần ({len(raw)} B): có thể là payload',
-                'lưu thân vào work/extract/ (0400), evidence chỉ giữ sha256, kích thước, content-type và trích đoạn ngắn; dừng hỏi người dùng như tải payload')
+    raw = open(full, 'rb').read(); body = raw.split(LOOKUP_SEP, 1)[1] if LOOKUP_SEP in raw else raw
+    if len(body) > LOOKUP_MAX or b'\0' in body or sum(c < 9 or 13 < c < 32 for c in body) > len(body) // 50 or LOOKUP_CODE.search(body):
+        return (f'thân lookup_* ({len(body)} B) quá {LOOKUP_MAX} B, không phải văn bản thuần hoặc giống mã chạy được (shebang/MZ/ELF/PK, PowerShell, <script, base64 dài): có thể là payload',
+                'thân thật lưu ở work/extract/ (0400); lookup_*.txt chỉ giữ sha256, kích thước, content-type và trích đoạn ngắn. RDAP/API: lọc các trường cần (jq) cho dưới ngưỡng. Thân giống payload thì dừng hỏi người dùng')
 def src_evidence_issue(src, base):
     """Luật nguồn/evidence dùng chung cho lint khi ghi và lớp 1 của cổng phản biện. Trả (vấn đề, cách sửa) hoặc None.
     host_*: quan sát trên máy thật do người thu mẫu cung cấp (ảnh chụp, log), không do phiên phân tích chạy mẫu."""

@@ -34,7 +34,7 @@ def parse(d):
 def abi(I):
     """Khóa bảng syscall: mips_o32, x86_64, i386; None nếu chưa có bảng (công cụ phải từ chối, không đoán)."""
     m = I['machine']
-    if m == 'mips' and I['cls'] == 32 and (I['flags'] & 0xf000) in (0x1000, 0): return 'mips_o32'
+    if m == 'mips' and I['cls'] == 32 and not (I['flags'] & 0x20) and (I['flags'] & 0xf000) in (0x1000, 0): return 'mips_o32'   # 0x20 = EF_MIPS_ABI2 (n32): bảng khác, từ chối
     if m == 'x86_64' and I['cls'] == 64: return 'x86_64'
     if m == 'i386' and I['cls'] == 32: return 'i386'
     return None

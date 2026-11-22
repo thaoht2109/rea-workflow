@@ -14,18 +14,42 @@ SENSITIVE = ('fork', 'vfork', 'clone', 'execve', 'execveat', 'ptrace', 'unlink',
 def table(abi):
     return {int(k): v for k, v in json.load(open(os.path.join(HERE, 'data', f'syscalls_{abi}.json')))['names'].items()}
 
-def _cs(abi):
+def _cs(abi, be=True):
     try: import capstone as cs
     except ImportError:
         import reacfg; sys.path.insert(0, reacfg.PYLIB)   # capstone cài ở pylib của skill
         import capstone as cs
-    mode = {'mips_o32': cs.CS_MODE_MIPS32 + cs.CS_MODE_BIG_ENDIAN, 'x86_64': cs.CS_MODE_64, 'i386': cs.CS_MODE_32}[abi]
+    mode = {'mips_o32': cs.CS_MODE_MIPS32 + (cs.CS_MODE_BIG_ENDIAN if be else cs.CS_MODE_LITTLE_ENDIAN), 'x86_64': cs.CS_MODE_64, 'i386': cs.CS_MODE_32}[abi]
     md = cs.Cs({'mips_o32': cs.CS_ARCH_MIPS}.get(abi, cs.CS_ARCH_X86), mode); md.skipdata = True
     return md
 
 def _imm(s):
     try: return int(s, 0)
     except ValueError: return None
+
+_REG = {'mips_o32': ('$v0', '$2'), 'x86_64': ('al', 'ax', 'eax', 'rax'), 'i386': ('al', 'ax', 'eax')}
+_BR = {'mips_o32': ('jr', 'j', 'jal', 'jalr', 'b', 'beq', 'bne', 'beqz', 'bnez', 'bal', 'bgez', 'bgtz', 'blez', 'bltz', 'bc1t', 'bc1f'), 'x86_64': ('call', 'jmp', 'ret'), 'i386': ('call', 'jmp', 'ret')}
+
+def _number(abi, ins, k):
+    """Số syscall của lệnh ins[k]: lệnh gần nhất GHI vào thanh ghi số phải là nạp hằng tức thời, ngược lại chưa xác định (None).
+    Dừng ở syscall/int, nhánh/gọi/return (x86), và ở delay slot của nhánh MIPS (lệnh đó thuộc luồng khác)."""
+    for j in range(k - 1, max(-1, k - 9), -1):
+        p = ins[j]
+        if p.mnemonic in ('syscall', 'int') or p.mnemonic in _BR[abi] and abi != 'mips_o32': return None
+        if abi == 'mips_o32':
+            if p.mnemonic in _BR[abi]: return None
+            if j > 0 and ins[j - 1].mnemonic in _BR[abi]: return None   # p là delay slot của nhánh trước nó
+            dst, _, src = p.op_str.partition(',')
+            if dst.strip() in _REG[abi]:
+                m = re.match(r'\s*\$zero, (\S+)$', src)
+                return _imm(m.group(1)) if p.mnemonic in ('addiu', 'ori') and m else None
+        else:
+            dst, _, src = p.op_str.partition(',')
+            if dst.strip() in _REG[abi]:
+                if p.mnemonic == 'mov': return _imm(src.strip())
+                if p.mnemonic == 'xor' and src.strip() == dst.strip(): return 0
+                return None
+    return None
 
 def scan(d, I=None):
     """-> dict(abi, text=(va, size), total, resolved{số: lệnh}, unresolved[địa chỉ]); lỗi ValueError nếu kiến trúc chưa có bảng."""
@@ -35,23 +59,14 @@ def scan(d, I=None):
     if abi is None: raise ValueError(f"chưa có bảng syscall cho {I['machine']} {I['cls']}-bit (flags {I['flags']:#x}): chỉ hỗ trợ MIPS o32, x86-64, i386; không đoán số")
     t = I['sections'].get('.text')
     if not t: raise ValueError('không có section .text (ELF không có section header)')
-    md = _cs(abi); ins = list(md.disasm(d[t['off']:t['off'] + t['size']], t['addr']))
+    md = _cs(abi, I['be']); ins = list(md.disasm(d[t['off']:t['off'] + t['size']], t['addr']))
     res, unres = collections.Counter(), []
     for k, i in enumerate(ins):
         if abi == 'mips_o32': hit = i.mnemonic == 'syscall'
         elif abi == 'x86_64': hit = i.mnemonic == 'syscall'
         else: hit = i.mnemonic == 'int' and i.op_str.strip() == '0x80'
         if not hit: continue
-        n = None
-        for p in reversed(ins[max(0, k - 8):k]):
-            if p.mnemonic in ('syscall', 'jr', 'ret', 'int'): break   # không đi qua syscall/return trước đó: tránh gán số của lệnh khác
-            if abi == 'mips_o32' and p.mnemonic in ('addiu', 'ori'):
-                m = re.match(r'\$v0, \$zero, (\S+)$', p.op_str)
-                if m: n = _imm(m.group(1)); break
-            elif abi != 'mips_o32' and p.mnemonic in ('mov', 'xor'):
-                m = re.match(r'e?ax, (\S+)$', p.op_str)
-                if m and p.mnemonic == 'mov': n = _imm(m.group(1)); break
-                if p.mnemonic == 'xor' and p.op_str.replace(' ', '') in ('eax,eax', 'rax,rax'): n = 0; break
+        n = _number(abi, ins, k)
         if n is not None: res[n] += 1
         else: unres.append(i.address)
     return dict(abi=abi, text=(t['addr'], t['size']), ninstr=len(ins), total=sum(res.values()) + len(unres), resolved=res, unresolved=unres)

@@ -41,7 +41,7 @@ def disasm(path, specs, d=None):
     if I is None: raise SystemExit('không phải ELF')
     abi = elfinfo.abi(I)
     if abi is None: raise SystemExit(f"chưa hỗ trợ {I['machine']} {I['cls']}-bit (chỉ MIPS o32, x86-64, i386)")
-    nm, sz = names_of(path, d, I); chosen, lst = pick(nm, specs); md = syscalls._cs(abi); res = []
+    nm, sz = names_of(path, d, I); chosen, lst = pick(nm, specs); md = syscalls._cs(abi, I['be']); res = []
     def cstr(va, lim):
         o = elfinfo.va2off(I, va)
         if o is None: return None
@@ -68,7 +68,7 @@ def disasm(path, specs, d=None):
                     t = int(i.op_str, 0) if re.fullmatch(r'(0x)?[0-9a-f]+', i.op_str) else None
                     if t: note = '; ' + nm.get(t, f'sub_{t:x}'); calls.append(nm.get(t, f'sub_{t:x}'))
             else:
-                m = re.match(r'(\w+), qword ptr \[rip ([+-]) (0x[0-9a-f]+)\]$', i.op_str) if i.mnemonic == 'lea' else None
+                m = re.match(r'(\w+), (?:\w+ ptr )?\[rip ([+-]) (0x[0-9a-f]+)\]$', i.op_str) if i.mnemonic == 'lea' else None
                 if m:
                     v = i.address + i.size + (int(m.group(3), 16) * (1 if m.group(2) == '+' else -1)); s = cstr(v, 80); note = f'; {v:#x}' + (f' "{s}"' if s else '')
                 elif i.mnemonic == 'call':

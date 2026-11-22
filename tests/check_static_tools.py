@@ -68,3 +68,27 @@ text, sug = quick.build('x', q)
 assert '-key=KEY' in text and 'cdn.example.net' in text and 'http://203.0.113.9/x' in text and '/etc/app.conf' in text and 'Invalid token' in text and 'heartbeat sent' in text, text
 assert '/home/lib/include/x.hpp' not in text and any(k == 'net' for k, _, _ in sug)
 print('OK check_static_tools')
+
+# --- góp ý bot: MIPS little-endian, ghi đè thanh ghi số, delay slot, n32, lea rip
+le32 = lambda *w: b''.join(struct.pack('<I', v) for v in w)
+ml = elf(8, 32, False, 2, 0x1007, le32(0x24020fab, 0x0000000c), 0x400000)   # mipsel: addiu v0,zero,4011; syscall
+Rl = syscalls.scan(ml); assert Rl['resolved'][4011] == 1 and Rl['total'] == 1, Rl
+# MIPS: move v0,a0 ghi đè -> chưa xác định (không gán số cũ); delay slot của jr thuộc hàm trước -> chưa xác định
+ov = be32(0x24020fab, 0x00801021, 0x0000000c)                                      # addiu v0,4011 ; move v0,a0 ; syscall
+ds = be32(0x03e00008, 0x24020fab, 0x0000000c)                                      # jr ra ; addiu v0,4011 (delay slot) ; syscall
+for name, code in (('ghi đè', ov), ('delay slot', ds)):
+    Rm = syscalls.scan(elf(8, 32, True, 2, 0x1007, code, 0x400000)); assert Rm['total'] == 1 and not Rm['resolved'] and len(Rm['unresolved']) == 1, (name, Rm)
+# x86-64: mov eax,1 ... mov eax,[rbp-4] ; syscall -> chưa xác định; mov rax,60 -> 60; pop rax -> chưa xác định
+xs = bytes.fromhex('b801000000' + '8b45fc' + '0f05') + bytes.fromhex('48c7c03c000000' + '0f05') + bytes.fromhex('58' + '0f05')
+Rs = syscalls.scan(elf(62, 64, False, 3, 0, xs, 0x1000)); assert Rs['total'] == 3 and dict(Rs['resolved']) == {60: 1} and len(Rs['unresolved']) == 2, Rs
+# n32 (EF_MIPS_ABI2 = 0x20) bị từ chối, không tra bảng o32
+try: syscalls.scan(elf(8, 32, True, 2, 0x20, be32(0), 0x400000)); raise AssertionError('n32 phải bị từ chối')
+except ValueError as e: assert 'chưa có bảng' in str(e)
+# disasm x86-64: lea rax,[rip+disp] trỏ tới chuỗi được chú thích; mipsel disasm đúng endian
+VX = 0x401000; lea = bytes.fromhex('488d05') + struct.pack('<i', 0x20 - 7) + bytes.fromhex('c3')   # lea rax,[rip+0x19]; ret  (chuỗi tại VX+0x20)
+xc = lea + b'\0' * (0x20 - len(lea)) + b'/etc/app.conf\0'
+xp = os.path.join(tempfile.mkdtemp(), 'x.elf'); open(xp, 'wb').write(elf(62, 64, False, 2, 0, xc, VX, syms=[('fx', VX, 0x20)]))
+tx = '\n'.join(disasm.disasm(xp, ['fx'])[0][0]['lines']); assert '"/etc/app.conf"' in tx, tx
+lp = os.path.join(tempfile.mkdtemp(), 'l.elf'); open(lp, 'wb').write(elf(8, 32, False, 2, 0x1007, le32(0x03e00008, 0, 0x03e00008, 0), 0x400000, syms=[('fl', 0x400000, 8), ('fm', 0x400008, 8)]))
+assert disasm.disasm(lp, ['fl'])[0][0]['lines'][0].split('\t')[1] == 'jr', 'mipsel phải disasm đúng'
+print('OK check_static_tools (endian, ghi đè, delay slot, n32, lea rip)')

@@ -85,3 +85,16 @@ for need in ('rcore.attach(mu,', 'CORE.reset_count()', 'CORE.take_pending()', 'C
     assert need in src, f'winemu.py thiếu {need}'
 if CI or lib is not None: assert rcore.uclib_ok()[0], rcore.uclib_ok()
 print('OK check_winemu_rcore (nối dây winemu.py, uclib_ok)')
+
+# 6. REA_CORE / REA_CORE_LIB đọc được từ rea.env (REA_ENV); biến môi trường vẫn thắng
+import subprocess
+with tempfile.TemporaryDirectory() as d:
+    envf = os.path.join(d, 'rea.env'); open(envf, 'w', encoding='utf-8').write('REA_CORE=py\nREA_CORE_LIB=/tu/rea.env\n')
+    code = "import sys; sys.path.insert(0, sys.argv[1]); import rcore; print(rcore.cfg('REA_CORE'), rcore.lib_candidates()[0])"
+    def probe(**kw):
+        e = {k: v for k, v in os.environ.items() if k not in ('REA_CORE', 'REA_CORE_LIB')}; e.update(REA_ENV=envf, **kw)
+        return subprocess.run([sys.executable, '-I', '-c', code, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'winemu')],
+                              env=e, capture_output=True, text=True, check=True).stdout.split()
+    assert probe() == ['py', '/tu/rea.env'], 'rcore phải đọc REA_CORE/REA_CORE_LIB từ rea.env'
+    assert probe(REA_CORE='rust')[0] == 'rust', 'biến môi trường phải thắng rea.env'
+print('OK check_winemu_rcore (đọc từ rea.env)')

@@ -3,6 +3,7 @@
 #   python3 install_tools.py [--yes] [--no-ghidra]      (hoặc: flow.py setup [--yes] [--no-ghidra])
 # Gói hệ thống cài bằng apt-get (Debian/Ubuntu/Kali, cần sudo); thư viện Python cài vào REA_PYLIB (pip --target, không cần sudo);
 # Ghidra tải bản đã kiểm từ GitHub, đối chiếu sha256 rồi giải nén vào ~/.local/share/rea-flow; rea cài từ npm (rea-agents).
+# Công cụ hệ thống (binutils, go, cargo, rustc...) chỉ cài bằng apt; apt không có hoặc không cài được thì DỪNG và in gói cần cài tay (không tự tải trực tiếp).
 # Không bao giờ cài hay cấu hình wine: winemu chỉ cần tên export của DLL, mà wine có thể tự chạy file .exe qua binfmt.
 import sys, os, types, re, json, shutil, hashlib, zipfile, subprocess, importlib.util, urllib.request
 
@@ -147,6 +148,13 @@ def rea_install():
     if '--prefix' in argv and os.path.expanduser('~/.local/bin') not in os.environ.get('PATH', '').split(':'):
         print('  lưu ý: thêm ~/.local/bin vào PATH để gọi được `rea`')
 
+def apt_stop(why, left):
+    """Công cụ hệ thống cần cho phân tích mà apt không cài được: không tự tải trực tiếp, dừng và nói rõ gói cần cài tay. Trả mã 1."""
+    print(f'\nDỪNG: {why}. Các công cụ sau cần cho quá trình phân tích:')
+    for c in left: print(f'  - {c[0]}: gói apt {" ".join(c[3])} [{c[6]}]')
+    print('Cài tay (bản phân phối khác thì dùng gói tương ứng hoặc nguồn chính thức: Go https://go.dev/dl, Rust https://rustup.rs), rồi chạy lại: python3 flow.py setup --yes')
+    print('Chưa cài tiếp Ghidra, rea, kho tri thức, lõi Rust cho tới khi đủ các công cụ trên.'); return 1
+
 def main(a):
     yes, apt = '--yes' in a, shutil.which('apt-get')
     C = checks(); miss = [c for c in C if not c[1]]
@@ -167,12 +175,21 @@ def main(a):
                'kb': f'  tạo kho tri thức ({CFG.KB}) và kéo bản đã công bố từ {CFG.KB_UPSTREAM} (https, kiểm sha256; lỗi thì bỏ qua)',
                'rea': f'  npm install -g {REA_PKG} (prefix không ghi được thì --prefix ~/.local)'}[s])
     if not yes: print('\nChưa cài gì. Chạy lại với --yes để cài (apt cần sudo). Bỏ Ghidra: --no-ghidra.'); return 1
+    need = [c for c in miss if c[2] and c[3] and not c[4]]   # công cụ hệ thống BẮT BUỘC chỉ cài được bằng gói hệ điều hành (gói Python có đường pip riêng)
+    if need and not apt: return apt_stop('máy không có apt-get nên không tự cài được', need)
+    if not apt:
+        for c in miss:
+            if c[3] and not c[4]: print(f'  CẢNH BÁO: chưa có {c[0]} (tùy chọn): cài tay gói {" ".join(c[3])} nếu cần [{c[6]}]')
     if apt_pkgs:
         subprocess.run(['sudo', 'apt-get', 'update'], check=False)
         req = list(dict.fromkeys(p for c in miss if c[2] for p in c[3])); opt = [p for p in apt_pkgs if p not in req]   # gói tùy chọn cài riêng: thiếu trong kho không làm hỏng lệnh cài gói bắt buộc
         if req and subprocess.run(['sudo', 'apt-get', 'install', '-y'] + req).returncode and '7zip' in req:   # bản cũ: p7zip-full
             subprocess.run(['sudo', 'apt-get', 'install', '-y'] + [('p7zip-full' if p == '7zip' else p) for p in req])
         for p in opt: subprocess.run(['sudo', 'apt-get', 'install', '-y', p], check=False)
+        now = [c for c in checks() if not c[1] and c[3] and not c[4]]
+        left = [c for c in now if c[2]]
+        if left: return apt_stop('apt-get không cài được hết', left)
+        for c in now: print(f'  CẢNH BÁO: chưa có {c[0]} (tùy chọn): cài tay gói apt {" ".join(c[3])} nếu cần [{c[6]}]')   # tùy chọn: chỉ nhắc, không chặn pip/Ghidra/rea
     req_pip = [c[4] for c in miss if c[4] in pip_pkgs and c[2]]
     for grp in ([req_pip] if req_pip else []) + [[c[4]] for c in miss if c[4] in pip_pkgs and not c[2]]:   # gói tùy chọn cài riêng: build lỗi (py-tlsh cần trình biên dịch) không kéo theo gói bắt buộc
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--target', CFG.PYLIB] + grp, check=False)
@@ -238,6 +255,27 @@ def selftest():
     finally: globals()['checks'], subprocess.run, shutil.which = real_checks, real_run, real_which
     ins = [c[4:] for c in calls if c[:4] == ['sudo', 'apt-get', 'install', '-y']]
     assert ins == [['binutils'], ['golang-go'], ['cargo'], ['rustc']], ins
+    assert all(c[:2] == ['sudo', 'apt-get'] for c in calls), calls   # apt không cài được: dừng, không chạy bước nào khác (pip, rust, ghidra, rea)
+    import io, contextlib
+    def run_main(fake_checks, has_apt=True):
+        calls.clear(); real = (globals()['checks'], subprocess.run, shutil.which); buf = io.StringIO()
+        try:
+            globals()['checks'] = fake_checks
+            subprocess.run = lambda cmd, **k: calls.append(cmd) or types.SimpleNamespace(returncode=0, stdout='', stderr='')
+            shutil.which = lambda n, *a, **k: ('/usr/bin/apt-get' if has_apt else None) if n == 'apt-get' else real_which(n)
+            with contextlib.redirect_stdout(buf): rc = main(['--yes'])
+        finally: globals()['checks'], subprocess.run, shutil.which = real
+        return rc, buf.getvalue()
+    miss2 = lambda: [('binutils-tool', False, True, ['binutils'], None, None, 'dùng cho X'), ('pyx', False, True, ['python3-pyx'], 'pyx', None, 'dùng cho Y')]
+    rc, o = run_main(miss2, has_apt=False)   # không có apt: dừng ngay, không gọi lệnh nào, nêu gói cần cài; gói Python có đường pip thì không chặn
+    assert rc == 1 and not [c for c in calls if c[:1] == ['sudo']] and 'DỪNG' in o and 'binutils' in o and 'pyx' not in o.split('DỪNG')[1], (rc, o, calls)
+    rc, o = run_main(miss2); assert rc == 1 and 'apt-get không cài được hết' in o and 'binutils-tool' in o, o
+    ok_after = lambda: [('binutils-tool', any(c[:4] == ['sudo', 'apt-get', 'install', '-y'] for c in calls), True, ['binutils'], None, None, 'dùng cho X')]
+    rc, o = run_main(ok_after); assert rc == 0 and 'DỪNG' not in o, (rc, o)   # apt cài được: chạy tiếp bình thường
+    opt = ('go', False, False, ['golang-go'], None, None, 'x'); pipreq = ('pyx', False, True, ['python3-pyx'], 'pyx', None, 'dùng cho Y')
+    for has in (False, True):   # mục tùy chọn apt-only luôn thiếu không được chặn pip của mục bắt buộc
+        rc, o = run_main(lambda: [opt, pipreq], has_apt=has)
+        assert 'DỪNG' not in o and 'CẢNH BÁO' in o and (has or any('pip' in c for c in calls if isinstance(c, list))), (has, rc, o, calls)   # có apt thì gói Python cài bằng apt, không có thì bằng pip
     shutil.rmtree(t); print('OK install_tools selftest')
 
 if __name__ == '__main__':

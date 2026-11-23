@@ -381,10 +381,10 @@ def settle(data, part, bad, todo):
     if F & set(todo) != seen: why.append('sổ flagged lệch với dòng ITEM fail/weak: ' + ', '.join(sorted((F & set(todo)) ^ seen)))
     if F & P: why.append('id nằm ở cả flagged và pass: ' + ', '.join(sorted(F & P)))
     if set(todo) - F - P: why.append('fact được giao không có kết luận: ' + ', '.join(sorted(set(todo) - F - P)))
-    out = []
-    for i in part:
-        if i not in out: out.append(i)
-    return out, why
+    rank, best = {'pass': 0, 'weak': 1, 'fail': 2}, {}
+    for i in part:   # mỗi id một mục: dòng nặng nhất, cùng mức thì dòng in sau (đổi ý từ fail sang pass không xóa được fail; sổ lệch đã bị bắt ở trên)
+        if i['id'] not in best or rank.get(i.get('verdict'), 0) >= rank.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
+    return [i for i in best.values() if i.get('verdict') in ('fail', 'weak') or i.get('check')], why   # như đường salvage: bỏ mục pass chỉ đọc đối chiếu (không có nội dung)
 
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
                 'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước (in dòng CANARY), rồi kiểm từng fact (in dòng ITEM sau mỗi fact), rồi trả về một đối tượng JSON duy nhất.')
@@ -737,7 +737,15 @@ def selftest():
     fI, pI = 'ITEM {"id": "c2", "verdict": "fail", "check": "source", "where": "e.txt#L2", "redo": "x"}', 'ITEM {"id": "m", "verdict": "pass"}'
     S = lambda ev_, fin: settle(fin, *marks(ev_)[1:], ['c2', 'm'])
     got, w = S(T('CANARY {"canary": []}', fI, pI), dict(flagged=['c2'], **{'pass': ['m']}))
-    assert not w and [(i['id'], i['verdict']) for i in got] == [('c2', 'fail'), ('m', 'pass')], (got, w)
+    assert not w and [(i['id'], i['verdict']) for i in got] == [('c2', 'fail')], (got, w)   # mục pass chỉ đọc đối chiếu không vào kết quả
+    pC, wI = 'ITEM {"id": "m", "verdict": "pass", "check": "recompute", "claim": "đếm lại khớp"}', 'ITEM {"id": "c2", "verdict": "weak", "check": "source"}'
+    V = lambda ev_, fl, ps: [(i['id'], i['verdict'], i.get('check')) for i in S(ev_, dict(flagged=fl, **{'pass': ps}))[0]]
+    assert V(T(fI, pC), ['c2'], ['m']) == [('c2', 'fail', 'source'), ('m', 'pass', 'recompute')]            # pass đã tự kiểm (có check) được giữ
+    assert V(T(pI, pC), [], ['c2', 'm']) == [('m', 'pass', 'recompute')]                                    # hai dòng cùng id: một mục, lấy dòng sau
+    assert V(T(wI, fI, pI), ['c2'], ['m']) == [('c2', 'fail', 'source')] and V(T(fI, wI, pI), ['c2'], ['m']) == [('c2', 'fail', 'source')]   # weak rồi fail hay fail rồi weak: giữ fail
+    fP = 'ITEM {"id": "c2", "verdict": "pass"}'
+    assert V(T(fI, fP, pI), ['c2'], ['m']) == [('c2', 'fail', 'source')]                                    # fail rồi in thêm dòng pass: fail không bị xóa
+    assert 'lệch' in S(T(fI, fP, pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]                      # và sổ ghi pass cho id đó thì lượt không hợp lệ
     assert not S(T(fI), dict(flagged=['c2'], **{'pass': ['m']}))[1]                                   # fact pass không cần dòng ITEM, chỉ cần có trong sổ
     assert 'không đọc được' in S(T(fI[:40], pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]      # dòng fail bị cụt: không được thành PASS im lặng
     assert 'lệch' in S(T(pI), dict(flagged=['c2'], **{'pass': ['m']}))[1][0]                           # sổ nêu c2 nhưng không có dòng ITEM
@@ -750,7 +758,7 @@ def selftest():
     assert S(T(fI[:40]), dict(items=[dict(id='m', verdict='weak'), dict(id='zz', verdict='fail')])) == ([dict(id='m', verdict='weak')], [])   # dạng đầy đủ: JSON cuối là nguồn
     os.environ['STUB_COMPACT'] = 'ok'   # qua cả đường chạy: phiên in ITEM rồi sổ
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
-    assert iso['valid'] and sorted((i['id'], i['verdict'], i['severity']) for i in its) == [('c2', 'pass', 'low'), ('m', 'fail', 'high')], (its, iso)
+    assert iso['valid'] and sorted((i['id'], i['verdict'], i['severity']) for i in its) == [('m', 'fail', 'high')], (its, iso)
     os.environ['STUB_COMPACT'] = 'cut'
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
     assert not iso['valid'] and any('không đọc được' in x for x in iso['invalid_reasons']), iso

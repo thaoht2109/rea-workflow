@@ -127,6 +127,8 @@ def lint_fact(case, f):
     if f['kind'] == 'verdict' and not VERDICT_RX.match(f['value'].strip()):
         bad('fail', 'verdict_value', f"verdict phải là '{'|'.join(k for k in VERDICT if k != 'unknown')}: lý do', có: {f['value'][:60]}",
             "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
+    if f['kind'] == 'relation' and f['value'].startswith('n/a') and not re.match(r'n/a:\s*\S', f['value']):
+        bad('warn', 'relation_na', "fact relation 'n/a' phải kèm lý do: 'n/a: lý do'", "ghi value='n/a: <vì sao không thấy liên hệ>'")
     if f['kind'] == 'relation' and not f['value'].startswith('n/a'):
         src_ = sources(case)   # so theo tên tệp (bỏ thư mục cha), thư mục thì theo tên thư mục
         named = [n for n in src_ if re.search(r'(?<![\w.])' + re.escape(os.path.basename(n.rstrip('/'))) + r'(?![\w])', f['value'])]
@@ -355,7 +357,8 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
         'C9 Payload cuối': 'ok' if act('payload_hash') else 'missing',
         'C10 Họ mã độc': 'ok' if act('family') else 'partial' if hyp('family') else 'missing',
         'C11 Độ phủ': c11,
-        'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if act('relation') else 'partial' if hyp('relation') else 'missing',
+        'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if any(not f['value'].startswith('n/a') or na(f['value']) for f in act('relation'))
+                                    else 'partial' if hyp('relation') or act('relation') else 'missing',   # relation 'n/a' không kèm ': lý do' chưa đủ
     }
     NEXT = {'C0': 'flow.py review CASE [--llm] (tối đa 2 lần); stopped thì đọc work/review/STOP_REPORT.md', 'C1': 'T0 flow.py triage', 'C2': 'T0/T1 bóc vỏ; ghi entry (hàm/offset bắt đầu mã độc)',
             'C3': 'T2 tìm anti-debug/anti-VM quanh import nhạy cảm; T3 nếu chạy được',

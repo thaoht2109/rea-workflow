@@ -31,21 +31,25 @@ def build(path, d=None, cap=40):
             from static import gopclntab
             gofuncs = [n for _, n in gopclntab.funcs(path)] if os.path.exists(path) else []
         except (SystemExit, Exception): gofuncs = []
-    is_go = bool(gofuncs); go_pkgs = {n.split('.')[0] for n in gofuncs}
+    is_go = bool(gofuncs); go_names = set(gofuncs)
     L.append(f'# quick {os.path.basename(path)}: {len(d)} B')
     if I:
         L.append(f"elf: {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'} etype={I['etype']} entry={I['entry']:#x} abi={elfinfo.abi(I)} section={len(I['sections'])} symbol={len(elfinfo.symbols(d, I))}")
     asc, wide = scan_strings(d, 6); seen = set(); S = [s for s in asc + wide if not (s in seen or seen.add(s))]
     for key, title, rx in GROUPS:
-        L.append(f'## {title}'); n = 0
+        L.append(f'## {title}'); n = 0; dropped = 0
         for s in S:
             m = rx.search(s)
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
             if not m or (len(s) > 400 and key != 'net') or (key == 'net' and SKIP_NET.search(m.group(0))) or (key == 'path' and SKIP_PATH.search(s)) or s.startswith(('_Z', 'type:', '*')): continue
             if key == 'cli' and is_go and GO_BUILD.match(s): continue
-            if key == 'net' and is_go and HOSTLESS.match(m.group(0).rstrip('/')): continue
-            if key == 'path' and is_go and not m.group(0).strip(' "\'=').startswith('/') and (len(s) > 120 or s.rsplit('.', 1)[0] in go_pkgs): continue   # 'runtime.lock', 'math.log' trong kho chuỗi Go là tên định danh, không phải tệp
-            L.append(m.group(0) if key == 'net' else s[:160].replace('\n', ' ')); n += 1
+            if key == 'net' and is_go and HOSTLESS.match(m.group(0).rstrip('/')): dropped += 1; continue   # đếm để output còn dấu vết
+            gopath = None
+            if key == 'path' and is_go:   # kho chuỗi Go: xét MỌI kết quả khớp; có đường dẫn tuyệt đối thì giữ đúng đường dẫn đó, không thì bỏ chuỗi dài và tên định danh Go (runtime.lock, math.log)
+                ab = next((x for x in rx.finditer(s) if x.group(0).strip(' "\'=').startswith('/')), None)
+                if ab is not None: m = ab; gopath = ab.group(0).strip(' "\'=') if len(s) > 120 else None
+                elif len(s) > 120 or s in go_names: continue
+            L.append(m.group(0) if key == 'net' else gopath if gopath else s[:160].replace('\n', ' ')); n += 1
             if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))
             if key in ('net', 'path') and len(sug) < 24:
                 v = m.group(0).strip(' "\'=')
@@ -54,6 +58,7 @@ def build(path, d=None, cap=40):
                 if len(v) >= 5: sug.append((key, v, len(L)))
             if n >= cap: break
         if not n: L.append('(không có)')
+        if dropped: L.append(f'(đã bỏ {dropped} URL không có dấu chấm trong host: hằng nối liền trong kho chuỗi Go, xem strings nếu cần)')
     if I:
         syms = [x[0] for x in elfinfo.symbols(d, I)]
         L.append('## Lớp C++ trong symbol (không tính std/boost/fmt/spdlog/__gnu)'); C = collections.Counter()
@@ -75,7 +80,7 @@ def groups(text):
     title = {t: k for k, t, _ in GROUPS}; out = {k: [] for k, _, _ in GROUPS}; cur = None
     for l in text.splitlines():
         if l.startswith('## '): cur = title.get(l[3:]); continue
-        if cur and l and l != '(không có)': out[cur].append(l)
+        if cur and l and not (l.startswith('(') and l.endswith(')')): out[cur].append(l)   # dòng trong ngoặc là ghi chú của công cụ, không phải mục
     return out
 
 if __name__ == '__main__':

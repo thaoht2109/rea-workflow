@@ -88,9 +88,9 @@ def disasm(path, specs, d=None):
                     t = int(i.op_str, 0) if re.fullmatch(r'(0x)?[0-9a-f]+', i.op_str) else None
                     if t: note = '; ' + nm.get(t, f'sub_{t:x}'); calls.append(nm.get(t, f'sub_{t:x}'))
             else:
-                m = re.match(r'(\w+), (?:\w+ ptr )?\[rip ([+-]) (0x[0-9a-f]+)\]$', i.op_str) if i.mnemonic == 'lea' else None
+                m = re.match(r'(\w+), (?:\w+ ptr )?\[rip ([+-]) (0x[0-9a-f]+|\d+)\]$', i.op_str) if i.mnemonic == 'lea' else None
                 if m:
-                    v = i.address + i.size + (int(m.group(3), 16) * (1 if m.group(2) == '+' else -1)); s = cstr(v, 80); note = f'; {v:#x}' + (f' "{s}"' if s else '')
+                    v = i.address + i.size + (int(m.group(3), 0) * (1 if m.group(2) == '+' else -1)); s = cstr(v, 80); note = f'; {v:#x}' + (f' "{s}"' if s else '')
                 elif i.mnemonic == 'call':
                     t = int(i.op_str, 0) if re.fullmatch(r'(0x)?[0-9a-f]+', i.op_str) else None
                     if t: note = '; ' + nm.get(t, f'sub_{t:x}'); calls.append(nm.get(t, f'sub_{t:x}'))

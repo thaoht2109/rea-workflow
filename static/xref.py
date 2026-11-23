@@ -31,8 +31,8 @@ def build(path, d=None):
         if t not in pstub:
             pstub[t] = None; o = elfinfo.va2off(I, t)
             for j in (md.disasm(d[o:o + 16], t) if o is not None else ()):
-                m = re.search(r'ptr \[rip ([+-]) (0x[0-9a-f]+)\]$', j.op_str) if 'jmp' in j.mnemonic else None
-                slot = j.address + j.size + int(m.group(2), 16) * (1 if m.group(1) == '+' else -1) if m else None
+                m = re.search(r'ptr \[rip ([+-]) (0x[0-9a-f]+|\d+)\]$', j.op_str) if 'jmp' in j.mnemonic else None
+                slot = j.address + j.size + int(m.group(2), 0) * (1 if m.group(1) == '+' else -1) if m else None
                 m2 = re.search(r'ptr \[(0x[0-9a-f]+)\]$', j.op_str) if 'jmp' in j.mnemonic and not m else None
                 if m2: slot = int(m2.group(1), 16)
                 if slot is not None: pstub[t] = slots.get(slot); break
@@ -84,13 +84,15 @@ def report(path, queries=(), d=None, name=None):
     X = build(path, d); nm, st, AL = X['names'], X['stats'], X['aliases']
     dm = disasm.demangle([n for ns in AL.values() for n in ns]); show = lambda n: dm.get(n, n)
     base = lambda n: re.sub(r'\(.*', '', show(n))   # tên dễ đọc không kèm tham số
-    qs = list(queries) or list(GO_SENSITIVE if X['is_go'] else SENSITIVE); exact = not queries
+    raw = open(path, 'rb').read() if d is None else d; imp = set(elfinfo.imports(raw, elfinfo.parse(raw)))
+    cgo = X['is_go'] and bool(imp)   # binary Go có hàm nhập khẩu (cgo, c-shared): dùng cả hai bộ tên
+    qs = list(queries) or (list(GO_SENSITIVE) + (list(SENSITIVE) if cgo else []) if X['is_go'] else list(SENSITIVE)); exact = not queries
     L = [f"# xref {name or os.path.basename(path)}: abi={X['abi']} hàm đã duyệt={st['funcs']} lời gọi trực tiếp={st['direct']} gián tiếp đã giải={st['indirect_ok']} gián tiếp CHƯA giải={st['indirect_unknown']} | qua stub PLT={st['plt']} (gắn được tên hàm nhập khẩu: {st['plt_named']}) | trong số đã có đích, đích KHÔNG có tên={st['unnamed']} (gồm cả nhảy đuôi j/jr/jmp ra ngoài hàm)",
          '# giới hạn: chỉ thấy lời gọi từ hàm có tên; lời gọi gián tiếp chưa giải (con trỏ hàm, bảng ảo, call/jmp qua thanh ghi hay bộ nhớ) và lời gọi qua stub PLT chưa gắn được tên không được quy cho hàm nào.',
          '# "0 nơi gọi" hoặc "không có symbol" KHÔNG chứng minh mẫu không dùng hàm đó khi còn lời gọi chưa giải hoặc binary bị strip/inline.']
     fn = lambda fa: show(nm.get(fa, f'sub_{fa:x}'))
-    if not queries: L.append('# bộ tên mặc định: ' + ('Go (binary có .gopclntab; tên libc không áp dụng cho Go thuần)' if X['is_go'] else 'libc (exec, mạng, kill, unlink...)'))
-    raw = open(path, 'rb').read() if d is None else d; imp = set(elfinfo.imports(raw, elfinfo.parse(raw))); rstub = collections.defaultdict(list)
+    if not queries: L.append('# bộ tên mặc định: ' + ('Go và libc (binary Go có hàm nhập khẩu: cgo/c-shared)' if cgo else 'Go (binary có .gopclntab, không có hàm nhập khẩu; tên libc không áp dụng cho Go thuần)' if X['is_go'] else 'libc (exec, mạng, kill, unlink...)'))
+    rstub = collections.defaultdict(list)
     for a_, n_ in sorted(X['stubs'].items()): rstub[n_].append(a_)   # một hàm nhập khẩu có thể có nhiều stub (.plt, .plt.sec)
     missing, und = [], []
     for q in qs:

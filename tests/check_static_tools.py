@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # static/elfinfo.py, syscalls.py, disasm.py, quick.py trên ELF tổng hợp (MIPS o32 BE, x86-64, i386, ARM bị từ chối). Chạy: python3 tests/check_static_tools.py
-import os, sys, struct, tempfile
+import os, re, sys, struct, tempfile
 T = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, T)
 from static import elfinfo, syscalls, disasm, quick   # noqa: E402
 
@@ -136,3 +136,74 @@ try:
     except SystemExit as e: assert 'không hợp lệ' in str(e)
 finally: flow.CFG.unix_socket_ok, flow.ghidra_dec, flow.subprocess.run = real
 print('OK check_static_tools (ELF hỏng, vỏ flow.py, dec va:)')
+
+# --- MIPS PIC: gp từ prologue, lw $t9 qua GOT + jalr, chuỗi gp-relative; hàm bọc nhận số ở $a0; SPEC địa chỉ ngoài hàm; gợi ý quick
+VP = 0x400000; fb2 = VP + 0x80
+pic = be32(0x3c1c0000, 0x279c0200, 0x0399e021,                          # lui gp,0 ; addiu gp,gp,0x200 ; addu gp,gp,t9
+           0x8f99fff0, 0x8f85fff4,                                      # lw t9,-0x10(gp) ; lw a1,-0xc(gp)
+           0x24a50004, 0x0320f809, 0x00000000, 0x03e00008, 0x00000000)  # addiu a1,a1,4 ; jalr t9 ; nop ; jr ra ; nop
+pic += b'\0' * (0x80 - len(pic)) + be32(0x03e00008, 0)                   # hàm B tại +0x80
+pic += b'\0' * (0x1f0 - len(pic)) + be32(fb2, VP + 0x300)                # GOT: [gp-0x10]=B, [gp-0xc]=nền chuỗi
+pic += b'\0' * (0x304 - len(pic)) + b'hello pic\0'
+pp = os.path.join(tempfile.mkdtemp(), 'p.elf'); open(pp, 'wb').write(elf(8, 32, True, 3, 0x1007, pic, VP, syms=[('pic_a', VP, 0x80), ('pic_b', fb2, 8)]))
+rp, _ = disasm.disasm(pp, ['pic_a']); tp = '\n'.join(rp[0]['lines']); assert rp[0]['calls'] == ['pic_b'] and '"hello pic"' in tp, tp
+# SPEC địa chỉ nằm ngoài mọi hàm: bắt đầu tại chính địa chỉ đó, không gán cho hàm cuối
+nm_, sz_ = {0x400000: 'f1', 0x400080: 'f2'}, {0x400000: 0x80, 0x400080: 8}
+assert disasm.pick(nm_, ['0x400084'], sz_)[0] == [('f2', 0x400080)] and disasm.pick(nm_, ['0x400200'], sz_)[0] == [('sub_400200', 0x400200)]
+# quick: gợi ý ELF, tham số dòng lệnh, lớp C++ kèm dòng
+tq, sq = quick.build('x', elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN4Auth3runEv', 0x1000, 1), ('_ZN7Forward3runEv', 0x1000, 1)]) + b'\0-key=KEY\0Usage: x\0')
+ks = {k for k, _, _ in sq}; assert {'cls', 'cli'} <= ks and 'elf' not in ks, sq   # không gợi ý fact cho dòng ELF (triage đã ghi filetype)
+for k, v, ln in sq: assert 1 <= ln <= tq.count('\n') + 1 and tq.splitlines()[ln - 1].strip() and (k != 'cli' or v in tq.splitlines()[ln - 1]), (k, v, ln)
+r = run('quick', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
+r = run('disasm', 'C1', 'm.elf'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr)
+print('OK check_static_tools (PIC, quick gợi ý, tham số)')
+
+# --- bộ theo dõi PIC chỉ tin đoạn chạy thẳng: đích nhánh nằm giữa lw t9 và jalr -> không gán tên; sau j/b/jr trạng thái bị bỏ
+def picfn(mid):   # prologue gp ; lw t9,-0x10(gp) ; <mid> ; jalr t9 ; nop ; jr ra ; nop  (GOT[gp-0x10] = pic_b)
+    c = be32(0x3c1c0000, 0x279c0200, 0x0399e021, 0x8f99fff0) + mid + be32(0x0320f809, 0, 0x03e00008, 0)
+    c += b'\0' * (0x80 - len(c)) + be32(0x03e00008, 0); c += b'\0' * (0x1f0 - len(c)) + be32(VP + 0x80, 0)
+    f = os.path.join(tempfile.mkdtemp(), 'q.elf'); open(f, 'wb').write(elf(8, 32, True, 3, 0x1007, c, VP, syms=[('pic_a', VP, 0x80), ('pic_b', VP + 0x80, 8)])); return f
+assert disasm.disasm(picfn(b''), ['pic_a'])[0][0]['calls'] == ['pic_b']                                   # chạy thẳng: giải được
+jal_at = VP + 0x10 + 8   # địa chỉ lệnh jalr khi mid dài 2 lệnh
+r1 = disasm.disasm(picfn(be32(0x10000000 | (((jal_at - (VP + 0x10 + 4)) >> 2) & 0xffff), 0)), ['pic_a'])[0][0]   # mid = beq zero,zero,<jalr> ; nop -> jalr là đích nhánh
+assert r1['calls'] == [], r1['calls']
+r2 = disasm.disasm(picfn(be32(0x08000000 | ((VP + 0x40) >> 2), 0)), ['pic_a'])[0][0]; assert 'pic_b' not in r2['calls'], r2['calls']   # mid = j xa ; nop -> đoạn sau không nối tiếp, jalr không được gán pic_b
+r3 = disasm.disasm(picfn(be32(0x0c000000 | ((VP + 0x80) >> 2), 0)), ['pic_a'])[0][0]; assert [l for l in r3['lines'] if '\tjalr\t' in l][0].endswith('$t9'), r3['lines']   # mid = jal pic_b ; nop -> t9 (caller-saved) bị bỏ, dòng jalr sau không có chú thích
+print('OK check_static_tools (PIC chỉ đoạn chạy thẳng)')
+
+# --- lệnh ghi thanh ghi chưa mô hình hóa (movz/movn/seb...) phải làm mất giá trị: không gán tên, không chú thích chuỗi
+for nm_, w in (('movz', 0x0202C80A), ('movn', 0x0202C80B)):                      # movz/movn $t9,$s0,$v0 chen giữa lw $t9 và jalr
+    rz = disasm.disasm(picfn(be32(w)), ['pic_a'])[0][0]
+    assert rz['calls'] == [] and [l for l in rz['lines'] if '\tjalr\t' in l][0].endswith('$t9'), (nm_, rz['calls'])
+def picstr(mid):   # prologue gp ; lw a1,-0xc(gp) ; <mid> ; addiu a1,a1,4 ; jr ra ; nop  (GOT[gp-0xc] = nền chuỗi, chuỗi tại nền+4)
+    c = be32(0x3c1c0000, 0x279c0200, 0x0399e021, 0x8f85fff4) + mid + be32(0x24a50004, 0x03e00008, 0)
+    c += b'\0' * (0x1f0 - len(c)) + be32(0, VP + 0x300); c += b'\0' * (0x304 - len(c)) + b'hello pic\0'
+    f = os.path.join(tempfile.mkdtemp(), 's.elf'); open(f, 'wb').write(elf(8, 32, True, 3, 0x1007, c, VP, syms=[('pic_s', VP, 0x80)])); return f
+assert '"hello pic"' in '\n'.join(disasm.disasm(picstr(b''), ['pic_s'])[0][0]['lines'])                       # chạy thẳng: chú thích được
+for w in (0x0202280A, 0x7c052c20, 0x00a62804):                                   # movz $a1,$s0,$v0 ; seb $a1,$a1 ; sllv $a1,$a2,$a1
+    assert '"hello pic"' not in '\n'.join(disasm.disasm(picstr(be32(w)), ['pic_s'])[0][0]['lines']), hex(w)
+assert '"hello pic"' in '\n'.join(disasm.disasm(picstr(be32(0xafa50010)), ['pic_s'])[0][0]['lines'])          # sw $a1,0x10($sp): store không làm mất giá trị
+# --- demangle bằng c++filt: tìm theo tên dễ đọc, list:, tên hàm và lời gọi trong kết quả
+import shutil
+if shutil.which('c++filt') is None:
+    assert not os.environ.get('CI'), 'CI phải có c++filt (binutils) để kiểm demangle'
+    print('bỏ qua kiểm demangle: máy không có c++filt')
+else:
+    VD = 0x400000; cd = be32(0x0c000000 | ((VD + 0x40) >> 2), 0, 0x03e00008, 0); cd += b'\0' * (0x40 - len(cd)) + be32(0x03e00008, 0)
+    dp = os.path.join(tempfile.mkdtemp(), 'd.elf'); open(dp, 'wb').write(elf(8, 32, True, 2, 0x1007, cd, VD, syms=[('_ZN3Net4MainEv', VD, 0x40), ('_ZN3Net7ConnectEv', VD + 0x40, 8)]))
+    rd, _ = disasm.disasm(dp, ['Net::Main']); assert rd[0]['name'] == 'Net::Main()' and rd[0]['calls'] == ['Net::Connect()'], rd[0]
+    assert [n for n, _ in disasm.disasm(dp, ['list:Net::'])[1]] == ['_ZN3Net4MainEv', '_ZN3Net7ConnectEv']
+    assert disasm.disasm(dp, ['_ZN3Net7ConnectEv'])[0][0]['name'] == 'Net::Connect()'
+print('OK check_static_tools (mặc định mất giá trị, demangle)')
+
+# --- vỏ flow.py quick: lệnh gợi ý phải in đúng kind (không in cả dict), tối đa 3 mỗi nhóm, nhóm lớp C++ vẫn hiện khi có nhiều chuỗi
+qs = b'\0'.join([b'-key=KEY', b'-mode=MODE', b'-out=OUT', b'-extra=EXTRA'] + [b'http://203.0.113.%d/x' % n for n in range(9)] + [b'/etc/app%d.conf' % n for n in range(9)]) + b'\0'
+open(os.path.join(C, 'work', 'sample', 'q.elf'), 'wb').write(elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN3Net4MainEv', 0x1000, 1), ('_ZN4Auth3runEv', 0x1000, 1)]) + qs)
+r = run('quick', 'C1', 'q.elf'); out = r.stdout; assert r.returncode == 0 and "{'net'" not in out and 'kind={' not in out, out[-400:]
+import collections
+kc = collections.Counter(re.findall(r' kind=(\w+) ', out)); assert kc == {'config': 3, 'url': 3, 'file': 3, 'string': 1}, (kc, out)
+for ln_ in [l for l in out.splitlines() if 'gợi ý:' in l]:
+    m_ = re.search(r'id=(s\.[\w.]+) kind=(\w+) value=(.+?) src=S evidence=(report/evidence/quick_q_elf\.txt)#L(\d+)', ln_); assert m_, ln_
+    line_ = open(os.path.join(C, m_.group(4)), encoding='utf-8').read().splitlines()[int(m_.group(5)) - 1]
+    assert m_.group(3).strip("'").split(':')[-1].strip().split(',')[0] in line_ or m_.group(2) == 'string', (ln_, line_)   # #L trỏ đúng dòng chứa giá trị
+print('OK check_static_tools (gợi ý quick qua flow.py)')

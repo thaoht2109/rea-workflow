@@ -33,7 +33,8 @@ def build(path, d=None, cap=40):
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
             if not m or (len(s) > 400 and key != 'net') or (key == 'net' and SKIP_NET.search(m.group(0))) or (key == 'path' and SKIP_PATH.search(s)) or s.startswith(('_Z', 'type:', '*')): continue
             L.append(m.group(0) if key == 'net' else s[:160].replace('\n', ' ')); n += 1
-            if key in ('net', 'path') and len(sug) < 12:
+            if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))
+            if key in ('net', 'path') and len(sug) < 24:
                 v = m.group(0).strip(' "\'=')
                 if key == 'path' and not v.startswith('/'):   # nhánh theo đuôi tệp (.conf, .json): lấy cả token chứa nó
                     t = re.search(r'[\w./-]*' + re.escape(v), s); v = t.group(0) if t else ''
@@ -47,6 +48,7 @@ def build(path, d=None, cap=40):
             m = CLS.match(s)
             nm = s[m.end():m.end() + int(m.group(1))] if m else ''
             if nm and nm not in ('std', 'boost', 'fmt', 'spdlog', '__gnu_cxx', '__cxxabiv1'): C[nm] += 1
+        if C: sug.append(('cls', 'lớp C++ trong symbol: ' + ', '.join(k for k, _ in C.most_common(8)), len(L) + 1))
         L += [f'{k} ({v})' for k, v in C.most_common(cap)] or ['(không có)']
         try:
             from static import gopclntab

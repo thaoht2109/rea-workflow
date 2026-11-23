@@ -420,10 +420,11 @@ def run_tools(c, k, ids, mech_items):
     sysp = open(os.path.join(HERE, 'review', 're-reviewer-tools.md'), encoding='utf-8').read().replace('{PYLIB}', short_home(CFG.PYLIB)) + knowledge(); ssha = hashlib.sha256(sysp.encode()).hexdigest()
     rd = os.path.join(c, 'work', 'review', f'r{k}'); os.makedirs(rd, exist_ok=True); sal = os.path.join(rd, 'salvage.jsonl')
     # kết luận từng fact của phiên trước bị ngắt ở cùng vòng: chỉ dùng khi cùng system prompt và fact + evidence chưa đổi
-    done, sess = {}, []
+    done, sess, owed = {}, [], set()   # owed: fact mà một phiên trước của vòng này đã nêu trong sổ nhưng chưa có nội dung góp ý (phiên kiểm lại bị ngắt)
     for d in (json.loads(l) for l in open(sal, encoding='utf-8')) if os.path.exists(sal) else ():
         if d.get('sys') != ssha: continue
         if 'session' in d: sess.append(d)
+        elif 'flagged' in d: owed |= {i for i, g in d['flagged'].items() if i in ids and dig.get(i) == g}
         elif d.get('id') in ids and dig.get(d['id']) == d.get('digest'): done.setdefault(d['id'], []).append(d['item'])
     todo = [i for i in ids if i not in done]
     names = {os.path.basename(os.path.abspath(c)).lower()} | {t.lower() for f in C.load(c).values() if f['kind'] in ('c2', 'mutex') for t in f['value'].split()[:1]}
@@ -473,13 +474,14 @@ def run_tools(c, k, ids, mech_items):
             elif any(n and n in json.dumps(can, ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
             part = [i for i in part if i['id'] in send]
             kept = 0 if why else len({i['id'] for i in part})
+            if again: kept = 0   # phiên kiểm lại bị ngắt: không giữ dòng nào của nó (một dòng pass dở không được thay cho việc phiên đầu đã nêu fact)
             if kept:
                 with open(sal, 'a', encoding='utf-8') as f:
                     f.write(json.dumps(dict(sys=ssha, session=init['session_id'], canary=can, ts=now_s()), ensure_ascii=False) + '\n')
                     f.writelines(json.dumps(dict(sys=ssha, id=i['id'], digest=dig[i['id']], item=i), ensure_ascii=False) + '\n' for i in part)
             head = killed or f'claude thoát mã {rc}: {(err or out)[-300:]}'
             raise RuntimeError(f'{head}; giữ {kept}/{len(send)} kết luận ở {sal}' + (f' (bỏ phiên dở: {"; ".join(why)})' if why else '')
-                               + f'; chạy lại chỉ gửi {len(todo) - kept} fact còn lại. Stream dở: {rd}/stream.jsonl')
+                               + f'; chạy lại chỉ gửi {len(send) - kept} fact còn lại. Stream dở: {rd}/stream.jsonl')
         return ev, init, res, can, part, bad, why
     def tally(ev, res):
         u = res.get('usage', {})
@@ -494,19 +496,30 @@ def run_tools(c, k, ids, mech_items):
         retried = [] if why or data.get('canary') is None or leak(data['canary']) else lost(data, part, bad, todo)
         if retried:   # sổ nêu fact còn vấn đề mà phiên không in dòng ITEM cho nó: kiểm lại RIÊNG các fact đó bằng một phiên mới (tối đa một lần, cùng lượt review)
             got = one_each([i for i in part if i['id'] in todo and i['id'] not in retried])
-            ev2, init2, res2, can2, part2, bad2, why2 = session(retried, True); T.append(tally(ev2, res2)); sids.append(init2.get('session_id'))
+            try: ev2, init2, res2, can2, part2, bad2, why2 = session(retried, True)
+            except RuntimeError:   # phiên kiểm lại bị ngắt: giữ kết luận và chi phí của phiên đầu, ghi nợ các fact đã bị nêu; chạy lại chỉ gửi các fact đó
+                USAGE.append(T[0]['usage'])
+                with open(sal, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(dict(sys=ssha, session=init['session_id'], canary=data['canary'], ts=now_s()), ensure_ascii=False) + '\n')
+                    said = {i['id'] for i in part}
+                    keep = [i for i in part if i['id'] in todo and i['id'] not in retried] + [dict(id=i, verdict='pass') for i in todo if i not in said and i not in retried]
+                    f.writelines(json.dumps(dict(sys=ssha, id=i['id'], digest=dig[i['id']], item=i), ensure_ascii=False) + '\n' for i in keep)
+                    f.write(json.dumps(dict(sys=ssha, flagged={i: dig[i] for i in retried}), ensure_ascii=False) + '\n')
+                raise
+            T.append(tally(ev2, res2)); sids.append(init2.get('session_id'))
             data2 = parse(res2.get('result', ''), keys=('items', 'flagged', 'canary')) or {}
             got2, bad_why = settle(data2, part2, bad2, retried); why += [f'phiên kiểm lại: {w}' for w in why2 + bad_why]
             if data2.get('canary') is None: why.append('phiên kiểm lại: thiếu canary')
             elif leak(data2['canary']): why.append('phiên kiểm lại: canary lộ tên case/IOC')
-            hit = {i['id'] for i in got2 if i.get('verdict') in ('fail', 'weak')}
-            got += got2 + [dict(id=i, verdict='weak', check='status_too_strong', problem='phiên phản biện đầu nêu fact này còn vấn đề nhưng không in nội dung; phiên kiểm lại không nêu vấn đề',
-                                redo='người phân tích tự kiểm lại fact này với evidence của nó') for i in retried if i not in hit and not why]
+            got += got2
             data = dict(data, missing=(data.get('missing') or []) + (data2.get('missing') or []))
         else:
             got, bad_why = settle(data, part, bad, todo); why += bad_why
             if data.get('canary') is None: why.append('thiếu canary')
             elif leak(data['canary']): why.append('canary lộ tên case/IOC')
+        hit = {i['id'] for i in got if i.get('verdict') in ('fail', 'weak')}   # fact từng bị nêu mà phiên kiểm lại cho qua: giữ một mục weak, không để mất dấu
+        if not why: got += [dict(id=i, verdict='weak', check='status_too_strong', problem='một phiên phản biện của vòng này nêu fact còn vấn đề nhưng không in nội dung; phiên kiểm lại không nêu vấn đề',
+                                 redo='người phân tích tự kiểm lại fact này với evidence của nó') for i in todo if i in (set(retried) | owed) and i not in hit]
         items = [dict(i, layer='llm') for i in got]
     items += [dict(i, layer='llm') for i in one_each([i for v in done.values() for i in v])]
     for i in items:
@@ -824,6 +837,27 @@ def selftest():
     assert iso['valid'] and n == 2 and its == [('m', 'weak', 'low')], (its, iso)
     its, miss, iso, n = R3('lost2')   # phiên kiểm lại vẫn không in ITEM: lượt không hợp lệ, không kiểm lại lần ba
     assert not iso['valid'] and n == 2 and its == [] and 'phiên kiểm lại' in iso['invalid_reasons'][0], (its, iso, n)
+    # phiên kiểm lại bị ngắt sau khi in "ITEM m pass": giữ kết luận + chi phí của phiên đầu, không giữ dòng pass dở; chạy lại chỉ gửi m và m vẫn mang mục weak
+    kill = os.path.join(c, 'kill.py')
+    open(kill, 'w').write(open(stub).read().split('ids = sorted', 1)[0] + 'ids = sorted(json.loads(l)["id"] for l in open("facts.jsonl"))\nimport time\n'
+        'if ids == ["m"]:\n'
+        '    print(json.dumps({"type": "system", "subtype": "init", "session_id": "s2", "cwd": os.getcwd(), "tools": ["Read"]}), flush=True)\n'
+        '    print(json.dumps({"type": "assistant", "message": {"usage": {"output_tokens": 3}, "content": [{"type": "text", "text": "CANARY " + json.dumps({"canary": []}) + "\\nITEM " + json.dumps({"id": "m", "verdict": "pass"})}]}}), flush=True)\n'
+        '    time.sleep(30)\n'
+        'print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "cwd": os.getcwd(), "tools": ["Read", "Grep", "Bash"]}))\n'
+        'out = "CANARY " + json.dumps({"canary": []}) + "\\nITEM " + json.dumps({"id": "c2", "verdict": "weak", "check": "source", "where": "e.txt#L2", "redo": "x"}) + "\\n" + json.dumps({"canary": [], "flagged": ["c2", "m"], "pass": [], "missing": []})\n'
+        'print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": out}]}}))\n'
+        'print(json.dumps({"type": "result", "num_turns": 2, "result": out, "usage": {"cache_read_input_tokens": 5}, "total_cost_usd": 0.01}))\n')
+    os.chmod(kill, 0o755); CFG.CLAUDE, CFG.REVIEW_IDLE = kill, 1
+    try: run(c, 5, ['c2', 'm'], []); raise AssertionError('phiên kiểm lại phải báo đứng im')
+    except RuntimeError as e: assert 'im lặng' in str(e) and 'giữ 0/1' in str(e) and 'chỉ gửi 1 fact' in str(e), e
+    led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
+    assert led[-1]['status'].startswith('lỗi') and led[-1]['usage']['cost_usd'] == 0.01 and led[-1]['usage']['output'] == 3, led[-1]   # chi phí phiên đầu + phiên dở
+    sv = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'r5', 'salvage.jsonl'))]
+    assert [d['id'] for d in sv if 'id' in d] == ['c2'] and [list(d['flagged']) for d in sv if 'flagged' in d] == [['m']], sv
+    os.environ['STUB_COMPACT'] = 'lostpass'; open(cnt, 'w').close(); CFG.CLAUDE, CFG.REVIEW_IDLE = stub, 300
+    its, miss, iso = run(c, 5, ['c2', 'm'], [])   # chạy lại: chỉ m được gửi; phiên mới cho qua -> m vẫn có mục weak, c2 lấy từ phần đã giữ
+    assert iso['valid'] and iso['salvaged'] == ['c2'] and len(open(cnt).read()) == 1 and sorted((i['id'], i['verdict']) for i in its) == [('c2', 'weak'), ('m', 'weak')], (its, iso)
     os.remove(cnt); del os.environ['STUB_COUNT'], os.environ['STUB_COMPACT']
     L = lambda ev_, fin: lost(fin, *marks(ev_)[1:], ['c2', 'm'])
     assert L(T(pI), dict(flagged=['m'], **{'pass': ['c2']})) == ['m']                                   # chỉ thiếu dòng ITEM của fact bị nêu

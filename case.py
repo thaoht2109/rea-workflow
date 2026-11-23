@@ -128,7 +128,8 @@ def lint_fact(case, f):
         bad('fail', 'verdict_value', f"verdict phải là '{'|'.join(k for k in VERDICT if k != 'unknown')}: lý do', có: {f['value'][:60]}",
             "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
     if f['kind'] == 'relation' and not f['value'].startswith('n/a'):
-        src_ = sources(case); named = [n for n in src_ if re.search(r'(?<![\w.])' + re.escape(n) + r'(?![\w])', f['value'])]
+        src_ = sources(case)   # so theo tên tệp (bỏ thư mục cha), thư mục thì theo tên thư mục
+        named = [n for n in src_ if re.search(r'(?<![\w.])' + re.escape(os.path.basename(n.rstrip('/'))) + r'(?![\w])', f['value'])]
         if len(src_) >= 2 and len(named) < 2:
             bad('warn', 'relation_samples', f"fact relation nên nêu tên ít nhất hai mẫu của case ({', '.join(src_[:6])}); đang nêu {len(named)}", 'ghi rõ quan hệ giữa mẫu nào với mẫu nào')
     rel, full = ev_path(case, f['evidence'])
@@ -283,12 +284,15 @@ def sources(case):
     except (OSError, ValueError): return []
     return [str(x) for x in L] if isinstance(L, list) else []
 
-def add_sources(case, names):
-    cur = sources(case); new = [n for n in names if n not in cur]
-    if new:
-        os.makedirs(os.path.join(case, 'work'), exist_ok=True)
-        json.dump(cur + new, open(os.path.join(case, 'work', 'sources.json'), 'w', encoding='utf-8'), ensure_ascii=False)
-    return cur + new
+def add_sources(case, names, base=None):
+    """Thêm tên mẫu (đường dẫn tương đối trong work/sample; thư mục kết thúc bằng /). base: các mẫu đã có sẵn, dùng khi case cũ chưa có sources.json."""
+    p = os.path.join(case, 'work', 'sources.json'); had = os.path.exists(p)
+    cur = sources(case) if had else list(base or [])
+    out = cur + [n for n in dict.fromkeys(names) if n and n not in cur]
+    if out and (not had or out != cur):
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
+    return out
 
 def mode(case):
     """'light' (mẫu đơn giản: chỉ tầng tĩnh, không giả lập/công cụ ad-hoc/V8) hoặc 'full'. Cổng phản biện giống nhau ở cả hai."""

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # static/elfinfo.py, syscalls.py, disasm.py, quick.py trên ELF tổng hợp (MIPS o32 BE, x86-64, i386, ARM bị từ chối). Chạy: python3 tests/check_static_tools.py
-import os, sys, struct, tempfile
+import os, re, sys, struct, tempfile
 T = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); sys.path.insert(0, T)
 from static import elfinfo, syscalls, disasm, quick   # noqa: E402
 
@@ -195,3 +195,15 @@ else:
     assert [n for n, _ in disasm.disasm(dp, ['list:Net::'])[1]] == ['_ZN3Net4MainEv', '_ZN3Net7ConnectEv']
     assert disasm.disasm(dp, ['_ZN3Net7ConnectEv'])[0][0]['name'] == 'Net::Connect()'
 print('OK check_static_tools (mặc định mất giá trị, demangle)')
+
+# --- vỏ flow.py quick: lệnh gợi ý phải in đúng kind (không in cả dict), tối đa 3 mỗi nhóm, nhóm lớp C++ vẫn hiện khi có nhiều chuỗi
+qs = b'\0'.join([b'-key=KEY', b'-mode=MODE', b'-out=OUT', b'-extra=EXTRA'] + [b'http://203.0.113.%d/x' % n for n in range(9)] + [b'/etc/app%d.conf' % n for n in range(9)]) + b'\0'
+open(os.path.join(C, 'work', 'sample', 'q.elf'), 'wb').write(elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN3Net4MainEv', 0x1000, 1), ('_ZN4Auth3runEv', 0x1000, 1)]) + qs)
+r = run('quick', 'C1', 'q.elf'); out = r.stdout; assert r.returncode == 0 and "{'net'" not in out and 'kind={' not in out, out[-400:]
+import collections
+kc = collections.Counter(re.findall(r' kind=(\w+) ', out)); assert kc == {'config': 3, 'url': 3, 'file': 3, 'string': 1}, (kc, out)
+for ln_ in [l for l in out.splitlines() if 'gợi ý:' in l]:
+    m_ = re.search(r'id=(s\.[\w.]+) kind=(\w+) value=(.+?) src=S evidence=(report/evidence/quick_q_elf\.txt)#L(\d+)', ln_); assert m_, ln_
+    line_ = open(os.path.join(C, m_.group(4)), encoding='utf-8').read().splitlines()[int(m_.group(5)) - 1]
+    assert m_.group(3).strip("'").split(':')[-1].strip().split(',')[0] in line_ or m_.group(2) == 'string', (ln_, line_)   # #L trỏ đúng dòng chứa giá trị
+print('OK check_static_tools (gợi ý quick qua flow.py)')

@@ -131,7 +131,7 @@ def quick(c, f):
     f = _sample(c, f); t = time.time(); text, sug = Q.build(f); tag = re.sub(r'\W+', '_', os.path.basename(f)); rel = f'quick_{tag}.txt'
     _ev(c, rel, text); print(f'{text.count(chr(10))} dòng -> {c}/report/evidence/{rel} ({time.time() - t:.1f}s). Đây là ứng viên, chưa phải fact: xref hoặc đọc mã trước khi kết luận.')
     for key, val, ln in sug[:10]:
-        k = 'url' if key == 'net' else 'file'
+        k = {'net': 'url', 'path': 'file', 'cli': 'config', 'elf': 'container', 'cls': 'string'}.get(key, 'string')
         print(f"  gợi ý: case.py add {c} id=s.{tag[:8]}.{k}{ln} kind={k} value={shlex.quote(val)} src=S evidence=report/evidence/{rel}#L{ln}   # xác nhận vai trò trước khi ghi")
     return 0
 
@@ -157,7 +157,7 @@ def dec(c, f, funcs):
     gh_only = []   # địa chỉ đã cộng base Ghidra: chỉ Ghidra hiểu, KHÔNG đưa cho rea (rea dùng địa chỉ ảo của chính nó)
     if any(x.startswith('va:') for x in funcs):   # địa chỉ ảo ELF (readelf/dynsym) -> địa chỉ Ghidra (base theo loại ELF, static/elfinfo.py)
         from static import elfinfo
-        I = elfinfo.parse(open(f, 'rb').read()) if os.path.exists(f) else None
+        f = _sample(c, f); I = elfinfo.parse(open(f, 'rb').read())   # _sample: tên mẫu trong work/sample cũng được; thiếu file thì báo thiếu mẫu
         if I is None: raise SystemExit('va: chỉ dùng cho ELF')
         base, ok = elfinfo.ghidra_base(I)
         if not ok: print(f"cảnh báo: base Ghidra cho {I['machine']} {I['cls']}-bit chưa được đo, dùng {base:#x} theo lớp ELF; kiểm lại địa chỉ hàm trả về")
@@ -518,6 +518,7 @@ if __name__ == '__main__':
         if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]')
         v8(c, a[2], a[3:])
     elif cmd == 'tool': import adhoc; sys.exit(adhoc.main(c, a[2:]))
+    elif cmd in ('quick', 'syscalls', 'disasm') and len(a) < (4 if cmd == 'disasm' else 3): raise SystemExit(f'dùng: flow.py {cmd} CASE FILE' + (' SPEC... (SPEC: tên | 0xĐỊACHỈ | list:CHUỖI)' if cmd == 'disasm' else ''))
     elif cmd == 'quick': sys.exit(quick(c, a[2]))
     elif cmd == 'syscalls': sys.exit(syscalls_cmd(c, a[2]))
     elif cmd == 'disasm': sys.exit(disasm_cmd(c, a[2], a[3:]))

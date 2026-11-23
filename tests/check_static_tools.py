@@ -33,7 +33,7 @@ I = elfinfo.parse(d); assert I['machine'] == 'mips' and elfinfo.abi(I) == 'mips_
 R = syscalls.scan(d); T = syscalls.table('mips_o32')
 assert R['total'] == 3 and R['resolved'][4011] == 1 and R['resolved'][4170] == 1 and len(R['unresolved']) == 1, R
 assert T[4011] == 'execve' and T[4168] == 'accept' and T[4169] == 'bind' and T[4170] == 'connect' and T[4002] == 'fork'   # không nhầm accept/bind như bảng gõ tay
-rep = syscalls.report(d, 'x'); assert 'execve 1' in rep and 'connect 1' in rep and 'fork 0' in rep and 'KHÔNG loại trừ' in rep and 'không có số tức thời 1' in rep
+rep = syscalls.report(d, 'x'); assert 'execve 1' in rep and 'connect 1' in rep and 'fork 0' in rep and 'KHÔNG loại trừ' in rep and 'còn chưa xác định 1' in rep
 assert elfinfo.ghidra_base(dict(I, etype=3)) == (0x10000, True)   # ET_DYN MIPS32 (đã đo trên một mẫu thật)
 # x86-64: mov eax,59; syscall; xor eax,eax; syscall; ET_DYN -> base Ghidra 0x100000
 x = elf(62, 64, False, 3, 0, bytes.fromhex('b83b0000000f05' + '31c0' + '0f05'), 0x1000)
@@ -136,3 +136,30 @@ try:
     except SystemExit as e: assert 'không hợp lệ' in str(e)
 finally: flow.CFG.unix_socket_ok, flow.ghidra_dec, flow.subprocess.run = real
 print('OK check_static_tools (ELF hỏng, vỏ flow.py, dec va:)')
+
+# --- MIPS PIC: gp từ prologue, lw $t9 qua GOT + jalr, chuỗi gp-relative; hàm bọc nhận số ở $a0; SPEC địa chỉ ngoài hàm; gợi ý quick
+VP = 0x400000; fb2 = VP + 0x80
+pic = be32(0x3c1c0000, 0x279c0200, 0x0399e021,                          # lui gp,0 ; addiu gp,gp,0x200 ; addu gp,gp,t9
+           0x8f99fff0, 0x8f85fff4,                                      # lw t9,-0x10(gp) ; lw a1,-0xc(gp)
+           0x24a50004, 0x0320f809, 0x00000000, 0x03e00008, 0x00000000)  # addiu a1,a1,4 ; jalr t9 ; nop ; jr ra ; nop
+pic += b'\0' * (0x80 - len(pic)) + be32(0x03e00008, 0)                   # hàm B tại +0x80
+pic += b'\0' * (0x1f0 - len(pic)) + be32(fb2, VP + 0x300)                # GOT: [gp-0x10]=B, [gp-0xc]=nền chuỗi
+pic += b'\0' * (0x304 - len(pic)) + b'hello pic\0'
+pp = os.path.join(tempfile.mkdtemp(), 'p.elf'); open(pp, 'wb').write(elf(8, 32, True, 3, 0x1007, pic, VP, syms=[('pic_a', VP, 0x80), ('pic_b', fb2, 8)]))
+rp, _ = disasm.disasm(pp, ['pic_a']); tp = '\n'.join(rp[0]['lines']); assert rp[0]['calls'] == ['pic_b'] and '"hello pic"' in tp, tp
+# SPEC địa chỉ nằm ngoài mọi hàm: bắt đầu tại chính địa chỉ đó, không gán cho hàm cuối
+nm_, sz_ = {0x400000: 'f1', 0x400080: 'f2'}, {0x400000: 0x80, 0x400080: 8}
+assert disasm.pick(nm_, ['0x400084'], sz_)[0] == [('f2', 0x400080)] and disasm.pick(nm_, ['0x400200'], sz_)[0] == [('sub_400200', 0x400200)]
+# hàm bọc: wrapper(a0=số) ; syscall ; jr ra   và nơi gọi jal wrapper với số ở delay slot
+VW = 0x400000; wrap = be32(0x00801021, 0x0000000c, 0x03e00008, 0x00000000)       # move v0,a0 ; syscall ; jr ra ; nop
+call = be32(0x0c000000 | (VW >> 2), 0x24040fab, 0x03e00008, 0x00000000)             # jal wrapper ; addiu a0,zero,4011 (delay) ; jr ra ; nop
+Rw = syscalls.scan(elf(8, 32, True, 2, 0x1007, wrap + call, VW, syms=[('wrapper', VW, 16)]))
+assert Rw['via'][4011] == 1 and Rw['unresolved'] == [] and Rw['wrappers'][0][1] == 'wrapper' and Rw['in_wrappers'] == 1, Rw
+assert 'execve 1' in syscalls.report(elf(8, 32, True, 2, 0x1007, wrap + call, VW, syms=[('wrapper', VW, 16)]), 'x')   # tính cả số qua hàm bọc
+# quick: gợi ý ELF, tham số dòng lệnh, lớp C++ kèm dòng
+tq, sq = quick.build('x', elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN4Auth3runEv', 0x1000, 1), ('_ZN7Forward3runEv', 0x1000, 1)]) + b'\0-key=KEY\0Usage: x\0')
+ks = {k for k, _, _ in sq}; assert {'elf', 'cls', 'cli'} <= ks, sq
+for k, v, ln in sq: assert 1 <= ln <= tq.count('\n') + 1 and tq.splitlines()[ln - 1].strip() and (k != 'cli' or v in tq.splitlines()[ln - 1]), (k, v, ln)
+r = run('quick', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
+r = run('disasm', 'C1', 'm.elf'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr)
+print('OK check_static_tools (PIC, hàm bọc, quick gợi ý, tham số)')

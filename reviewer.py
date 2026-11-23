@@ -838,7 +838,7 @@ def selftest():
     its, miss, iso, n = R3('lost2')   # phiên kiểm lại vẫn không in ITEM: lượt không hợp lệ, không kiểm lại lần ba
     assert not iso['valid'] and n == 2 and its == [] and 'phiên kiểm lại' in iso['invalid_reasons'][0], (its, iso, n)
     # phiên kiểm lại bị ngắt sau khi in "ITEM m pass": giữ kết luận + chi phí của phiên đầu, không giữ dòng pass dở; chạy lại chỉ gửi m và m vẫn mang mục weak
-    kill = os.path.join(c, 'kill.py')
+    kill = os.path.join(c, 'kill.py'); shutil.copy(stub, kill)   # chép để giữ quyền chạy của stub, rồi ghi đè nội dung
     open(kill, 'w').write(open(stub).read().split('ids = sorted', 1)[0] + 'ids = sorted(json.loads(l)["id"] for l in open("facts.jsonl"))\nimport time\n'
         'if ids == ["m"]:\n'
         '    print(json.dumps({"type": "system", "subtype": "init", "session_id": "s2", "cwd": os.getcwd(), "tools": ["Read"]}), flush=True)\n'
@@ -848,7 +848,7 @@ def selftest():
         'out = "CANARY " + json.dumps({"canary": []}) + "\\nITEM " + json.dumps({"id": "c2", "verdict": "weak", "check": "source", "where": "e.txt#L2", "redo": "x"}) + "\\n" + json.dumps({"canary": [], "flagged": ["c2", "m"], "pass": [], "missing": []})\n'
         'print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": out}]}}))\n'
         'print(json.dumps({"type": "result", "num_turns": 2, "result": out, "usage": {"cache_read_input_tokens": 5}, "total_cost_usd": 0.01}))\n')
-    os.chmod(kill, 0o755); CFG.CLAUDE, CFG.REVIEW_IDLE = kill, 1
+    CFG.CLAUDE, CFG.REVIEW_IDLE = kill, 1
     try: run(c, 5, ['c2', 'm'], []); raise AssertionError('phiên kiểm lại phải báo đứng im')
     except RuntimeError as e: assert 'im lặng' in str(e) and 'giữ 0/1' in str(e) and 'chỉ gửi 1 fact' in str(e), e
     led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]

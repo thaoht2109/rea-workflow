@@ -347,8 +347,8 @@ def spawn(argv, inp, cwd, env=None):
     return p.returncode, ''.join(out), ''.join(err), why
 
 def marks(ev):
-    """Dòng tiến độ CANARY/ITEM mà reviewer in giữa phiên (stream-json, khối text của assistant)."""
-    can, its = None, []
+    """Dòng tiến độ CANARY/ITEM mà reviewer in giữa phiên (stream-json, khối text của assistant). Trả (canary, items, số dòng ITEM không đọc được)."""
+    can, its, bad = None, [], 0
     for e in ev:
         if e.get('type') != 'assistant': continue
         for b in e.get('message', {}).get('content', []):
@@ -356,10 +356,35 @@ def marks(ev):
                 l = l.strip().strip('`')
                 if l.startswith('CANARY '): can = (parse(l[7:]) or {}).get('canary', can)
                 elif l.startswith('ITEM '):
-                    try: d = json.JSONDecoder().raw_decode(l[5:].strip())[0]
-                    except ValueError: continue
+                    d = None
+                    for t in (l[5:].strip(), re.sub(r'(?<![\w"])0x([0-9a-fA-F]+)\b', lambda m: str(int(m.group(1), 16)), l[5:].strip())):   # như parse(): thử lại với số hex trần đổi sang thập phân
+                        try: d = json.JSONDecoder().raw_decode(t)[0]; break
+                        except ValueError: pass
                     if isinstance(d, dict) and d.get('id'): its.append(d)
-    return can, its
+                    else: bad += 1
+    return can, its, bad
+
+def settle(data, part, bad, todo):
+    """Kết luận của phiên có công cụ, trả (items, lý do không hợp lệ).
+    Dạng đầy đủ (JSON cuối có `items`): JSON cuối là nguồn. Dạng gọn (JSON cuối chỉ có sổ `flagged`/`pass`): chi tiết lấy từ các dòng ITEM,
+    sổ dùng để đối chiếu. Dòng ITEM hỏng, sổ lệch với dòng ITEM, hoặc sổ không phủ hết fact được giao đều làm lượt không hợp lệ:
+    một dòng fail bị cụt không được biến thành PASS im lặng."""
+    if isinstance(data.get('items'), list): return [i for i in data['items'] if isinstance(i, dict) and i.get('id') in todo], []
+    F, P = data.get('flagged'), data.get('pass')
+    if not isinstance(F, list) or not isinstance(P, list): return [], ['không đọc được JSON kết luận (xem stream.jsonl)']
+    F, P, why = {str(x) for x in F}, {str(x) for x in P}, []
+    part = [i for i in part if i['id'] in todo]
+    odd = sorted({i['id'] for i in part if i.get('verdict') not in ('pass', 'fail', 'weak')})
+    seen = {i['id'] for i in part if i.get('verdict') in ('fail', 'weak')}
+    if bad: why.append(f'{bad} dòng ITEM không đọc được')
+    if odd: why.append('dòng ITEM có verdict lạ: ' + ', '.join(odd))
+    if F & set(todo) != seen: why.append('sổ flagged lệch với dòng ITEM fail/weak: ' + ', '.join(sorted((F & set(todo)) ^ seen)))
+    if F & P: why.append('id nằm ở cả flagged và pass: ' + ', '.join(sorted(F & P)))
+    if set(todo) - F - P: why.append('fact được giao không có kết luận: ' + ', '.join(sorted(set(todo) - F - P)))
+    out = []
+    for i in part:
+        if i not in out: out.append(i)
+    return out, why
 
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
                 'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước (in dòng CANARY), rồi kiểm từng fact (in dòng ITEM sau mỗi fact), rồi trả về một đối tượng JSON duy nhất.')
@@ -421,7 +446,7 @@ def run_tools(c, k, ids, mech_items):
         if init.get('mcp_servers') or init.get('skills') or init.get('slash_commands'): why.append('còn MCP/skill/slash command')
         if set(init.get('tools', [])) - {'Read', 'Grep', 'Bash'}: why.append('còn công cụ ngoài Read/Grep/Bash: ' + ', '.join(sorted(set(init['tools']) - {'Read', 'Grep', 'Bash'})))
         if any(str(e.get('subtype', '')).startswith('hook') for e in ev): why.append('có sự kiện hook')
-        can, part = marks(ev)
+        can, part, bad = marks(ev)
         if killed or rc:   # phiên dở (bị ngắt/lỗi hạ tầng): không tính một lần review; giữ kết luận từng fact nếu phiên qua kiểm cô lập
             for e in ev:
                 m = e.get('message', {}).get('usage') if e.get('type') == 'assistant' else None
@@ -437,11 +462,11 @@ def run_tools(c, k, ids, mech_items):
             head = killed or f'claude thoát mã {rc}: {(err or out)[-300:]}'
             raise RuntimeError(f'{head}; giữ {kept}/{len(todo)} kết luận ở {sal}' + (f' (bỏ phiên dở: {"; ".join(why)})' if why else '')
                                + f'; chạy lại chỉ gửi {len(todo) - kept} fact còn lại. Stream dở: {rd}/stream.jsonl')
-        data, u = parse(res.get('result', '')) or {}, res.get('usage', {})
-        if 'items' not in data: why.append('không đọc được JSON kết luận (xem stream.jsonl)')
+        data, u = parse(res.get('result', ''), keys=('items', 'flagged', 'canary')) or {}, res.get('usage', {})
+        got, bad_why = settle(data, part, bad, todo); why += bad_why
         if data.get('canary') is None: why.append('thiếu canary')
         elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
-        items = [dict(i, layer='llm') for i in data.get('items', []) if i.get('id') in todo]
+        items = [dict(i, layer='llm') for i in got]
     items += [dict(i, layer='llm') for v in done.values() for i in v if i.get('verdict') in ('fail', 'weak') or i.get('check')]
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
@@ -689,7 +714,13 @@ def selftest():
         'print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "cwd": os.getcwd(), "tools": ["Read", "Grep", "Bash"] + (["Monitor"] if os.environ.get("STUB_EXTRA_TOOL") else [])}))\n'
         'print(json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read"}]}}))\n'
         'res = {"canary": [], "items": [{"id": "m", "verdict": "weak", "where": "report/evidence/e.txt", "redo": "x"}], "missing": [{"topic": " ".join(ids), "why": eff}]}\n'
-        'print(json.dumps({"type": "result", "num_turns": 2, "result": json.dumps(res), "usage": {"cache_read_input_tokens": 5}, "total_cost_usd": 0.01}))\n')
+        'out = json.dumps(res)\n'
+        'if os.environ.get("STUB_COMPACT"):\n'
+        '    line = "ITEM " + json.dumps({"id": "m", "verdict": "fail", "check": "value_vs_evidence", "where": "report/evidence/e.txt#L2", "redo": "x"})\n'
+        '    if os.environ["STUB_COMPACT"] == "cut": line = line[:30]\n'
+        '    out = "CANARY " + json.dumps({"canary": []}) + "\\n" + line + "\\nITEM " + json.dumps({"id": "c2", "verdict": "pass"}) + "\\n" + json.dumps({"canary": [], "flagged": ["m"] if os.environ["STUB_COMPACT"] == "ok" else [], "pass": ["c2"] + ([] if os.environ["STUB_COMPACT"] == "ok" else ["m"]), "missing": []})\n'
+        '    print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": out}]}}))\n'
+        'print(json.dumps({"type": "result", "num_turns": 2, "result": out, "usage": {"cache_read_input_tokens": 5}, "total_cost_usd": 0.01}))\n')
     os.chmod(stub, 0o755)
     CFG.REVIEW_LLM, CFG.CLAUDE, CFG.REVIEW_WS_DIR, CFG.REVIEW_EFFORT = 'claude', stub, wsd, 'medium'
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
@@ -701,6 +732,29 @@ def selftest():
     # sổ usage: lần run claude ở trên ghi 1 dòng ok với usage thật
     led = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'usage.jsonl'))]
     assert led[-2]['status'] == 'ok' and led[-2]['backend'] == 'claude' and led[-2]['usage']['cache_read'] == 5 and led[-1]['status'] == 'không hợp lệ', led
+    # kết luận dạng gọn: chi tiết ở dòng ITEM, JSON cuối chỉ là sổ flagged/pass để đối chiếu; lệch sổ, thiếu id, dòng ITEM cụt -> không hợp lệ
+    T = lambda *ls: [{'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '\n'.join(ls)}]}}]
+    fI, pI = 'ITEM {"id": "c2", "verdict": "fail", "check": "source", "where": "e.txt#L2", "redo": "x"}', 'ITEM {"id": "m", "verdict": "pass"}'
+    S = lambda ev_, fin: settle(fin, *marks(ev_)[1:], ['c2', 'm'])
+    got, w = S(T('CANARY {"canary": []}', fI, pI), dict(flagged=['c2'], **{'pass': ['m']}))
+    assert not w and [(i['id'], i['verdict']) for i in got] == [('c2', 'fail'), ('m', 'pass')], (got, w)
+    assert not S(T(fI), dict(flagged=['c2'], **{'pass': ['m']}))[1]                                   # fact pass không cần dòng ITEM, chỉ cần có trong sổ
+    assert 'không đọc được' in S(T(fI[:40], pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]      # dòng fail bị cụt: không được thành PASS im lặng
+    assert 'lệch' in S(T(pI), dict(flagged=['c2'], **{'pass': ['m']}))[1][0]                           # sổ nêu c2 nhưng không có dòng ITEM
+    assert 'lệch' in S(T(fI, pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]                     # dòng ITEM fail nhưng sổ ghi pass
+    assert 'không có kết luận' in S(T(fI), dict(flagged=['c2'], **{'pass': []}))[1][0]                 # m không nằm trong sổ nào
+    assert 'cả flagged và pass' in ' '.join(S(T(fI, pI), dict(flagged=['c2'], **{'pass': ['c2', 'm']}))[1])
+    assert 'verdict lạ' in ' '.join(S(T(fI.replace('"fail"', '"FAIL"'), pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1])
+    assert not S(T(fI.replace('"x"}', '"x", "va": 0x10}'), pI), dict(flagged=['c2'], **{'pass': ['m']}))[1]   # số hex trần trong dòng ITEM vẫn đọc được
+    assert S(T(fI), {})[1] == ['không đọc được JSON kết luận (xem stream.jsonl)'] and S(T(fI), dict(flagged=['c2']))[1]   # thiếu sổ
+    assert S(T(fI[:40]), dict(items=[dict(id='m', verdict='weak'), dict(id='zz', verdict='fail')])) == ([dict(id='m', verdict='weak')], [])   # dạng đầy đủ: JSON cuối là nguồn
+    os.environ['STUB_COMPACT'] = 'ok'   # qua cả đường chạy: phiên in ITEM rồi sổ
+    its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
+    assert iso['valid'] and sorted((i['id'], i['verdict'], i['severity']) for i in its) == [('c2', 'pass', 'low'), ('m', 'fail', 'high')], (its, iso)
+    os.environ['STUB_COMPACT'] = 'cut'
+    its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
+    assert not iso['valid'] and any('không đọc được' in x for x in iso['invalid_reasons']), iso
+    del os.environ['STUB_COMPACT']
     # phiên đứng im bị giết: giữ stream dở, cộng usage từng message vào sổ, giữ kết luận từng fact đã in (ITEM) để chạy lại chỉ gửi phần còn lại
     def slow_stub(name, canary):
         p = os.path.join(c, name)

@@ -96,9 +96,9 @@ review.save_state(C2, {'rounds': [dict(n=1, facts_sha256='x', verdict='FAIL', we
 assert review.gate(C2) == (False, 'đã STOPPED sau 2 lần review')
 r = run('scan', d2); assert r.returncode == 0 and 'đã STOPPED ở cổng phản biện' in r.stdout and 'lượt đọc nhanh' not in r.stdout and not os.path.isfile(os.path.join(evd, 'quick_helper_b_bin.txt')), r.stdout[-400:]
 os.remove(os.path.join(review.DIR(C2), 'state.json'))
-import struct
-def mini_elf(text):   # ELF32 MIPS BE tối thiểu có .text và symbol f (như builder của check_static_tools, rút gọn)
-    eh, ph, sh = 52, 32, 40; strtab = b'\0f\0'; symtab = b'\0' * 16 + struct.pack('>IIIBBH', 1, 0x400000, len(text), 2, 0, 1)
+import struct, json
+def mini_elf(text, strip=False):   # ELF32 MIPS BE tối thiểu có .text và symbol f (như builder của check_static_tools, rút gọn)
+    eh, ph, sh = 52, 32, 40; strtab = b'\0f\0'; symtab = b'\0' * 16 + (b'' if strip else struct.pack('>IIIBBH', 1, 0x400000, len(text), 2, 0, 1))
     shs = b'\0.text\0.symtab\0.strtab\0.shstrtab\0'; ob = eh + ph; osym = ob + len(text); ostr = osym + len(symtab); oshs = ostr + len(strtab); osh = (oshs + len(shs) + 7) & ~7
     hdr = b'\x7fELF' + bytes([1, 2, 1]) + b'\0' * 9 + struct.pack('>HHIIIIIHHHHHH', 2, 8, 1, 0x400000, eh, osh, 0x1007, eh, ph, 1, sh, 5, 4)
     phb = struct.pack('>IIIIIIII', 1, ob, 0x400000, 0x400000, len(text), len(text), 5, 0x1000); sec = lambda n, ty, a, o, sz, lk=0, en=0: struct.pack('>IIIIIIIIII', n, ty, 6, a, o, sz, lk, 0, 8, en)
@@ -109,6 +109,19 @@ r = run('scan', de_, 'E1'); E1 = os.path.join(ws, 'E1'); ee = os.path.join(E1, '
 os.remove(os.path.join(ee, 'syscalls_m_elf.txt'))
 r = run('scan', de_, 'E1'); assert 'bù phần còn thiếu' in r.stdout and 'syscalls m.elf -> ' in r.stdout and 'quick m.elf' not in r.stdout and os.path.isfile(os.path.join(ee, 'syscalls_m_elf.txt')), r.stdout[-400:]
 r = run('scan', de_, 'E1'); assert r.returncode == 0 and 'lượt đọc nhanh' not in r.stdout, r.stdout[-300:]   # đủ rồi: lần thứ ba không chạy lại gì
+# --- ELF không còn tên hàm: xref từ chối nên không bao giờ có evidence; bước bị từ chối được nhớ ở work/, lượt sau không chạy lại và không sinh evidence giả
+ds_ = os.path.join(base, 'strip'); os.makedirs(ds_); open(os.path.join(ds_, 's.elf'), 'wb').write(mini_elf(struct.pack('>IIII', 0x24020fab, 0x0000000c, 0x03e00008, 0), strip=True))
+r = run('scan', ds_, 'S1'); S1 = os.path.join(ws, 'S1'); es = os.path.join(S1, 'report', 'evidence'); skf = os.path.join(S1, 'work', 'fastpass_skip.json')
+assert r.returncode == 0 and 'xref s.elf: bỏ qua (' in r.stdout and not os.path.exists(os.path.join(es, 'xref_s_elf.txt')) and 'xref_s_elf' in json.load(open(skf)), (r.stdout[-500:], os.listdir(es))
+r = run('scan', ds_, 'S1'); assert r.returncode == 0 and 'lượt đọc nhanh' not in r.stdout, r.stdout[-300:]          # không chạy lại bước đã bị từ chối
+os.remove(skf); r = run('scan', ds_, 'S1'); assert 'bù phần còn thiếu' in r.stdout and 'xref s.elf: bỏ qua (' in r.stdout and 'quick s.elf' not in r.stdout, r.stdout[-400:]   # xóa dấu nhớ thì thử lại đúng bước đó
+r = run('scan', ds_, 'S1'); assert 'lượt đọc nhanh' not in r.stdout and not [n for n in os.listdir(es) if n.startswith('xref_')], r.stdout[-300:]
+# --- hai mẫu: bù một bước không phải quick thì KHÔNG chạy lại link (link chỉ chạy lại khi thiếu hoặc có evidence quick mới)
+dl_ = os.path.join(base, 'hai'); os.makedirs(dl_)
+for n_, w_ in (('a.elf', 0x24020fab), ('b.elf', 0x24020fac)): open(os.path.join(dl_, n_), 'wb').write(mini_elf(struct.pack('>IIII', w_, 0x0000000c, 0x03e00008, 0)))
+r = run('scan', dl_, 'L1'); el = os.path.join(ws, 'L1', 'report', 'evidence'); assert r.returncode == 0 and os.path.isfile(os.path.join(el, 'link_samples.txt')), r.stdout[-400:]
+os.remove(os.path.join(el, 'syscalls_a_elf.txt')); r = run('scan', dl_, 'L1'); assert 'syscalls a.elf -> ' in r.stdout and 'link ->' not in r.stdout, r.stdout[-400:]
+os.remove(os.path.join(el, 'quick_b_elf.txt')); r = run('scan', dl_, 'L1'); assert 'quick b.elf -> ' in r.stdout and 'link -> ' in r.stdout, r.stdout[-400:]
 # --- bù trên case có tệp mang magic ELF nhưng header hỏng: không traceback, vẫn bù quick
 db_ = os.path.join(base, 'hong'); os.makedirs(db_); open(os.path.join(db_, 'bad.elf'), 'wb').write(b'\x7fELF' + bytes(range(1, 200)) * 3)
 r = run('scan', db_, 'B1'); eb = os.path.join(ws, 'B1', 'report', 'evidence'); assert r.returncode == 0 and 'Traceback' not in r.stderr, (r.stdout[-300:], r.stderr[-300:])

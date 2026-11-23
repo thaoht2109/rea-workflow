@@ -242,9 +242,14 @@ def scan_cmd(d, c=None, dry=False):
     return 0
 
 def _fastpass(c, only_missing=False):
-    """Lượt đọc nhanh cho mọi mẫu dạng tệp của case: quick, xref, syscalls; link khi có từ hai mẫu. only_missing: chỉ làm cho mẫu chưa có evidence quick_* (bù sau lần dừng giữa chừng)."""
+    """Lượt đọc nhanh cho mọi mẫu dạng tệp của case: quick, xref, syscalls; link khi có từ hai mẫu.
+    only_missing (bù sau lần dừng giữa chừng): chỉ chạy công cụ còn thiếu evidence của từng mẫu. Bước xref/syscalls mà công cụ đã từ chối
+    (ELF không còn tên hàm, không có .text...) được nhớ ở work/fastpass_skip.json để lượt bù không chạy lại mãi; xóa tệp đó để thử lại."""
     ev = os.path.join(c, 'report', 'evidence'); tagof = lambda a: re.sub(r'\W+', '_', os.path.basename(a))
     files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]; dirs = [n for n in case.sources(c) if n.endswith('/')]
+    skp = os.path.join(c, 'work', 'fastpass_skip.json'); have = lambda lb, a: os.path.isfile(os.path.join(ev, f'{lb}_{tagof(a)}.txt'))
+    try: skip = set(json.load(open(skp, encoding='utf-8')))
+    except (OSError, ValueError, TypeError): skip = set()
     todo = []
     for p in files:
         a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
@@ -254,17 +259,22 @@ def _fastpass(c, only_missing=False):
             from static import elfinfo
             try: I = elfinfo.parse(open(a, 'rb').read()); elf_ok = bool(I and elfinfo.abi(I))
             except Exception: elf_ok = False   # header cố ý làm hỏng: coi như không phải ELF hỗ trợ, không làm dừng lượt bù
-            tools = [(fn, lb) for fn, lb in tools if not os.path.isfile(os.path.join(ev, f'{lb}_{tagof(a)}.txt')) and (lb == 'quick' or elf_ok)]
+            tools = [(fn, lb) for fn, lb in tools if not have(lb, a) and f'{lb}_{tagof(a)}' not in skip and (lb == 'quick' or elf_ok)]
         if tools: todo.append((a, tools))
-    need_link = len(files) >= 2 and (not only_missing or todo or not os.path.isfile(os.path.join(ev, 'link_samples.txt')))
-    if only_missing and not todo and not need_link: return
+    no_link = len(files) >= 2 and not os.path.isfile(os.path.join(ev, 'link_samples.txt'))
+    if only_missing and not todo and not no_link: return
     print('== lượt đọc nhanh (evidence, chưa phải fact)' + (' - bù phần còn thiếu' if only_missing else ''))
+    fresh, skip0 = False, set(skip)
     for a, tools in todo:
         for fn, label in tools:
-            print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
+            line = _quiet(label + ' ' + os.path.basename(a), fn, c, a); print('  ' + line)
+            if have(label, a): fresh = fresh or label == 'quick'
+            elif label != 'quick' and ': bỏ qua (' in line: skip.add(f'{label}_{tagof(a)}')   # công cụ TỪ CHỐI mẫu này (không phải lỗi bất ngờ): nhớ lại, không tạo evidence giả
+    if skip != skip0:
+        with open(skp, 'w', encoding='utf-8') as f: json.dump(sorted(skip), f)
     if not only_missing:
         for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')
-    if need_link: print('  ' + _quiet('link', link_cmd, c))
+    if len(files) >= 2 and (not only_missing or no_link or fresh): print('  ' + _quiet('link', link_cmd, c))   # link chỉ chạy lại khi thiếu hoặc vừa có evidence quick mới
 
 def link_cmd(c):
     from static import link as LK

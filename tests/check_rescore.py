@@ -56,6 +56,21 @@ def main():
         old_state(c, 1, [[weak]])
         assert R.review(c) == 0 and st(c)['rounds'][0]['weak'] == 1 and R.gate(c)[0]
     finally: shutil.rmtree(c, ignore_errors=True)
+    # 2b. vòng PASS sạch (items rỗng: lớp 2 dạng gọn không ghi mục pass chỉ đọc đối chiếu) vẫn re-score được, không mở lại bộ đếm
+    c = mkcase()
+    try:
+        old_state(c, 1, [[]])
+        before = json.load(open(os.path.join(R.DIR(c), 'r1', 'review.json')))
+        assert R.rescore(c, st(c), R.facts_sha(c)) is not None
+        assert R.review(c) == 0 and cache(c) == [] and len(st(c)['rounds']) == 1 and st(c)['rounds'][0]['verdict'] == 'PASS' and st(c)['rule_version'] == C.REVIEW_RULE_VERSION
+        assert json.load(open(os.path.join(R.DIR(c), 'r1', 'review.json')))['items'] == [] == before['items']
+    finally: shutil.rmtree(c, ignore_errors=True)
+    # 2c. review.json không có khóa items (file hỏng/cũ) -> không re-score
+    c = mkcase()
+    try:
+        old_state(c, 1, [[]]); json.dump(dict(round=1, verdict='PASS'), open(os.path.join(R.DIR(c), 'r1', 'review.json'), 'w'))
+        assert R.rescore(c, st(c), R.facts_sha(c)) is None
+    finally: shutil.rmtree(c, ignore_errors=True)
     # 3. facts đổi sau vòng cuối -> không re-score, mở bộ đếm mới, review.json giữ nguyên
     c = mkcase()
     try:

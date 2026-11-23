@@ -365,11 +365,11 @@ def marks(ev):
     return can, its, bad
 
 def one_each(items):
-    """Mỗi id một mục trong review.json: dòng nặng nhất, cùng mức thì dòng in sau (đổi ý từ fail sang pass không xóa được fail).
+    """Mỗi id một mục trong review.json: dòng nặng nhất, cùng mức thì dòng có `check`, rồi tới dòng in sau (đổi ý từ fail sang pass không xóa được fail).
     Bỏ mục pass chỉ đọc đối chiếu (không có `check`). Dùng cho cả kết luận của phiên vừa chạy và kết luận giữ lại từ phiên dở."""
-    rank, best = {'pass': 0, 'weak': 1, 'fail': 2}, {}
-    for i in items:
-        if i['id'] not in best or rank.get(i.get('verdict'), 0) >= rank.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
+    key, best = lambda i: ({'pass': 0, 'weak': 1, 'fail': 2}.get(i.get('verdict'), 0), bool(i.get('check'))), {}
+    for i in items:   # cùng mức thì dòng có `check` thắng dòng không có (dòng pass trống in sau không xóa phần tự kiểm đã ghi); còn lại lấy dòng in sau
+        if i['id'] not in best or key(i) >= key(best[i['id']]): best[i['id']] = i
     return [i for i in best.values() if i.get('verdict') in ('fail', 'weak') or i.get('check')]
 
 def settle(data, part, bad, todo):
@@ -752,6 +752,8 @@ def selftest():
     assert V(T(fI, fP, pI), ['c2'], ['m']) == [('c2', 'fail', 'source')]                                    # fail rồi in thêm dòng pass: fail không bị xóa
     assert 'lệch' in S(T(fI, fP, pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]                      # và sổ ghi pass cho id đó thì lượt không hợp lệ
     assert [(i['id'], i['verdict']) for i in one_each([dict(id='c2', verdict='weak'), dict(id='c2', verdict='fail'), dict(id='m', verdict='pass')])] == [('c2', 'fail')]   # kết luận giữ lại từ phiên dở cũng gộp: weak rồi fail của một id là một mục
+    assert [(i['id'], i.get('check')) for i in one_each([dict(id='m', verdict='pass', check='recompute'), dict(id='m', verdict='pass')])] == [('m', 'recompute')]   # dòng pass trống in sau không làm mất dòng pass đã tự kiểm
+    assert [i.get('check') for i in one_each([dict(id='m', verdict='fail', check='a'), dict(id='m', verdict='fail', check='b')])] == ['b']   # cùng mức, cùng có check: dòng sau
     assert not S(T(fI), dict(flagged=['c2'], **{'pass': ['m']}))[1]                                   # fact pass không cần dòng ITEM, chỉ cần có trong sổ
     assert 'không đọc được' in S(T(fI[:40], pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]      # dòng fail bị cụt: không được thành PASS im lặng
     assert 'lệch' in S(T(pI), dict(flagged=['c2'], **{'pass': ['m']}))[1][0]                           # sổ nêu c2 nhưng không có dòng ITEM

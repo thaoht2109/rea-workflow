@@ -123,7 +123,7 @@ def rescore(c, s, h):
     P = [os.path.join(DIR(c), f"r{r['n']}", 'review.json') for r in rs]
     if not all(os.path.exists(p) for p in P): return None
     R = [json.load(open(p)) for p in P]
-    if not all(r.get('items') for r in R): return None
+    if not all(isinstance(r.get('items'), list) for r in R): return None   # items rỗng = vòng sạch (hợp lệ); thiếu khóa = file hỏng/cũ
     cur = C.load(c)
     for r, p, rd in zip(R, P, rs):
         for i in r['items']: i['severity'] = severity(cur.get(i['id'], {}).get('kind'), i['verdict'], i.get('check'))

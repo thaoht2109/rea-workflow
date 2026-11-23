@@ -263,3 +263,24 @@ run('xref', 'C1', 'j.elf', 'a.b'); run('xref', 'C1', 'j.elf', 'a_b')
 assert len([f for f in os.listdir(os.path.join(C, 'report', 'evidence')) if f.startswith('xref_j_elf_a_b_')]) == 2
 r = run('xref', 'C1', 'j.elf'); assert '## nhập khẩu' in r.stdout and '## không có symbol tên:' in r.stdout, r.stdout[-400:]
 print('OK check_static_tools (xref: nhảy đuôi, stub, đích không tên, tên evidence)')
+
+# --- xref: alias cùng địa chỉ, truy vấn khớp chứa với hàm nhập khẩu, bal nội hàm không tính
+VA2 = 0x400000; ca = be32(0x0c000000 | ((VA2 + 0x40) >> 2), 0, 0x03e00008, 0); ca += b'\0' * (0x40 - len(ca)) + be32(0x03e00008, 0)
+al = os.path.join(tempfile.mkdtemp(), 'al.elf'); open(al, 'wb').write(elf(8, 32, True, 2, 0x1007, ca, VA2, syms=[('caller', VA2, 0x40), ('__libc_connect', VA2 + 0x40, 8), ('__connect', VA2 + 0x40, 8), ('connect', VA2 + 0x40, 8)]))
+ra = xref.report(al); la = [l for l in ra.splitlines() if l.startswith('## connect @')]
+assert la and '1 nơi gọi' in la[0] and '__libc_connect' in la[0] and 'connect' not in ra.split('## không có symbol tên:')[1].split(', '), ra   # tên giữ trong nm là __libc_connect, vẫn khớp connect
+assert 'trong caller' in ra and '## __libc_connect @' in xref.report(al, ['__libc_connect']) and '1 nơi gọi' in [l for l in xref.report(al, ['conn']).splitlines() if l.startswith('## ') and 'connect' in l][0]
+ru2 = xref.report(xu, ['conn', 'sys', 'khongco']); nh2 = ru2.split('## nhập khẩu')[1].split('\n')[0]; kh2 = ru2.split('## không có symbol tên:')[1]
+assert 'connect' in nh2 and 'system' in nh2 and 'conn' not in kh2.split(', ') and 'khongco' in kh2, ru2   # khớp chứa áp cả cho hàm nhập khẩu
+cb = be32(0x04110001, 0, 0x0c000000 | (VA2 >> 2), 0, 0x03e00008, 0)                                           # bal +1 (đích trong hàm) ; nop ; jal chính nó (đệ quy) ; nop ; jr ra ; nop
+bp = os.path.join(tempfile.mkdtemp(), 'b.elf'); open(bp, 'wb').write(elf(8, 32, True, 2, 0x1007, cb, VA2, syms=[('rec', VA2, 24)]))
+Xb = xref.build(bp); assert Xb['stats']['direct'] == 1 and Xb['stats']['unnamed'] == 0 and [fa for _, fa in Xb['callers'][VA2]] == [VA2], Xb['stats']   # bal nội hàm bỏ, đệ quy vẫn tính
+print('OK check_static_tools (xref: alias, nhập khẩu khớp chứa, bal nội hàm)')
+
+# --- xref: libc tĩnh chỉ có tên nội bộ (__libc_fork, __GI_execve, __system) vẫn khớp truy vấn mặc định
+VN = 0x400000; cn = be32(0x03e00008, 0) * 4
+np_ = os.path.join(tempfile.mkdtemp(), 'n.elf'); open(np_, 'wb').write(elf(8, 32, True, 2, 0x1007, cn, VN, syms=[('__libc_fork', VN, 8), ('__GI_execve', VN + 8, 8), ('__system', VN + 16, 8), ('my_connect_helper', VN + 24, 8)]))
+rn = xref.report(np_); kn = rn.split('## không có symbol tên:')[1].split(', ')
+assert all(any(l.startswith(f'## {w} @') for l in rn.splitlines()) for w in ('__libc_fork', '__GI_execve', '__system')) and not {'fork', 'execve', 'system'} & {k.strip() for k in kn}, rn
+assert ' connect' in rn.split('## không có symbol tên:')[1] or 'connect' in [k.strip() for k in kn]   # my_connect_helper KHÔNG phải connect: khớp đúng tên không nhận nhầm
+print('OK check_static_tools (xref: tên nội bộ libc)')

@@ -129,6 +129,8 @@ def lint_fact(case, f):
             "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
     if f['kind'] == 'relation' and f['value'].startswith('n/a') and not re.match(r'n/a:\s*\S', f['value']):
         bad('warn', 'relation_na', "fact relation 'n/a' phải kèm lý do: 'n/a: lý do'", "ghi value='n/a: <vì sao không thấy liên hệ>'")
+    if f['kind'] == 'relation' and not f['value'].startswith('n/a') and not RELATION_RX.match(f['value']):
+        bad('warn', 'relation_level', "fact relation phải mở đầu bằng mức nhận định: " + ' | '.join(RELATION) + " rồi ': căn cứ'", "ví dụ value='context: cùng thiết bị nhưng không có định danh chéo, khác hạ tầng' (ý nghĩa từng mức: FLOW.md mục C12)")
     if f['kind'] == 'relation' and not f['value'].startswith('n/a'):
         src_ = sources(case)   # so theo tên tệp (bỏ thư mục cha), thư mục thì theo tên thư mục
         named = [n for n in src_ if re.search(r'(?<![\w.])' + re.escape(os.path.basename(n.rstrip('/'))) + r'(?![\w])', f['value'])]
@@ -280,6 +282,13 @@ def history(case):
                 _CUT_WARNED.add((p, i)); print(f'CẢNH BÁO {p}:{i}: dòng fact bị cụt (tiến trình bị giết lúc ghi), bỏ qua; ghi lại fact đó nếu cần', file=sys.stderr)
     return out
 
+# Nhận định quan hệ giữa các mẫu (kind=relation): value = '<mức>: căn cứ'. Mức dựa trên KẾT QUẢ DỊCH NGƯỢC, không dựa riêng vào bối cảnh thu mẫu.
+RELATION = {'direct': 'liên hệ kỹ thuật trực tiếp (mẫu này tham chiếu, khởi chạy, tải hay cấu hình mẫu kia; chung C2, khóa hoặc giao thức riêng)',
+            'shared': 'chung mã hoặc hạ tầng nhưng không tham chiếu nhau (cùng họ/builder, chuỗi hay đặc trưng riêng trùng nhau)',
+            'context': 'chỉ có bối cảnh thu mẫu (cùng thiết bị, thời điểm gần, người thu mẫu nghi); dịch ngược không thấy liên hệ kỹ thuật',
+            'unrelated': 'dịch ngược cho thấy không liên quan (khác tác giả, hạ tầng, mục đích); trùng bối cảnh là ngẫu nhiên'}
+RELATION_RX = re.compile(r'(direct|shared|context|unrelated)\s*:\s*\S')
+
 def sources(case):
     """Tên các mẫu người dùng đưa vào `flow.py new` (work/sources.json). Case cũ không có file này: danh sách rỗng."""
     try: L = json.load(open(os.path.join(case, 'work', 'sources.json'), encoding='utf-8'))
@@ -357,7 +366,9 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
         'C9 Payload cuối': 'ok' if act('payload_hash') else 'missing',
         'C10 Họ mã độc': 'ok' if act('family') else 'partial' if hyp('family') else 'missing',
         'C11 Độ phủ': c11,
-        'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if any(not f['value'].startswith('n/a') or na(f['value']) for f in act('relation'))
+        # C12 đạt khi có NHẬN ĐỊNH dựa trên dịch ngược: fact relation active, nguồn S hoặc E, mở đầu bằng mức (direct|shared|context|unrelated), hoặc 'n/a: lý do'.
+        # Fact nguồn V (lời người thu mẫu về bối cảnh) và fact chưa nêu mức chỉ là dữ liệu đầu vào: chưa đủ.
+        'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if any((RELATION_RX.match(f['value']) and f['src'] in ('S', 'E')) or na(f['value']) for f in act('relation'))
                                     else 'partial' if hyp('relation') or act('relation') else 'missing',   # relation 'n/a' không kèm ': lý do' chưa đủ
     }
     NEXT = {'C0': 'flow.py review CASE [--llm] (tối đa 2 lần); stopped thì đọc work/review/STOP_REPORT.md', 'C1': 'T0 flow.py triage', 'C2': 'T0/T1 bóc vỏ; ghi entry (hàm/offset bắt đầu mã độc)',
@@ -367,11 +378,11 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm',
-            'C12': 'flow.py link CASE (đối chiếu chéo các mẫu) rồi ghi fact relation: điều đã chứng minh để active, suy luận để hypothesis; không thấy liên hệ thì n/a: lý do'}
+            'C12': "flow.py link CASE (đối chiếu chéo các mẫu); sau khi dịch ngược từng mẫu, ghi NHẬN ĐỊNH: fact relation src=S value='direct|shared|context|unrelated: căn cứ từ dịch ngược' (active khi có bằng chứng, mức mạnh hơn chưa chứng minh thì hypothesis); bối cảnh do người thu mẫu cung cấp ghi riêng src=V"}
     FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' (có hàm giải mã) hoặc 'n/a: lý do' (chỉ khi mọi str_algo cũng 'n/a: lý do')",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
             'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)",
-            'C12': 'relation (ít nhất một fact active; nêu tên các mẫu liên quan)'}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
+            'C12': 'relation active, src S/E, mở đầu bằng mức direct|shared|context|unrelated, nêu tên các mẫu'}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
     q = shlex.quote(case if shown is None else shown)
     hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
     return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]

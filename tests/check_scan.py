@@ -48,4 +48,13 @@ r = run('scan', de); assert r.returncode != 0 and 'không có mẫu nào' in (r.
 r = run('scan', '.', cwd=d1); assert r.returncode != 0 and 'NGOÀI thư mục thu mẫu' in (r.stdout + r.stderr)
 r = run('scan'); assert r.returncode != 0 and 'dùng: flow.py scan' in (r.stdout + r.stderr)
 r = run('scan', os.path.join(base, 'khong_co')); assert r.returncode != 0 and 'không thấy thư mục' in (r.stdout + r.stderr)
+# --- không ghi vào thư mục thu mẫu: tên case mặc định trùng thư mục (đã viết hoa, chạy từ thư mục cha), workspace nằm sâu trong thư mục thu mẫu
+up = os.path.join(base, 'UPPER'); os.makedirs(up); open(os.path.join(up, 'solo.bin'), 'wb').write(A)
+r = run('scan', 'UPPER', cwd=base); assert r.returncode != 0 and 'nằm trong (hoặc trùng) thư mục thu mẫu' in (r.stdout + r.stderr) and sorted(os.listdir(up)) == ['solo.bin'], (r.stdout, r.stderr, os.listdir(up))
+r = run('scan', 'UPPER', 'UPPER_CASE', cwd=base); assert r.returncode == 0 and case.sources(os.path.join(base, 'UPPER_CASE')) == ['solo.bin'] and sorted(os.listdir(up)) == ['solo.bin'], r.stderr[-300:]
+deep = os.path.join(dd, 'app', 'sub'); r = run('scan', dd, 'X1', cwd=deep); assert r.returncode != 0 and 'NGOÀI thư mục thu mẫu' in (r.stdout + r.stderr) and not os.path.exists(os.path.join(deep, 'X1'))
+r = run('scan', d1, os.path.join(d1, 'IN')); assert r.returncode != 0 and not os.path.exists(os.path.join(d1, 'IN'))                    # tên case trỏ vào trong thư mục thu mẫu
+# --- chỉ gợi ý light, không tự đặt; mẫu dạng thư mục được báo bỏ qua lượt đọc nhanh
+assert case.mode(C2) == 'full' and case.mode(C1) == 'full'
+r = run('scan', dd, 'CAY2'); assert r.returncode == 0 and 'app/: bỏ qua lượt đọc nhanh (mẫu dạng thư mục' in r.stdout, r.stdout[-500:]
 print('OK check_scan')

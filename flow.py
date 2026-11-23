@@ -3,7 +3,8 @@
 #   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), report/report-<ngày>.md từ template, triage tất cả
 #   flow.py mode CASE [light|full]     chế độ case: light = mẫu đơn giản, chỉ tầng tĩnh (khóa `tool` và `v8`; winemu/T3 không bị khóa nhưng không dùng, không bắt buộc tách phiên); full (mặc định). Cổng phản biện giống nhau. Không tham số = xem
 #   flow.py scan THƯ_MỤC [CASE] [--dry-run]   gom MỌI mẫu ở cấp một của thư mục thu mẫu vào MỘT case (1 mẫu: case một mẫu; từ 2 mẫu: bật C12), rồi chạy lượt đọc nhanh
-#                                      (quick, xref, syscalls cho từng mẫu; link khi có từ 2 mẫu) và in bảng việc; bỏ file ẩn, ghi chú thu mẫu, thư mục báo cáo/case; --dry-run chỉ liệt kê
+#                                      (quick, xref, syscalls cho từng mẫu dạng tệp; link khi có từ 2 mẫu) và in bảng việc; bỏ file ẩn, ghi chú thu mẫu, thư mục báo cáo/case; --dry-run chỉ liệt kê;
+#                                      workspace và case phải nằm ngoài thư mục thu mẫu
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       (HÀM = tên | 0xĐỊACHỈ Ghidra | va:0xĐỊACHỈ ELF, tự cộng base Ghidra theo loại ELF) decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
@@ -206,8 +207,12 @@ def _quiet(label, fn, *a):
 
 def scan_cmd(d, c=None, dry=False):
     if not os.path.isdir(d): raise SystemExit(f'không thấy thư mục {d}')
-    if os.path.realpath(d) == os.path.realpath(os.getcwd()): raise SystemExit('chạy từ workspace nằm NGOÀI thư mục thu mẫu (case được tạo trong thư mục hiện tại)')
     c = c or (re.sub(r'\W+', '_', os.path.basename(os.path.abspath(d))).strip('_').upper() or 'CASE')
+    rd, rw, rc = os.path.realpath(d), os.path.realpath(os.getcwd()), os.path.realpath(c); inside = lambda x, top: os.path.commonpath([x, top]) == top
+    # Không ghi gì vào nơi lưu bằng chứng gốc: workspace và thư mục case phải nằm NGOÀI thư mục thu mẫu (ở mọi độ sâu), và thư mục thu mẫu không nằm trong case.
+    if inside(rw, rd): raise SystemExit('chạy từ workspace nằm NGOÀI thư mục thu mẫu (đang đứng trong chính thư mục thu mẫu hoặc thư mục con của nó)')
+    if inside(rc, rd): raise SystemExit(f'thư mục case {c} sẽ nằm trong (hoặc trùng) thư mục thu mẫu {d}: đặt tên case khác (`flow.py scan THƯ_MỤC TÊN_CASE`) hoặc chạy từ workspace khác')
+    if inside(rd, rc): raise SystemExit(f'thư mục thu mẫu {d} nằm trong thư mục case {c}: chọn tên case khác')
     ok, skip = scan_collect(d, os.getcwd())
     print(f'thư mục {d}: {len(ok)} mẫu nhận, {len(skip)} mục bỏ qua -> case {c}')
     for p in ok: print(f"  nhận    {os.path.basename(p)}{'/' if os.path.isdir(p) else ''}")
@@ -219,13 +224,14 @@ def scan_cmd(d, c=None, dry=False):
     if dry: print('--dry-run: chưa tạo case'); return 0
     new(c, ok)
     tj = [json.load(open(x, encoding='utf-8')) for x in sorted(glob.glob(os.path.join(c, 'report', 'evidence', 'triage_*.json')))]
-    if tj and all(r.get('light') for r in tj): case.set_mode(c, 'light'); print('mọi mẫu đều đơn giản (không đóng gói, entropy thấp): đặt chế độ light')
-    files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]
+    if tj and all(r.get('light') for r in tj): print(f'gợi ý: mọi mẫu đều đơn giản (không đóng gói, entropy thấp) -> có thể dùng chế độ nhẹ: flow.py mode {shlex.quote(c)} light (người dùng quyết)')
+    files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]; dirs = [n for n in case.sources(c) if n.endswith('/')]
     print('== lượt đọc nhanh (evidence, chưa phải fact)')
     for p in files:
         a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
         for fn, label in ((quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')):
             print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
+    for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')
     if len(files) >= 2: print('  ' + _quiet('link', link_cmd, c))
     print(f'== bảng việc của case {c} ({len(case.sources(c))} mẫu)'); status(c)
     print(f'BƯỚC KẾ: python3 flow.py next {shlex.quote(c)}; phân tích lần lượt từng mẫu, ghi đủ fact' + (" (kể cả fact relation và mục 'Quan hệ giữa các mẫu')" if len(case.sources(c)) >= 2 else '') + ', rồi MỘT lần review --llm cho cả case')
@@ -236,7 +242,7 @@ def link_cmd(c):
     try: text = LK.build(c)
     except ValueError as e: raise SystemExit(str(e))
     _ev(c, 'link_samples.txt', text)
-    print('\n'.join(x for x in text.splitlines() if x.startswith(('# ', '## '))) + f'\n-> {c}/report/evidence/link_samples.txt\nGhi quan hệ thành fact: case.py add {shlex.quote(c)} id=l.<tên> kind=relation value=... src=S evidence=report/evidence/link_samples.txt#L<dòng> [status=hypothesis]')
+    print('\n'.join(x for x in text.splitlines() if x.startswith(('# ', '## '))) + f'\n-> {c}/report/evidence/link_samples.txt\nSau khi dịch ngược từng mẫu, ghi NHẬN ĐỊNH: case.py add {shlex.quote(c)} id=l.<tên> kind=relation value="direct|shared|context|unrelated: <tên các mẫu và căn cứ>" src=S evidence=report/evidence/<file>#L<dòng> [status=hypothesis]')
     return 0
 
 def disasm_cmd(c, f, specs):

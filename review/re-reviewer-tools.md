@@ -31,7 +31,7 @@ Kết quả cuối: CHỈ một đối tượng JSON, không văn bản khác. K
  "flagged": ["id của mọi fact fail hoặc weak"],
  "pass": ["id của mọi fact pass"],
  "missing": [{"topic": "...", "why": "...", "redo": "..."}]}
-Mỗi fact được giao phải nằm trong đúng một trong hai danh sách `flagged`/`pass`, và `flagged` phải khớp với các dòng ITEM fail/weak đã in. Sổ lệch, thiếu id, hoặc một dòng ITEM không phải JSON hợp lệ thì cả lượt bị coi là không hợp lệ.
+Mỗi fact được giao phải nằm trong đúng một trong hai danh sách `flagged`/`pass`, và `flagged` phải khớp với các dòng ITEM fail/weak đã in. Trước khi viết sổ, rà lại: mọi id sắp ghi vào `flagged` đã có dòng ITEM fail/weak đầy đủ nội dung chưa (kể cả fact từng bị nêu ở lượt trước); thiếu thì in dòng ITEM đó trước rồi mới viết sổ. Sổ lệch, thiếu id, hoặc một dòng ITEM không phải JSON hợp lệ thì cả lượt bị coi là không hợp lệ.
 
 Quy tắc chấm:
 - `fail` = giá trị sai, hoặc evidence không chứng minh được. BẮT BUỘC có `where` (file và dòng) và `redo` cụ thể. Không chỉ ra được thì đừng ghi fail, ghi `weak`.

@@ -253,7 +253,7 @@ def lookup_hint(c):
         try: return (urllib.parse.urlsplit(t[0]).hostname or '').lower() if t else ''
         except ValueError: return ''
     ids = sorted(i for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active' and host(f.get('value')) in DEADDROP)
-    if not ids or glob.glob(os.path.join(c, 'report', 'evidence', 'lookup_*')): return ''
+    if not ids or glob.glob(os.path.join(glob.escape(os.path.join(c, 'report', 'evidence')), 'lookup_*')): return ''
     return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, case chưa có evidence lookup_*: địa chỉ C2 thật chưa có. "
             'KHÔNG tự tra. Hỏi người dùng theo FLOW.md mục 0 (đồng ý riêng cho case này, đường mạng riêng, duyệt đúng URL); '
             'chưa được đồng ý hoặc phiên không có người trực thì chỉ ghi điều này vào mục hạn chế của báo cáo.')

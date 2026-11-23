@@ -9,7 +9,7 @@ import case as C, review as R
 STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'   # như watch.py: lời nhắc không được trông như một trạng thái
 
 def mk(url='https://raw.githubusercontent.com/user-x/repo-y/main/cfg'):
-    c = tempfile.mkdtemp(prefix='rea-hint-'); E = os.path.join(c, 'report', 'evidence'); os.makedirs(E); os.makedirs(os.path.join(c, 'work', 'sample'))
+    c = tempfile.mkdtemp(prefix='rea-hint[1]-'); E = os.path.join(c, 'report', 'evidence'); os.makedirs(E); os.makedirs(os.path.join(c, 'work', 'sample'))
     open(os.path.join(E, 's.txt'), 'w').write(url + '\n')
     C.add(c, id='u1', kind='url', value=url, src='S', evidence='report/evidence/s.txt#L1')
     return c

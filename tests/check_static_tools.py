@@ -152,7 +152,7 @@ nm_, sz_ = {0x400000: 'f1', 0x400080: 'f2'}, {0x400000: 0x80, 0x400080: 8}
 assert disasm.pick(nm_, ['0x400084'], sz_)[0] == [('f2', 0x400080)] and disasm.pick(nm_, ['0x400200'], sz_)[0] == [('sub_400200', 0x400200)]
 # quick: gợi ý ELF, tham số dòng lệnh, lớp C++ kèm dòng
 tq, sq = quick.build('x', elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN4Auth3runEv', 0x1000, 1), ('_ZN7Forward3runEv', 0x1000, 1)]) + b'\0-key=KEY\0Usage: x\0')
-ks = {k for k, _, _ in sq}; assert {'elf', 'cls', 'cli'} <= ks, sq
+ks = {k for k, _, _ in sq}; assert {'cls', 'cli'} <= ks and 'elf' not in ks, sq   # không gợi ý fact cho dòng ELF (triage đã ghi filetype)
 for k, v, ln in sq: assert 1 <= ln <= tq.count('\n') + 1 and tq.splitlines()[ln - 1].strip() and (k != 'cli' or v in tq.splitlines()[ln - 1]), (k, v, ln)
 r = run('quick', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
 r = run('disasm', 'C1', 'm.elf'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr)
@@ -170,3 +170,28 @@ assert r1['calls'] == [], r1['calls']
 r2 = disasm.disasm(picfn(be32(0x08000000 | ((VP + 0x40) >> 2), 0)), ['pic_a'])[0][0]; assert 'pic_b' not in r2['calls'], r2['calls']   # mid = j xa ; nop -> đoạn sau không nối tiếp, jalr không được gán pic_b
 r3 = disasm.disasm(picfn(be32(0x0c000000 | ((VP + 0x80) >> 2), 0)), ['pic_a'])[0][0]; assert [l for l in r3['lines'] if '\tjalr\t' in l][0].endswith('$t9'), r3['lines']   # mid = jal pic_b ; nop -> t9 (caller-saved) bị bỏ, dòng jalr sau không có chú thích
 print('OK check_static_tools (PIC chỉ đoạn chạy thẳng)')
+
+# --- lệnh ghi thanh ghi chưa mô hình hóa (movz/movn/seb...) phải làm mất giá trị: không gán tên, không chú thích chuỗi
+for nm_, w in (('movz', 0x0202C80A), ('movn', 0x0202C80B)):                      # movz/movn $t9,$s0,$v0 chen giữa lw $t9 và jalr
+    rz = disasm.disasm(picfn(be32(w)), ['pic_a'])[0][0]
+    assert rz['calls'] == [] and [l for l in rz['lines'] if '\tjalr\t' in l][0].endswith('$t9'), (nm_, rz['calls'])
+def picstr(mid):   # prologue gp ; lw a1,-0xc(gp) ; <mid> ; addiu a1,a1,4 ; jr ra ; nop  (GOT[gp-0xc] = nền chuỗi, chuỗi tại nền+4)
+    c = be32(0x3c1c0000, 0x279c0200, 0x0399e021, 0x8f85fff4) + mid + be32(0x24a50004, 0x03e00008, 0)
+    c += b'\0' * (0x1f0 - len(c)) + be32(0, VP + 0x300); c += b'\0' * (0x304 - len(c)) + b'hello pic\0'
+    f = os.path.join(tempfile.mkdtemp(), 's.elf'); open(f, 'wb').write(elf(8, 32, True, 3, 0x1007, c, VP, syms=[('pic_s', VP, 0x80)])); return f
+assert '"hello pic"' in '\n'.join(disasm.disasm(picstr(b''), ['pic_s'])[0][0]['lines'])                       # chạy thẳng: chú thích được
+for w in (0x0202280A, 0x7c052c20, 0x00a62804):                                   # movz $a1,$s0,$v0 ; seb $a1,$a1 ; sllv $a1,$a2,$a1
+    assert '"hello pic"' not in '\n'.join(disasm.disasm(picstr(be32(w)), ['pic_s'])[0][0]['lines']), hex(w)
+assert '"hello pic"' in '\n'.join(disasm.disasm(picstr(be32(0xafa50010)), ['pic_s'])[0][0]['lines'])          # sw $a1,0x10($sp): store không làm mất giá trị
+# --- demangle bằng c++filt: tìm theo tên dễ đọc, list:, tên hàm và lời gọi trong kết quả
+import shutil
+if shutil.which('c++filt') is None:
+    assert not os.environ.get('CI'), 'CI phải có c++filt (binutils) để kiểm demangle'
+    print('bỏ qua kiểm demangle: máy không có c++filt')
+else:
+    VD = 0x400000; cd = be32(0x0c000000 | ((VD + 0x40) >> 2), 0, 0x03e00008, 0); cd += b'\0' * (0x40 - len(cd)) + be32(0x03e00008, 0)
+    dp = os.path.join(tempfile.mkdtemp(), 'd.elf'); open(dp, 'wb').write(elf(8, 32, True, 2, 0x1007, cd, VD, syms=[('_ZN3Net4MainEv', VD, 0x40), ('_ZN3Net7ConnectEv', VD + 0x40, 8)]))
+    rd, _ = disasm.disasm(dp, ['Net::Main']); assert rd[0]['name'] == 'Net::Main()' and rd[0]['calls'] == ['Net::Connect()'], rd[0]
+    assert [n for n, _ in disasm.disasm(dp, ['list:Net::'])[1]] == ['_ZN3Net4MainEv', '_ZN3Net7ConnectEv']
+    assert disasm.disasm(dp, ['_ZN3Net7ConnectEv'])[0][0]['name'] == 'Net::Connect()'
+print('OK check_static_tools (mặc định mất giá trị, demangle)')

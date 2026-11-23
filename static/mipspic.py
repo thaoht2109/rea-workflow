@@ -4,8 +4,11 @@
 # Không có đồ thị luồng: chỉ đúng trên đoạn chạy thẳng. Nơi dùng phải xóa `regs` ở mọi đích nhánh (điểm hợp lưu); lớp này tự bỏ thanh ghi sau lời gọi và sau jr/j/b.
 import re, struct
 
-WRITES = {'lw', 'lb', 'lbu', 'lh', 'lhu', 'lui', 'addiu', 'addu', 'subu', 'ori', 'or', 'and', 'xor', 'nor', 'andi', 'xori', 'sll', 'srl', 'sra', 'slt', 'sltu', 'slti', 'sltiu',
-          'move', 'li', 'la', 'negu', 'not', 'mfhi', 'mflo', 'add', 'sub', 'mul', 'lwl', 'lwr'}
+# Mặc định an toàn: MỌI lệnh có toán hạng đầu là thanh ghi đều coi như ghi vào thanh ghi đó và làm mất giá trị đã biết, trừ các lệnh chắc chắn không ghi
+# (store, nhánh/nhảy, trap) và vài lệnh đã mô hình hóa bên dưới (lui, addiu, ori, move, lw, addu gp). Lệnh lạ chỉ làm mất chú thích, không sinh chú thích sai.
+NOWRITE = {'sw', 'sh', 'sb', 'swl', 'swr', 'sd', 'sdl', 'sdr', 'swc1', 'sdc1', 'swc2', 'sdc2', 'swxc1', 'sdxc1', 'suxc1', 'cache', 'pref', 'sync', 'nop', 'ssnop', 'ehb',
+           'teq', 'tne', 'tge', 'tgeu', 'tlt', 'tltu', 'teqi', 'tnei', 'tgei', 'tgeiu', 'tlti', 'tltiu', 'syscall', 'break', 'mthi', 'mtlo', 'mtc0', 'mtc1', 'mthc1', 'ctc1',
+           'mult', 'multu', 'madd', 'maddu', 'msub', 'msubu'}   # `sc` KHÔNG ở đây: nó ghi kết quả vào rt; `div/divu` in toán hạng đầu là $zero
 _INT = lambda s: int(s, 0)
 
 class Tracker:
@@ -35,7 +38,7 @@ class Tracker:
         if m in ('jalr', 'jal', 'bal', 'bgezal', 'bltzal'): self.pending = 'call'
         elif m in ('jr', 'j', 'b'): self.pending = 'ret'   # return, tail-call hoặc nhảy vô điều kiện: lệnh sau delay slot không tới được bằng chạy thẳng
         if m in ('jalr', 'jr') and ops and ops[-1] == '$t9': return R.get('$t9')
-        if m not in WRITES or not ops or not ops[0].startswith('$'): return None
+        if not ops or not ops[0].startswith('$') or m in NOWRITE or m.startswith('j') or (m.startswith('b') and m not in ('bitswap', 'bitrev')): return None   # không ghi thanh ghi (nhánh/nhảy: `jal`/`jalr` đã đặt pending ở trên)
         dst = ops[0]; val = None
         if m == 'lui' and len(ops) == 2 and re.fullmatch(r'(0x)?[0-9a-f]+', ops[1]):
             val = (_INT(ops[1]) << 16) & 0xffffffff

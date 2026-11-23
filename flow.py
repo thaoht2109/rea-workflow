@@ -131,7 +131,7 @@ def quick(c, f):
     f = _sample(c, f); t = time.time(); text, sug = Q.build(f); tag = re.sub(r'\W+', '_', os.path.basename(f)); rel = f'quick_{tag}.txt'
     _ev(c, rel, text); print(f'{text.count(chr(10))} dòng -> {c}/report/evidence/{rel} ({time.time() - t:.1f}s). Đây là ứng viên, chưa phải fact: xref hoặc đọc mã trước khi kết luận.')
     for key, val, ln in sug[:10]:
-        k = {'net': 'url', 'path': 'file', 'cli': 'config', 'elf': 'container', 'cls': 'string'}.get(key, 'string')
+        k = {'net': 'url', 'path': 'file', 'cli': 'config', 'cls': 'string'}   # không gợi ý fact cho dòng ELF: triage đã ghi filetype, `container` chỉ dành cho lớp vỏ (UPX, NSIS).get(key, 'string')
         print(f"  gợi ý: case.py add {c} id=s.{tag[:8]}.{k}{ln} kind={k} value={shlex.quote(val)} src=S evidence=report/evidence/{rel}#L{ln}   # xác nhận vai trò trước khi ghi")
     return 0
 

@@ -24,7 +24,6 @@ def build(path, d=None, cap=40):
     d = d or open(path, 'rb').read(); I = elfinfo.parse(d); L = []; sug = []
     L.append(f'# quick {os.path.basename(path)}: {len(d)} B')
     if I:
-        sug.append(('elf', f"ELF {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'}, entry {I['entry']:#x}", len(L) + 1))
         L.append(f"elf: {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'} etype={I['etype']} entry={I['entry']:#x} abi={elfinfo.abi(I)} section={len(I['sections'])} symbol={len(elfinfo.symbols(d, I))}")
     asc, wide = scan_strings(d, 6); seen = set(); S = [s for s in asc + wide if not (s in seen or seen.add(s))]
     for key, title, rx in GROUPS:

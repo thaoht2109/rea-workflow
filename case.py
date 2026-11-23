@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C11, sinh bảng báo cáo, đối chiếu evidence.
+# Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C12, sinh bảng báo cáo, đối chiếu evidence.
 #   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [recompute=..] [--strict]
 #   recompute: phép đếm lại con số trong value, máy chạy lại mỗi lần lint/review: '<count|distinct> <regex> report/evidence/F[#La-Lb] = <N>',
 #   nhiều phép nối bằng ' && '. count = số dòng khớp; distinct = số giá trị khác nhau (nhóm 1 nếu có). N phải có trong value.
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import adhoc   #
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
-         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage', 'verdict'}
+         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage', 'verdict', 'relation'}
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 # Phân loại cả mẫu (kind=verdict): value = '<khóa>: lý do'. Nhãn đặt trên đầu báo cáo HTML, GENERATED.md và bản export.
 VERDICT = {'malicious': ('MÃ ĐỘC / CÔNG CỤ TẤN CÔNG', '#cf222e'), 'suspicious': ('NGHI VẤN / CHƯA KẾT LUẬN ĐƯỢC', '#bc4c00'),
@@ -127,6 +127,10 @@ def lint_fact(case, f):
     if f['kind'] == 'verdict' and not VERDICT_RX.match(f['value'].strip()):
         bad('fail', 'verdict_value', f"verdict phải là '{'|'.join(k for k in VERDICT if k != 'unknown')}: lý do', có: {f['value'][:60]}",
             "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
+    if f['kind'] == 'relation' and not f['value'].startswith('n/a'):
+        src_ = sources(case); named = [n for n in src_ if re.search(r'(?<![\w.])' + re.escape(n) + r'(?![\w])', f['value'])]
+        if len(src_) >= 2 and len(named) < 2:
+            bad('warn', 'relation_samples', f"fact relation nên nêu tên ít nhất hai mẫu của case ({', '.join(src_[:6])}); đang nêu {len(named)}", 'ghi rõ quan hệ giữa mẫu nào với mẫu nào')
     rel, full = ev_path(case, f['evidence'])
     if not os.path.isfile(full):
         bad('fail', 'evidence_exists', f'file evidence không tồn tại: {rel}', 'chép bằng chứng vào report/evidence/')
@@ -273,6 +277,19 @@ def history(case):
                 _CUT_WARNED.add((p, i)); print(f'CẢNH BÁO {p}:{i}: dòng fact bị cụt (tiến trình bị giết lúc ghi), bỏ qua; ghi lại fact đó nếu cần', file=sys.stderr)
     return out
 
+def sources(case):
+    """Tên các mẫu người dùng đưa vào `flow.py new` (work/sources.json). Case cũ không có file này: danh sách rỗng."""
+    try: L = json.load(open(os.path.join(case, 'work', 'sources.json'), encoding='utf-8'))
+    except (OSError, ValueError): return []
+    return [str(x) for x in L] if isinstance(L, list) else []
+
+def add_sources(case, names):
+    cur = sources(case); new = [n for n in names if n not in cur]
+    if new:
+        os.makedirs(os.path.join(case, 'work'), exist_ok=True)
+        json.dump(cur + new, open(os.path.join(case, 'work', 'sources.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    return cur + new
+
 def mode(case):
     """'light' (mẫu đơn giản: chỉ tầng tĩnh, không giả lập/công cụ ad-hoc/V8) hoặc 'full'. Cổng phản biện giống nhau ở cả hai."""
     try: m = json.load(open(os.path.join(case, 'work', 'mode.json'), encoding='utf-8')).get('mode')
@@ -335,6 +352,7 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
         'C9 Payload cuối': 'ok' if act('payload_hash') else 'missing',
         'C10 Họ mã độc': 'ok' if act('family') else 'partial' if hyp('family') else 'missing',
         'C11 Độ phủ': c11,
+        'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if act('relation') else 'partial' if hyp('relation') else 'missing',
     }
     NEXT = {'C0': 'flow.py review CASE [--llm] (tối đa 2 lần); stopped thì đọc work/review/STOP_REPORT.md', 'C1': 'T0 flow.py triage', 'C2': 'T0/T1 bóc vỏ; ghi entry (hàm/offset bắt đầu mã độc)',
             'C3': 'T2 tìm anti-debug/anti-VM quanh import nhạy cảm; T3 nếu chạy được',
@@ -342,10 +360,12 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
             'C5': 'T2 xref các hàm mạng và ioc_candidates trong report/evidence/triage_*.json (ứng viên chưa phải fact); T3 nếu chạy được', 'C6': 'T2/T3: CreateProcess/WriteProcessMemory/ptrace/LD_PRELOAD; hoặc n/a',
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
-            'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm'}
+            'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm',
+            'C12': 'flow.py link CASE (đối chiếu chéo các mẫu) rồi ghi fact relation: điều đã chứng minh để active, suy luận để hypothesis; không thấy liên hệ thì n/a: lý do'}
     FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' (có hàm giải mã) hoặc 'n/a: lý do' (chỉ khi mọi str_algo cũng 'n/a: lý do')",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
-            'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)"}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
+            'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)",
+            'C12': 'relation (ít nhất một fact active; nêu tên các mẫu liên quan)'}   # kind cần ghi để mục đạt ok; không áp dụng: value='n/a: lý do'
     q = shlex.quote(case if shown is None else shown)
     hint = lambda k: NEXT[k].replace('CASE', q) + (f' [fact: {FACT[k]}]' if k in FACT else '')
     return [(k, v, '' if v == 'ok' or v.startswith('n/a') else hint(k.split()[0])) for k, v in R.items()]

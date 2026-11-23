@@ -11,9 +11,11 @@
 #   flow.py syscalls CASE FILE         thống kê syscall trong .text (MIPS o32, x86-64, i386; bảng từ header kernel) -> evidence syscalls_*.txt; nói rõ số chưa xác định
 #   flow.py disasm CASE FILE SPEC...   disasm theo tên (Go/symbol), 0xĐỊACHỈ hoặc list:CHUỖI, lời gọi đổi sang tên, chú thích hằng chuỗi -> evidence disasm_*.txt (nhanh hơn Ghidra)
 #   flow.py xref CASE FILE [TÊN...]    ai gọi hàm TÊN (theo tên symbol/Go; MIPS PIC giải qua GOT) -> evidence xref_*.txt; không có TÊN = bộ hàm nhạy cảm (exec, mạng, kill...); nêu số lời gọi chưa giải
+#   flow.py link CASE                  case có nhiều mẫu: đối chiếu chéo tĩnh (loại/kiến trúc, thời điểm, định danh của mẫu này trong mẫu kia, chuỗi chung) -> evidence link_samples.txt;
+#                                      quan hệ phải ghi thành fact kind=relation (đã chứng minh = active, suy luận = hypothesis) và có mục 'Quan hệ giữa các mẫu' trong báo cáo
 #   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
 #                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
-#   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
+#   flow.py status CASE                checklist C1–C12 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md + report-<ngày>.html (--final: chỉ khi phản biện đạt) | đối chiếu evidence báo cáo với đĩa
@@ -66,6 +68,7 @@ def new(c, srcs):
             else: raise SystemExit(f'không giải nén được {s}: cần mật khẩu')
         else: shutil.copy2(s, sd)
     for p in samples(c): os.chmod(p, 0o400)
+    case.add_sources(c, [os.path.basename(os.path.abspath(x)) for x in srcs])   # mẫu do người dùng đưa vào: từ hai mẫu trở lên thì checklist đòi mục quan hệ giữa các mẫu (C12)
     case.migrate_report(c)   # case cũ: report/README.md -> report/report-<ngày>.md
     if not os.path.exists(case.report_md(c)):
         d = datetime.date.today().isoformat(); t = open(os.path.join(TOOLS, 'templates', 'report.md'), encoding='utf-8').read()
@@ -156,6 +159,14 @@ def xref_cmd(c, f, names):
     rel = f'xref_{tag}{sfx}.txt'; _ev(c, rel, text)
     L = text.splitlines(); hdr = [x for x in L if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
     print('\n'.join([x for x in L if x.startswith('# ')] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
+
+def link_cmd(c):
+    from static import link as LK
+    try: text = LK.build(c)
+    except ValueError as e: raise SystemExit(str(e))
+    _ev(c, 'link_samples.txt', text)
+    print('\n'.join(x for x in text.splitlines() if x.startswith(('# ', '## '))) + f'\n-> {c}/report/evidence/link_samples.txt\nGhi quan hệ thành fact: case.py add {shlex.quote(c)} id=l.<tên> kind=relation value=... src=S evidence=report/evidence/link_samples.txt#L<dòng> [status=hypothesis]')
+    return 0
 
 def disasm_cmd(c, f, specs):
     from static import disasm as DS
@@ -537,6 +548,7 @@ if __name__ == '__main__':
     elif cmd == 'syscalls': sys.exit(syscalls_cmd(c, a[2]))
     elif cmd == 'disasm': sys.exit(disasm_cmd(c, a[2], a[3:]))
     elif cmd == 'xref': sys.exit(xref_cmd(c, a[2], a[3:]))
+    elif cmd == 'link': sys.exit(link_cmd(c))
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))
@@ -549,6 +561,8 @@ if __name__ == '__main__':
             if not ok: raise SystemExit(f'CHẶN report --final: {why}')
             rb = review.report_blank(c)
             if rb: raise SystemExit(f'CHẶN report --final: {case.report_md(c)} còn phần giữ chỗ của template: ' + '; '.join(rb))
+            rr = review.report_relation(c)
+            if rr: raise SystemExit(f'CHẶN report --final: {rr}')
             rt = review.report_todo(c)
             if rt: raise SystemExit(f'CHẶN report --final: cập nhật {case.report_md(c)} và ghi id vào bảng đính chính: ' + '; '.join(x['line'] for x in rt))
         print(f'{len(case.report(c))} dòng -> {c}/report/GENERATED.md; bản HTML để xem: {case.report_html(c)}')

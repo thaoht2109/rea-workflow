@@ -364,6 +364,14 @@ def marks(ev):
                     else: bad += 1
     return can, its, bad
 
+def one_each(items):
+    """Mỗi id một mục trong review.json: dòng nặng nhất, cùng mức thì dòng in sau (đổi ý từ fail sang pass không xóa được fail).
+    Bỏ mục pass chỉ đọc đối chiếu (không có `check`). Dùng cho cả kết luận của phiên vừa chạy và kết luận giữ lại từ phiên dở."""
+    rank, best = {'pass': 0, 'weak': 1, 'fail': 2}, {}
+    for i in items:
+        if i['id'] not in best or rank.get(i.get('verdict'), 0) >= rank.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
+    return [i for i in best.values() if i.get('verdict') in ('fail', 'weak') or i.get('check')]
+
 def settle(data, part, bad, todo):
     """Kết luận của phiên có công cụ, trả (items, lý do không hợp lệ).
     Dạng đầy đủ (JSON cuối có `items`): JSON cuối là nguồn. Dạng gọn (JSON cuối chỉ có sổ `flagged`/`pass`): chi tiết lấy từ các dòng ITEM,
@@ -381,10 +389,7 @@ def settle(data, part, bad, todo):
     if F & set(todo) != seen: why.append('sổ flagged lệch với dòng ITEM fail/weak: ' + ', '.join(sorted((F & set(todo)) ^ seen)))
     if F & P: why.append('id nằm ở cả flagged và pass: ' + ', '.join(sorted(F & P)))
     if set(todo) - F - P: why.append('fact được giao không có kết luận: ' + ', '.join(sorted(set(todo) - F - P)))
-    rank, best = {'pass': 0, 'weak': 1, 'fail': 2}, {}
-    for i in part:   # mỗi id một mục: dòng nặng nhất, cùng mức thì dòng in sau (đổi ý từ fail sang pass không xóa được fail; sổ lệch đã bị bắt ở trên)
-        if i['id'] not in best or rank.get(i.get('verdict'), 0) >= rank.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
-    return [i for i in best.values() if i.get('verdict') in ('fail', 'weak') or i.get('check')], why   # như đường salvage: bỏ mục pass chỉ đọc đối chiếu (không có nội dung)
+    return one_each(part), why
 
 PROMPT_TOOLS = ('Lượt phản biện số {ROUND}. Đọc `facts.jsonl` trong thư mục hiện tại và phản biện các fact có id sau (bỏ qua fact đã retracted):\n{IDS}\n\n'
                 'Làm đúng theo hướng dẫn hệ thống: bước 0 canary trước (in dòng CANARY), rồi kiểm từng fact (in dòng ITEM sau mỗi fact), rồi trả về một đối tượng JSON duy nhất.')
@@ -467,7 +472,7 @@ def run_tools(c, k, ids, mech_items):
         if data.get('canary') is None: why.append('thiếu canary')
         elif any(n and n in json.dumps(data['canary'], ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
         items = [dict(i, layer='llm') for i in got]
-    items += [dict(i, layer='llm') for v in done.values() for i in v if i.get('verdict') in ('fail', 'weak') or i.get('check')]
+    items += [dict(i, layer='llm') for i in one_each([i for v in done.values() for i in v])]
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
     apply_severity(c, items)
@@ -746,6 +751,7 @@ def selftest():
     fP = 'ITEM {"id": "c2", "verdict": "pass"}'
     assert V(T(fI, fP, pI), ['c2'], ['m']) == [('c2', 'fail', 'source')]                                    # fail rồi in thêm dòng pass: fail không bị xóa
     assert 'lệch' in S(T(fI, fP, pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]                      # và sổ ghi pass cho id đó thì lượt không hợp lệ
+    assert [(i['id'], i['verdict']) for i in one_each([dict(id='c2', verdict='weak'), dict(id='c2', verdict='fail'), dict(id='m', verdict='pass')])] == [('c2', 'fail')]   # kết luận giữ lại từ phiên dở cũng gộp: weak rồi fail của một id là một mục
     assert not S(T(fI), dict(flagged=['c2'], **{'pass': ['m']}))[1]                                   # fact pass không cần dòng ITEM, chỉ cần có trong sổ
     assert 'không đọc được' in S(T(fI[:40], pI), dict(flagged=[], **{'pass': ['c2', 'm']}))[1][0]      # dòng fail bị cụt: không được thành PASS im lặng
     assert 'lệch' in S(T(pI), dict(flagged=['c2'], **{'pass': ['m']}))[1][0]                           # sổ nêu c2 nhưng không có dòng ITEM

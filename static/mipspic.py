@@ -12,8 +12,12 @@ NOWRITE = {'sw', 'sh', 'sb', 'swl', 'swr', 'sd', 'sdl', 'sdr', 'swc1', 'sdc1', '
 _INT = lambda s: int(s, 0)
 
 class Tracker:
-    def __init__(self, d, I, got_va=None):
-        self.d, self.I, self.E = d, I, '>' if I['be'] else '<'; self.regs = {}; self.gp = None; self.hi = None; self.lui_at = None; self.got = got_va; self.pending = None   # pending: 'call' | 'ret' = xử lý sau delay slot
+    def __init__(self, d, I):
+        self.d, self.I, self.E = d, I, '>' if I['be'] else '<'; self.regs = {}; self.gp = None; self.hi = None; self.lui_at = None; self.got = set(); self.pending = None   # pending: 'call' | 'ret' = xử lý sau delay slot
+
+    def reset(self):
+        """Bỏ mọi giá trị thanh ghi đã biết (điểm hợp lưu, sang đoạn không nối tiếp); giữ gp."""
+        self.regs.clear(); self.got.clear()
 
     def _u32(self, va):
         from static import elfinfo
@@ -30,8 +34,8 @@ class Tracker:
 
     def _clobber(self, kind):
         """Sau lời gọi: thanh ghi caller-saved không còn tin được; sau jr/j/b: đoạn kế không nối tiếp, bỏ hết (giữ gp: hàm sau tự đặt lại ở prologue)."""
-        if kind == 'ret': self.regs.clear(); return
-        for r in ('$at', '$v0', '$v1', '$a0', '$a1', '$a2', '$a3', *(f'$t{n}' for n in range(10))): self.regs.pop(r, None)
+        if kind == 'ret': self.reset(); return
+        for r in ('$at', '$v0', '$v1', '$a0', '$a1', '$a2', '$a3', *(f'$t{n}' for n in range(10))): self.regs.pop(r, None); self.got.discard(r)
 
     def _step(self, i, m, ops, entry):
         R = self.regs
@@ -39,22 +43,25 @@ class Tracker:
         elif m in ('jr', 'j', 'b'): self.pending = 'ret'   # return, tail-call hoặc nhảy vô điều kiện: lệnh sau delay slot không tới được bằng chạy thẳng
         if m in ('jalr', 'jr') and ops and ops[-1] == '$t9': return R.get('$t9')
         if not ops or not ops[0].startswith('$') or m in NOWRITE or m.startswith('j') or (m.startswith('b') and m not in ('bitswap', 'bitrev')): return None   # không ghi thanh ghi (nhánh/nhảy: `jal`/`jalr` đã đặt pending ở trên)
-        dst = ops[0]; val = None
+        dst = ops[0]; val = None; prov = False   # prov: giá trị bắt nguồn từ ô GOT (đọc theo gp), lan truyền qua addiu/ori/move
         if m == 'lui' and len(ops) == 2 and re.fullmatch(r'(0x)?[0-9a-f]+', ops[1]):
             val = (_INT(ops[1]) << 16) & 0xffffffff
             if dst == '$gp': self.hi = val; self.gp = None; self.lui_at = i.address   # prologue PIC: lui gp ở đầu hàm = địa chỉ vào hàm
         elif m == 'addiu' and len(ops) == 3:
             imm = _INT(ops[2]) if re.fullmatch(r'-?(0x)?[0-9a-f]+', ops[2]) else None
             if ops[1] == '$zero' and imm is not None: val = imm & 0xffffffff
-            elif ops[1] in R and R[ops[1]] is not None and imm is not None: val = (R[ops[1]] + imm) & 0xffffffff
+            elif ops[1] in R and R[ops[1]] is not None and imm is not None: val = (R[ops[1]] + imm) & 0xffffffff; prov = ops[1] in self.got
             if dst == '$gp' and ops[1] == '$gp' and self.hi is not None and imm is not None: self.hi = (self.hi + imm) & 0xffffffff; val = None   # gp0 = hi + lo, chờ addu gp,gp,t9
-        elif m == 'ori' and len(ops) == 3 and ops[1] in R and R[ops[1]] is not None and re.fullmatch(r'(0x)?[0-9a-f]+', ops[2]): val = R[ops[1]] | _INT(ops[2])
-        elif m == 'move' and len(ops) == 2: val = R.get(ops[1]) if ops[1] != '$zero' else 0
+        elif m == 'ori' and len(ops) == 3 and ops[1] in R and R[ops[1]] is not None and re.fullmatch(r'(0x)?[0-9a-f]+', ops[2]): val = R[ops[1]] | _INT(ops[2]); prov = ops[1] in self.got
+        elif m == 'move' and len(ops) == 2: val = R.get(ops[1]) if ops[1] != '$zero' else 0; prov = ops[1] in self.got
         elif m == 'addu' and dst == '$gp' and ops[1:] == ['$gp', '$t9'] and self.hi is not None and (entry is not None or self.lui_at is not None):
             self.gp = (self.hi + (entry if entry is not None else self.lui_at)) & 0xffffffff; val = None   # t9 = địa chỉ vào hàm khi gọi qua GOT
         elif m == 'lw' and len(ops) == 2:
             mm = re.fullmatch(r'(-?(?:0x)?[0-9a-f]+)\((\$\w+)\)', ops[1])
-            if mm and mm.group(2) == '$gp' and self.gp is not None: val = self._u32((self.gp + _INT(mm.group(1))) & 0xffffffff)
+            if mm and mm.group(2) == '$gp' and self.gp is not None: val = self._u32((self.gp + _INT(mm.group(1))) & 0xffffffff); prov = True
             elif mm and mm.group(2) in R and R[mm.group(2)] is not None: val = self._u32((R[mm.group(2)] + _INT(mm.group(1))) & 0xffffffff)
-        if dst != '$gp': R[dst] = val
+        if dst != '$gp':
+            R[dst] = val
+            if prov and val is not None: self.got.add(dst)
+            else: self.got.discard(dst)
         return None

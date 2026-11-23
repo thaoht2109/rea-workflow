@@ -56,7 +56,11 @@ def ghidra_base(I):
     measured = (I['machine'], I['cls']) in (('mips', 32), ('x86_64', 64))
     return (0x100000 if I['cls'] == 64 else 0x10000), measured
 
-def symbols(d, I):
+def imports(d, I):
+    """Tên symbol nhập khẩu (UND: do thư viện động cung cấp, gọi qua PLT/GOT)."""
+    return sorted({n for n, v, sz, ty in symbols(d, I, und=True) if ty == 'UND'})
+
+def symbols(d, I, und=False):
     """[(tên, giá trị, kích thước, loại)] từ .symtab và .dynsym (loại 2 = FUNC)."""
     out, E = [], I['_E']
     for sn, strn in (('.symtab', '.strtab'), ('.dynsym', '.dynstr')):
@@ -69,7 +73,12 @@ def symbols(d, I):
             if o < 0 or o + ent > len(d): break
             if I['cls'] == 64: nm, info, _, shndx, val, sz = struct.unpack_from(E + 'IBBHQQ', d, o)
             else: nm, val, sz, info, _, shndx = struct.unpack_from(E + 'IIIBBH', d, o)
-            if not nm or shndx == 0: continue
+            if not nm: continue
+            if shndx == 0:
+                if und:
+                    a = T['off'] + nm; e = d.find(b'\0', a) if a < len(d) else -1
+                    if e >= 0: out.append((d[a:e].decode('latin1'), 0, 0, 'UND'))
+                continue
             a = T['off'] + nm
             if a >= len(d): continue
             e = d.find(b'\0', a)

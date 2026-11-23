@@ -139,4 +139,14 @@ sig = ts.split('## Tín hiệu cho mức nhận định')[1]
 assert 'KHÔNG phải kết luận' in ts and 'direct: chưa thấy tín hiệu tĩnh' in sig and 'shared: chưa thấy tín hiệu tĩnh' in sig and 'chỉ còn context hoặc unrelated' in sig, sig
 tr = link.build(os.path.join(ws, 'F1')); sg = tr.split('## Tín hiệu cho mức nhận định')[1]   # F1 = agent_a.bin + helper_b.bin: có định danh chéo và chuỗi chung
 assert 'direct: có định danh chéo' in sg and 'shared: 1 chuỗi chung' in sg and 'chỉ còn context' not in sg, sg
+# --- link: md5 section trùng chỉ tính section đủ lớn và có nội dung (không tính đệm, section rỗng)
+import glob
+tjs = sorted(glob.glob(os.path.join(S1, 'report', 'evidence', 'triage_*.json'))); assert len(tjs) == 2, tjs
+def setsec(secs):
+    for f in tjs:
+        R = json.load(open(f, encoding='utf-8')); R['sections'] = secs; json.dump(R, open(f, 'w', encoding='utf-8'))
+setsec([{'name': '.reloc', 'raw': 100, 'entropy': 3.0, 'md5': 'a' * 32}, {'name': '.pad', 'raw': 4096, 'entropy': 0.0, 'md5': 'b' * 32}, {'name': '.e', 'raw': 0, 'entropy': 0.0, 'md5': 'd41d8cd98f00b204e9800998ecf8427e'}])
+tn = link.build(S1); assert 'section trùng md5' not in tn and 'shared: chưa thấy tín hiệu tĩnh' in tn, tn
+setsec([{'name': '.text', 'raw': 4096, 'entropy': 6.1, 'md5': 'c' * 32}, {'name': '.pad', 'raw': 4096, 'entropy': 0.0, 'md5': 'b' * 32}])
+ty = link.build(S1); assert 'có 1 section trùng md5' in ty and 'shared: 0 chuỗi chung đáng chú ý, 1 đặc trưng pivot trùng' in ty, ty
 print('OK check_relation')

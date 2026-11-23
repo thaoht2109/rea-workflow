@@ -57,4 +57,38 @@ r = run('scan', d1, os.path.join(d1, 'IN')); assert r.returncode != 0 and not os
 # --- chỉ gợi ý light, không tự đặt; mẫu dạng thư mục được báo bỏ qua lượt đọc nhanh
 assert case.mode(C2) == 'full' and case.mode(C1) == 'full'
 r = run('scan', dd, 'CAY2'); assert r.returncode == 0 and 'app/: bỏ qua lượt đọc nhanh (mẫu dạng thư mục' in r.stdout, r.stdout[-500:]
+# --- luật "thư mục báo cáo" chỉ khớp khi report là một từ riêng: ReportingAgent, crashreporter là mẫu
+dr = os.path.join(base, 'ten'); os.makedirs(dr)
+for n in ('ReportingAgent', 'crashreporter', 'x_report_new', 'bao-cao', 'reports'):
+    os.makedirs(os.path.join(dr, n)); open(os.path.join(dr, n, 'f.js'), 'w').write('1\n')
+o = run('scan', dr, '--dry-run').stdout
+assert 'nhận    ReportingAgent/' in o and 'nhận    crashreporter/' in o and all(f'bỏ qua  {n}/ (thư mục báo cáo)' in o for n in ('x_report_new', 'bao-cao', 'reports')), o
+# --- lượt đọc nhanh: lỗi bất ngờ ở một bước không làm dừng cả lượt; chạy lại scan bù phần evidence còn thiếu
+import flow   # noqa: E402
+assert flow._quiet('quick x', lambda: 1 / 0).startswith('quick x: LỖI ZeroDivisionError') and 'bỏ qua' in flow._quiet('y', lambda: sys.exit('không hỗ trợ'))
+evd = os.path.join(C2, 'report', 'evidence'); os.remove(os.path.join(evd, 'quick_helper_b_bin.txt')); os.remove(os.path.join(evd, 'link_samples.txt'))
+r = run('scan', d2); assert r.returncode == 0 and 'bù phần còn thiếu' in r.stdout and 'quick helper_b.bin -> ' in r.stdout and 'quick agent_a.bin' not in r.stdout and 'link -> ' in r.stdout, r.stdout[-600:]
+assert os.path.isfile(os.path.join(evd, 'quick_helper_b_bin.txt')) and os.path.isfile(os.path.join(evd, 'link_samples.txt'))
+r = run('scan', d2); assert r.returncode == 0 and 'lượt đọc nhanh' not in r.stdout, r.stdout[-300:]   # đủ rồi: không chạy lại
+# --- giới hạn 8 mẫu đếm mục trong thư mục; zip phẳng nhiều tệp vượt giới hạn sau khi giải nén thì cảnh báo
+import shutil, zipfile
+if shutil.which('7z') or shutil.which('7zz') or shutil.which('7za'):
+    dz = os.path.join(base, 'nen'); os.makedirs(dz)
+    with zipfile.ZipFile(os.path.join(dz, 'bo.zip'), 'w') as z:
+        for i in range(9): z.writestr(f'm{i}.bin', A + bytes([i]))
+    r = run('scan', dz); assert r.returncode == 0 and 'CẢNH BÁO: sau khi giải nén case có 9 mẫu' in r.stdout and len(case.sources(os.path.join(ws, 'NEN'))) == 9, r.stdout[-400:]
+else: assert not os.environ.get('CI'), 'CI phải có 7z'
+# --- case đã có: --dry-run không ghi gì; case đã qua cổng phản biện thì không thêm evidence
+os.remove(os.path.join(evd, 'quick_helper_b_bin.txt'))
+r = run('scan', d2, '--dry-run'); assert r.returncode == 0 and '--dry-run: không ghi gì' in r.stdout and not os.path.isfile(os.path.join(evd, 'quick_helper_b_bin.txt')), r.stdout[-300:]
+import review   # noqa: E402
+real_gate = review.gate; flow.review = review; review.gate = lambda c: (True, 'giả lập PASS')
+try:
+    import io, contextlib
+    buf = io.StringIO(); cwd0 = os.getcwd(); os.chdir(ws)
+    try:
+        with contextlib.redirect_stdout(buf): flow.scan_cmd(d2)
+    finally: os.chdir(cwd0)
+finally: review.gate = real_gate
+assert 'đã qua cổng phản biện: không thêm evidence' in buf.getvalue() and not os.path.isfile(os.path.join(evd, 'quick_helper_b_bin.txt')), buf.getvalue()[-300:]
 print('OK check_scan')

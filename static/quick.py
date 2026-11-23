@@ -21,6 +21,7 @@ SKIP_NET = re.compile(r'(?i)gcc\.gnu\.org|golang\.org|go\.dev|\.so\b|\.go\b|\.h\
 CLS = re.compile(r'_ZN[KVr]*(\d+)')   # tên Itanium: _ZN<độ dài><tên>...; lấy đúng độ dài, không lấy phần còn lại
 
 GO_BUILD = re.compile(r'^\s*-(?:buildmode|compiler|trimpath|ldflags|tags|gcflags|asmflags|race|msan|asan|buildvcs|mod|pgo)\b')   # cài đặt build Go nằm trong buildinfo, không phải tham số của mẫu
+GO_IDENT = re.compile(r'[a-z][\w/]*\.[a-z_]\w*')   # dạng package.tên của Go
 HOSTLESS = re.compile(r'(?i)^https?://[^./?#:]+$')   # 'URL' không có dấu chấm trong host (hằng nối liền trong kho chuỗi Go, ví dụ http://OPTIONS...)
 
 def build(path, d=None, cap=40):
@@ -31,7 +32,11 @@ def build(path, d=None, cap=40):
             from static import gopclntab
             gofuncs = [n for _, n in gopclntab.funcs(path)] if os.path.exists(path) else []
         except (SystemExit, Exception): gofuncs = []
-    is_go = bool(gofuncs); go_names = set(gofuncs)
+    is_go = bool(gofuncs); go_names = set(gofuncs); go_pkgs = set()
+    for n in gofuncs:   # tên package của từng hàm: phần trước dấu chấm đầu tiên sau dấu '/' cuối (net/http.(*Client).Get -> net/http), kèm tên ngắn (http)
+        dot = n.find('.', n.rfind('/') + 1)
+        if dot > 0: go_pkgs.update((n[:dot], n[:dot].rsplit('/', 1)[-1]))
+    go_pkgs.discard('main')   # main.log, main.conf thường là tên tệp thật
     L.append(f'# quick {os.path.basename(path)}: {len(d)} B')
     if I:
         L.append(f"elf: {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'} etype={I['etype']} entry={I['entry']:#x} abi={elfinfo.abi(I)} section={len(I['sections'])} symbol={len(elfinfo.symbols(d, I))}")
@@ -48,7 +53,7 @@ def build(path, d=None, cap=40):
             if key == 'path' and is_go:   # kho chuỗi Go: xét MỌI kết quả khớp; có đường dẫn tuyệt đối thì giữ đúng đường dẫn đó, không thì bỏ chuỗi dài và tên định danh Go (runtime.lock, math.log)
                 ab = next((x for x in rx.finditer(s) if x.group(0).strip(' "\'=').startswith('/')), None)
                 if ab is not None: m = ab; gopath = ab.group(0).strip(' "\'=') if len(s) > 120 else None
-                elif len(s) > 120 or s in go_names: continue
+                elif len(s) > 120 or s in go_names or (GO_IDENT.match(s) and s.rsplit('.', 1)[0] in go_pkgs): continue   # pkg.ident của package có trong binary (sync.lock, os.log) là định danh, không phải tệp
             L.append(m.group(0) if key == 'net' else gopath if gopath else s[:160].replace('\n', ' ')); n += 1
             if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))
             if key in ('net', 'path') and len(sug) < 24:

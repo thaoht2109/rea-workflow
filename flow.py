@@ -172,6 +172,7 @@ def xref_cmd(c, f, names):
     L = text.splitlines(); hdr = [x for x in L if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
     print('\n'.join([x for x in L if x.startswith('# ')] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
 
+SCAN_REPORT = re.compile(r'(?i)(?:^|[_\-. ])(?:reports?|bao[_-]?cao)(?:[_\-. ]|$)')   # 'report' là một từ riêng trong tên (old_report, x_report_new); ReportingAgent, crashreporter là mẫu
 SCAN_MAX = 8   # số mẫu tối đa gom vào một case; nhiều hơn thì chia nhóm hoặc dùng flow.py watch (mỗi mẫu một case)
 
 def scan_collect(d, workspace):
@@ -185,7 +186,7 @@ def scan_collect(d, workspace):
         if os.path.isdir(p):
             if os.path.realpath(p) == os.path.realpath(workspace): skip.append((n + '/', 'là workspace')); continue
             if os.path.exists(os.path.join(p, 'facts.jsonl')) or os.path.isdir(os.path.join(p, 'work', 'sample')): skip.append((n + '/', 'thư mục case')); continue
-            if n.startswith('Report_') or re.search(r'(?i)report|bao[_-]?cao', n): skip.append((n + '/', 'thư mục báo cáo')); continue
+            if n.startswith('Report_') or SCAN_REPORT.search(n): skip.append((n + '/', 'thư mục báo cáo')); continue
             if not any(fs for _, _, fs in os.walk(p)): skip.append((n + '/', 'thư mục rỗng')); continue
             ok.append(p); continue
         if not os.path.isfile(p): skip.append((n, 'không phải tệp thường')); continue
@@ -202,6 +203,7 @@ def _quiet(label, fn, *a):
     try:
         with contextlib.redirect_stdout(buf): fn(*a)
     except SystemExit as e: return f'{label}: bỏ qua ({str(e)[:140]})'
+    except Exception as e: return f'{label}: LỖI {type(e).__name__}: {str(e)[:140]} (các bước khác vẫn chạy; chạy lại `flow.py scan` để bù)'   # mẫu cố ý làm hỏng không được làm dừng cả lượt
     out = [x for x in buf.getvalue().splitlines() if '-> ' in x]
     return f"{label} {out[-1][out[-1].index('-> '):].split(' (')[0] if out else '-> (xong)'}"
 
@@ -217,25 +219,43 @@ def scan_cmd(d, c=None, dry=False):
     print(f'thư mục {d}: {len(ok)} mẫu nhận, {len(skip)} mục bỏ qua -> case {c}')
     for p in ok: print(f"  nhận    {os.path.basename(p)}{'/' if os.path.isdir(p) else ''}")
     for n, why in skip: print(f'  bỏ qua  {n} ({why})')
-    if os.path.exists(os.path.join(c, 'facts.jsonl')):   # case đã có: không tạo lại, không chép đè mẫu
-        print(f'case {c} đã có: không tạo lại. Trạng thái:'); import review; review.next_step(c); return 0
+    if os.path.exists(os.path.join(c, 'facts.jsonl')):   # case đã có: không tạo lại, không chép đè mẫu; chỉ bù phần đọc nhanh còn thiếu (lần trước dừng giữa chừng)
+        import review
+        print(f'case {c} đã có: không tạo lại.')
+        if dry: print('--dry-run: không ghi gì')
+        elif review.gate(c)[0]: print('case đã qua cổng phản biện: không thêm evidence đọc nhanh (tránh evidence mồ côi trong case đã chốt)')
+        else: _fastpass(c, only_missing=True)
+        print('Trạng thái:'); review.next_step(c); return 0
     if not ok: raise SystemExit('không có mẫu nào để phân tích trong thư mục này')
     if len(ok) > SCAN_MAX: raise SystemExit(f'{len(ok)} mẫu vượt giới hạn {SCAN_MAX} mẫu cho một case: chia thư mục theo nhóm liên quan, hoặc dùng `flow.py watch` (mỗi mẫu một case)')
     if dry: print('--dry-run: chưa tạo case'); return 0
     new(c, ok)
+    if len(case.sources(c)) > SCAN_MAX:   # giới hạn ở trên đếm mục trong thư mục; tệp nén phẳng giải ra nhiều mục thì số mẫu thật mới biết sau khi tạo case
+        print(f'CẢNH BÁO: sau khi giải nén case có {len(case.sources(c))} mẫu, vượt {SCAN_MAX}: cân nhắc chia nhóm; `link` chỉ đối chiếu một phần và phản biện sẽ tốn nhiều lượt')
     tj = [json.load(open(x, encoding='utf-8')) for x in sorted(glob.glob(os.path.join(c, 'report', 'evidence', 'triage_*.json')))]
     if tj and all(r.get('light') for r in tj): print(f'gợi ý: mọi mẫu đều đơn giản (không đóng gói, entropy thấp) -> có thể dùng chế độ nhẹ: flow.py mode {shlex.quote(c)} light (người dùng quyết)')
-    files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]; dirs = [n for n in case.sources(c) if n.endswith('/')]
-    print('== lượt đọc nhanh (evidence, chưa phải fact)')
-    for p in files:
-        a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
-        for fn, label in ((quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')):
-            print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
-    for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')
-    if len(files) >= 2: print('  ' + _quiet('link', link_cmd, c))
+    _fastpass(c)
     print(f'== bảng việc của case {c} ({len(case.sources(c))} mẫu)'); status(c)
     print(f'BƯỚC KẾ: python3 flow.py next {shlex.quote(c)}; phân tích lần lượt từng mẫu, ghi đủ fact' + (" (kể cả fact relation và mục 'Quan hệ giữa các mẫu')" if len(case.sources(c)) >= 2 else '') + ', rồi MỘT lần review --llm cho cả case')
     return 0
+
+def _fastpass(c, only_missing=False):
+    """Lượt đọc nhanh cho mọi mẫu dạng tệp của case: quick, xref, syscalls; link khi có từ hai mẫu. only_missing: chỉ làm cho mẫu chưa có evidence quick_* (bù sau lần dừng giữa chừng)."""
+    ev = os.path.join(c, 'report', 'evidence'); tagof = lambda a: re.sub(r'\W+', '_', os.path.basename(a))
+    files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]; dirs = [n for n in case.sources(c) if n.endswith('/')]
+    todo = []
+    for p in files:
+        a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
+        if os.path.isfile(a) and not (only_missing and os.path.isfile(os.path.join(ev, f'quick_{tagof(a)}.txt'))): todo.append(a)
+    need_link = len(files) >= 2 and (not only_missing or todo or not os.path.isfile(os.path.join(ev, 'link_samples.txt')))
+    if only_missing and not todo and not need_link: return
+    print('== lượt đọc nhanh (evidence, chưa phải fact)' + (' - bù phần còn thiếu' if only_missing else ''))
+    for a in todo:
+        for fn, label in ((quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')):
+            print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
+    if not only_missing:
+        for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')
+    if need_link: print('  ' + _quiet('link', link_cmd, c))
 
 def link_cmd(c):
     from static import link as LK

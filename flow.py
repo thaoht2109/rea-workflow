@@ -154,8 +154,8 @@ def xref_cmd(c, f, names):
     except ValueError as e: raise SystemExit(str(e))
     sfx = ('_' + re.sub(r'[^A-Za-z0-9]+', '_', '_'.join(names))[:40] + '_' + hashlib.sha256('\0'.join(names).encode()).hexdigest()[:8]) if names else ''   # băm: hai truy vấn khác nhau không ghi đè evidence của nhau
     rel = f'xref_{tag}{sfx}.txt'; _ev(c, rel, text)
-    L = text.splitlines(); hdr = [x for x in L[3:] if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
-    print('\n'.join(L[:3] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
+    L = text.splitlines(); hdr = [x for x in L if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
+    print('\n'.join([x for x in L if x.startswith('# ')] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
 
 def disasm_cmd(c, f, specs):
     from static import disasm as DS

@@ -20,8 +20,18 @@ SKIP_PATH = re.compile(r'(?i)/(?:include|src|lib)/|\.(?:hpp|ipp|h|cpp|c|cc|go)\b
 SKIP_NET = re.compile(r'(?i)gcc\.gnu\.org|golang\.org|go\.dev|\.so\b|\.go\b|\.h\b|\.cpp\b|\.c\b|^\d+\.\d+\.\d+\.\d+$|^0\.0\.0\.0|^127\.|^255\.')
 CLS = re.compile(r'_ZN[KVr]*(\d+)')   # tên Itanium: _ZN<độ dài><tên>...; lấy đúng độ dài, không lấy phần còn lại
 
+GO_BUILD = re.compile(r'^\s*-(?:buildmode|compiler|trimpath|ldflags|tags|gcflags|asmflags|race|msan|asan|buildvcs|mod|pgo)\b')   # cài đặt build Go nằm trong buildinfo, không phải tham số của mẫu
+HOSTLESS = re.compile(r'(?i)^https?://[^./?#:]+$')   # 'URL' không có dấu chấm trong host (hằng nối liền trong kho chuỗi Go, ví dụ http://OPTIONS...)
+
 def build(path, d=None, cap=40):
     d = d or open(path, 'rb').read(); I = elfinfo.parse(d); L = []; sug = []
+    gofuncs = []
+    if I:
+        try:
+            from static import gopclntab
+            gofuncs = [n for _, n in gopclntab.funcs(path)] if os.path.exists(path) else []
+        except (SystemExit, Exception): gofuncs = []
+    is_go = bool(gofuncs); go_pkgs = {n.split('.')[0] for n in gofuncs}
     L.append(f'# quick {os.path.basename(path)}: {len(d)} B')
     if I:
         L.append(f"elf: {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'} etype={I['etype']} entry={I['entry']:#x} abi={elfinfo.abi(I)} section={len(I['sections'])} symbol={len(elfinfo.symbols(d, I))}")
@@ -32,6 +42,9 @@ def build(path, d=None, cap=40):
             m = rx.search(s)
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
             if not m or (len(s) > 400 and key != 'net') or (key == 'net' and SKIP_NET.search(m.group(0))) or (key == 'path' and SKIP_PATH.search(s)) or s.startswith(('_Z', 'type:', '*')): continue
+            if key == 'cli' and is_go and GO_BUILD.match(s): continue
+            if key == 'net' and HOSTLESS.match(m.group(0).rstrip('/')): continue
+            if key == 'path' and is_go and not m.group(0).strip(' "\'=').startswith('/') and (len(s) > 120 or s.rsplit('.', 1)[0] in go_pkgs): continue   # 'runtime.lock', 'math.log' trong kho chuỗi Go là tên định danh, không phải tệp
             L.append(m.group(0) if key == 'net' else s[:160].replace('\n', ' ')); n += 1
             if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))
             if key in ('net', 'path') and len(sug) < 24:
@@ -50,13 +63,11 @@ def build(path, d=None, cap=40):
             if nm and nm not in ('std', 'boost', 'fmt', 'spdlog', '__gnu_cxx', '__cxxabiv1'): C[nm] += 1
         if C: sug.append(('cls', 'lớp C++ trong symbol: ' + ', '.join(k for k, _ in C.most_common(8)), len(L) + 1))
         L += [f'{k} ({v})' for k, v in C.most_common(cap)] or ['(không có)']
-        try:
-            from static import gopclntab
-            g = [n for _, n in gopclntab.funcs(path)]
+        if gofuncs:
+            g = gofuncs
             L.append('## Hàm Go package main và package ngoài runtime/std (ước lượng theo tên)')
             ext = [n for n in g if n.startswith('main.') or (re.match(r'^[a-z0-9._-]+\.[a-z]+/', n) and not n.startswith(('internal/', 'vendor/')))]
             L += list(dict.fromkeys(ext))[:cap * 2] or ['(không có)']
-        except (SystemExit, Exception): pass
     return '\n'.join(L) + '\n', sug
 
 if __name__ == '__main__':

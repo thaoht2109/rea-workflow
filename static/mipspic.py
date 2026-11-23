@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Theo dõi giá trị thanh ghi tối thiểu cho MIPS o32 PIC (gp-relative): gp từ prologue (lui/addiu gp + addu gp,gp,t9), lw reg, off($gp) đọc ô GOT trong file,
 # addiu/ori/move lan truyền hằng, jalr $t9 -> đích. Giải lời gọi qua GOT và chuỗi nạp theo gp mà disasm thẳng không thấy. Chỉ đọc file.
+# Không có đồ thị luồng: chỉ đúng trên đoạn chạy thẳng. Nơi dùng phải xóa `regs` ở mọi đích nhánh (điểm hợp lưu); lớp này tự bỏ thanh ghi sau lời gọi và sau jr/j/b.
 import re, struct
 
 WRITES = {'lw', 'lb', 'lbu', 'lh', 'lhu', 'lui', 'addiu', 'addu', 'subu', 'ori', 'or', 'and', 'xor', 'nor', 'andi', 'xori', 'sll', 'srl', 'sra', 'slt', 'sltu', 'slti', 'sltiu',
@@ -25,14 +26,14 @@ class Tracker:
         return r
 
     def _clobber(self, kind):
-        """Sau lời gọi: thanh ghi caller-saved không còn tin được; sau `jr $ra`: sang hàm khác, bỏ hết (giữ gp: hàm sau tự đặt lại ở prologue)."""
+        """Sau lời gọi: thanh ghi caller-saved không còn tin được; sau jr/j/b: đoạn kế không nối tiếp, bỏ hết (giữ gp: hàm sau tự đặt lại ở prologue)."""
         if kind == 'ret': self.regs.clear(); return
         for r in ('$at', '$v0', '$v1', '$a0', '$a1', '$a2', '$a3', *(f'$t{n}' for n in range(10))): self.regs.pop(r, None)
 
     def _step(self, i, m, ops, entry):
         R = self.regs
         if m in ('jalr', 'jal', 'bal', 'bgezal', 'bltzal'): self.pending = 'call'
-        elif m == 'jr' and ops == ['$ra']: self.pending = 'ret'
+        elif m in ('jr', 'j', 'b'): self.pending = 'ret'   # return, tail-call hoặc nhảy vô điều kiện: lệnh sau delay slot không tới được bằng chạy thẳng
         if m in ('jalr', 'jr') and ops and ops[-1] == '$t9': return R.get('$t9')
         if m not in WRITES or not ops or not ops[0].startswith('$'): return None
         dst = ops[0]; val = None

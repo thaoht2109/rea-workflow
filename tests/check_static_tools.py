@@ -33,7 +33,7 @@ I = elfinfo.parse(d); assert I['machine'] == 'mips' and elfinfo.abi(I) == 'mips_
 R = syscalls.scan(d); T = syscalls.table('mips_o32')
 assert R['total'] == 3 and R['resolved'][4011] == 1 and R['resolved'][4170] == 1 and len(R['unresolved']) == 1, R
 assert T[4011] == 'execve' and T[4168] == 'accept' and T[4169] == 'bind' and T[4170] == 'connect' and T[4002] == 'fork'   # không nhầm accept/bind như bảng gõ tay
-rep = syscalls.report(d, 'x'); assert 'execve 1' in rep and 'connect 1' in rep and 'fork 0' in rep and 'KHÔNG loại trừ' in rep and 'còn chưa xác định 1' in rep
+rep = syscalls.report(d, 'x'); assert 'execve 1' in rep and 'connect 1' in rep and 'fork 0' in rep and 'KHÔNG loại trừ' in rep and 'không có số tức thời 1' in rep
 assert elfinfo.ghidra_base(dict(I, etype=3)) == (0x10000, True)   # ET_DYN MIPS32 (đã đo trên một mẫu thật)
 # x86-64: mov eax,59; syscall; xor eax,eax; syscall; ET_DYN -> base Ghidra 0x100000
 x = elf(62, 64, False, 3, 0, bytes.fromhex('b83b0000000f05' + '31c0' + '0f05'), 0x1000)
@@ -150,33 +150,23 @@ rp, _ = disasm.disasm(pp, ['pic_a']); tp = '\n'.join(rp[0]['lines']); assert rp[
 # SPEC địa chỉ nằm ngoài mọi hàm: bắt đầu tại chính địa chỉ đó, không gán cho hàm cuối
 nm_, sz_ = {0x400000: 'f1', 0x400080: 'f2'}, {0x400000: 0x80, 0x400080: 8}
 assert disasm.pick(nm_, ['0x400084'], sz_)[0] == [('f2', 0x400080)] and disasm.pick(nm_, ['0x400200'], sz_)[0] == [('sub_400200', 0x400200)]
-# hàm bọc: wrapper(a0=số) ; syscall ; jr ra   và nơi gọi jal wrapper với số ở delay slot
-VW = 0x400000; wrap = be32(0x00801021, 0x0000000c, 0x03e00008, 0x00000000)       # move v0,a0 ; syscall ; jr ra ; nop
-call = be32(0x0c000000 | (VW >> 2), 0x24040fab, 0x03e00008, 0x00000000)             # jal wrapper ; addiu a0,zero,4011 (delay) ; jr ra ; nop
-Rw = syscalls.scan(elf(8, 32, True, 2, 0x1007, wrap + call, VW, syms=[('wrapper', VW, 16)]))
-assert Rw['via'][4011] == 1 and Rw['unresolved'] == [] and Rw['wrappers'][0][1] == 'wrapper' and Rw['in_wrappers'] == 1, Rw
-assert 'execve 1' in syscalls.report(elf(8, 32, True, 2, 0x1007, wrap + call, VW, syms=[('wrapper', VW, 16)]), 'x')   # tính cả số qua hàm bọc
 # quick: gợi ý ELF, tham số dòng lệnh, lớp C++ kèm dòng
 tq, sq = quick.build('x', elf(62, 64, False, 3, 0, b'\xc3', 0x1000, syms=[('_ZN4Auth3runEv', 0x1000, 1), ('_ZN7Forward3runEv', 0x1000, 1)]) + b'\0-key=KEY\0Usage: x\0')
 ks = {k for k, _, _ in sq}; assert {'elf', 'cls', 'cli'} <= ks, sq
 for k, v, ln in sq: assert 1 <= ln <= tq.count('\n') + 1 and tq.splitlines()[ln - 1].strip() and (k != 'cli' or v in tq.splitlines()[ln - 1]), (k, v, ln)
 r = run('quick', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
 r = run('disasm', 'C1', 'm.elf'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr)
-print('OK check_static_tools (PIC, hàm bọc, quick gợi ý, tham số)')
+print('OK check_static_tools (PIC, quick gợi ý, tham số)')
 
-# --- góp ý bot PR sau: số ở nơi gọi không được là giá trị cũ; hàm bọc còn lời gọi không đọc được thì syscall trong đó vẫn chưa xác định
-W0 = 0x400000; wrapb = be32(0x00801021, 0x0000000c, 0x03e00008, 0x00000000)      # wrapper tại W0: move v0,a0 ; syscall ; jr ra ; nop
-fx = lambda code: elf(8, 32, True, 2, 0x1007, wrapb + code, W0, syms=[('wrapper', W0, 16)])
-jw = 0x0c000000 | (W0 >> 2)
-# (a) li a0,4011 ... jal wrapper ; move a0,s1 (delay slot ghi a0 không phải hằng): KHÔNG được tính là 4011
-Ra = syscalls.scan(fx(be32(0x24040fab, jw, 0x02202021, 0x03e00008, 0))); assert not Ra['via'].get(4011) and Ra['via']['_nocall'] == 1 and len(Ra['unresolved']) == 1, Ra
-# (b) li a0,4011 ; jal f (hàm khác, ghi đè a0) ; nop ; jal wrapper ; nop: a0 cũ đã bị lời gọi f làm hỏng
-Rb = syscalls.scan(fx(be32(0x24040fab, 0x0c000000 | ((W0 + 0x40) >> 2), 0, jw, 0, 0x03e00008, 0))); assert not Rb['via'].get(4011) and Rb['via']['_nocall'] == 1, Rb
-# (c) hai nơi gọi: một có số, một không: syscall trong hàm bọc vẫn chưa xác định và via chỉ có số đọc được
-Rc = syscalls.scan(fx(be32(jw, 0x24040fab, 0x03e00008, 0) + be32(jw, 0x02202021, 0x03e00008, 0))); assert Rc['via'][4011] == 1 and Rc['via']['_nocall'] == 1 and len(Rc['unresolved']) == 1, Rc
-rc = syscalls.report(fx(be32(jw, 0x24040fab, 0x03e00008, 0) + be32(jw, 0x02202021, 0x03e00008, 0)), 'x'); assert 'còn chưa xác định 1' in rc and 'có thể thiếu' in rc, rc
-# (d) điểm hợp lưu: nhánh nhảy tới đích giữa li a0 và jal -> giá trị a0 không chắc
-Rd = syscalls.scan(fx(be32(0x24040fab, 0x10000001, 0, jw, 0, 0x03e00008, 0))); assert not Rd['via'].get(4011), Rd   # b +1 -> đích = lệnh sau delay slot (jal)
-# (e) vẫn đúng ở đường thuận lợi: li a0 ngay trước jal (delay slot nạp hằng)
-Re = syscalls.scan(fx(be32(jw, 0x24040fab, 0x03e00008, 0))); assert Re['via'][4011] == 1 and Re['unresolved'] == [], Re
-print('OK check_static_tools (số ở nơi gọi, hàm bọc một phần)')
+# --- bộ theo dõi PIC chỉ tin đoạn chạy thẳng: đích nhánh nằm giữa lw t9 và jalr -> không gán tên; sau j/b/jr trạng thái bị bỏ
+def picfn(mid):   # prologue gp ; lw t9,-0x10(gp) ; <mid> ; jalr t9 ; nop ; jr ra ; nop  (GOT[gp-0x10] = pic_b)
+    c = be32(0x3c1c0000, 0x279c0200, 0x0399e021, 0x8f99fff0) + mid + be32(0x0320f809, 0, 0x03e00008, 0)
+    c += b'\0' * (0x80 - len(c)) + be32(0x03e00008, 0); c += b'\0' * (0x1f0 - len(c)) + be32(VP + 0x80, 0)
+    f = os.path.join(tempfile.mkdtemp(), 'q.elf'); open(f, 'wb').write(elf(8, 32, True, 3, 0x1007, c, VP, syms=[('pic_a', VP, 0x80), ('pic_b', VP + 0x80, 8)])); return f
+assert disasm.disasm(picfn(b''), ['pic_a'])[0][0]['calls'] == ['pic_b']                                   # chạy thẳng: giải được
+jal_at = VP + 0x10 + 8   # địa chỉ lệnh jalr khi mid dài 2 lệnh
+r1 = disasm.disasm(picfn(be32(0x10000000 | (((jal_at - (VP + 0x10 + 4)) >> 2) & 0xffff), 0)), ['pic_a'])[0][0]   # mid = beq zero,zero,<jalr> ; nop -> jalr là đích nhánh
+assert r1['calls'] == [], r1['calls']
+r2 = disasm.disasm(picfn(be32(0x08000000 | ((VP + 0x40) >> 2), 0)), ['pic_a'])[0][0]; assert 'pic_b' not in r2['calls'], r2['calls']   # mid = j xa ; nop -> đoạn sau không nối tiếp, jalr không được gán pic_b
+r3 = disasm.disasm(picfn(be32(0x0c000000 | ((VP + 0x80) >> 2), 0)), ['pic_a'])[0][0]; assert [l for l in r3['lines'] if '\tjalr\t' in l][0].endswith('$t9'), r3['lines']   # mid = jal pic_b ; nop -> t9 (caller-saved) bị bỏ, dòng jalr sau không có chú thích
+print('OK check_static_tools (PIC chỉ đoạn chạy thẳng)')

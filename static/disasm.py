@@ -64,8 +64,12 @@ def disasm(path, specs, d=None):
         end = _bounds(nm, sz, a); o = elfinfo.va2off(I, a)
         if o is None: raise SystemExit(f'địa chỉ {a:#x} không nằm trong đoạn LOAD')
         ins = list(md.disasm(d[o:o + (end - a)], a)); hi = {}; calls = []; lines = []; tr = mipspic.Tracker(d, I) if abi == 'mips_o32' else None
+        targets = {int(mt.group(1), 16) for i in ins for mt in [re.search(r'(0x[0-9a-f]+)$', i.op_str)] if mt and i.mnemonic.startswith(('b', 'j')) and i.mnemonic not in ('jal', 'bal', 'jalr', 'break')}
         for k, i in enumerate(ins):
             note = ''
+            if i.address in targets:   # điểm hợp lưu của nhánh: giá trị thanh ghi đi từ đường khác có thể khác -> bỏ, thà không chú thích còn hơn chú thích sai
+                hi.clear()
+                if tr: tr.regs.clear()
             if abi == 'mips_o32':
                 tgt = tr.step(i, entry=a)   # gp-relative (PIC): gp từ prologue của hàm, đích jalr qua GOT
                 if i.mnemonic == 'lui': m = re.match(r'(\$\w+), (\S+)$', i.op_str); hi[m.group(1)] = int(m.group(2), 0) << 16 if m else None

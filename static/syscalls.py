@@ -4,9 +4,7 @@
 #   python3 -I syscalls.py FILE
 import os, re, sys, json, collections
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from static import elfinfo, mipspic   # noqa: E402
-from static.mipspic import WRITES
-import bisect
+from static import elfinfo   # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SENSITIVE = ('fork', 'vfork', 'clone', 'execve', 'execveat', 'ptrace', 'unlink', 'unlinkat', 'rename', 'chmod', 'fchmod', 'kill', 'tkill', 'tgkill', 'socket', 'connect', 'bind',
@@ -29,7 +27,6 @@ def _imm(s):
     try: return int(s, 0)
     except ValueError: return None
 
-_BRANCH = ('b', 'beq', 'bne', 'beqz', 'bnez', 'bgez', 'bgtz', 'blez', 'bltz', 'bc1t', 'bc1f', 'j')
 _REG = {'mips_o32': ('$v0', '$2'), 'x86_64': ('al', 'ax', 'eax', 'rax'), 'i386': ('al', 'ax', 'eax')}
 _BR = {'mips_o32': ('jr', 'j', 'jal', 'jalr', 'b', 'beq', 'bne', 'beqz', 'bnez', 'bal', 'bgez', 'bgtz', 'blez', 'bltz', 'bc1t', 'bc1f'), 'x86_64': ('call', 'jmp', 'ret'), 'i386': ('call', 'jmp', 'ret')}
 
@@ -54,22 +51,6 @@ def _number(abi, ins, k):
                 return None
     return None
 
-def _a0_to_v0(seq):
-    """Đoạn từ đầu hàm tới syscall có đưa $a0 (đối số đầu = số syscall) vào $v0, kể cả qua bản sao (move $s0,$a0 ... addu $v0,$zero,$s0)."""
-    alias = {'$a0'}
-    for p in seq:
-        ops = [x.strip() for x in p.op_str.split(',')]
-        if p.mnemonic == 'move' and len(ops) == 2:
-            if ops[1] in alias:
-                if ops[0] == '$v0': return True
-                alias.add(ops[0])
-            else: alias.discard(ops[0])
-        elif p.mnemonic == 'addu' and len(ops) == 3 and ops[1] == '$zero' and ops[2] in alias:
-            if ops[0] == '$v0': return True
-            alias.add(ops[0])
-        elif p.mnemonic in WRITES and ops and ops[0].startswith('$'): alias.discard(ops[0])
-    return False
-
 def scan(d, I=None):
     """-> dict(abi, text=(va, size), total, resolved{số: lệnh}, unresolved[địa chỉ]); lỗi ValueError nếu kiến trúc chưa có bảng."""
     I = I or elfinfo.parse(d)
@@ -88,59 +69,18 @@ def scan(d, I=None):
         n = _number(abi, ins, k)
         if n is not None: res[n] += 1
         else: unres.append(i.address)
-    via, wrappers, left = collections.Counter(), [], list(unres)
-    if abi == 'mips_o32' and unres:   # hàm bọc nhận số ở $a0 (syscall() chung, __syscall_cp...): giải số ở nơi gọi qua GOT (PIC) hoặc jal
-        starts = sorted(v for n, v, sz, ty in elfinfo.symbols(d, I) if ty == 2 and v)
-        idx = {i.address: k for k, i in enumerate(ins)}; W = {}
-        def fstart(u):   # hàm musl nội bộ bị strip không có symbol: lấy sau `jr $ra` + delay slot gần nhất, hoặc symbol nếu gần hơn
-            k = idx[u]
-            while k > 0 and not (k >= 2 and ins[k - 2].mnemonic == 'jr' and ins[k - 2].op_str == '$ra'): k -= 1
-            sy = starts[bisect.bisect_right(starts, u) - 1] if starts and bisect.bisect_right(starts, u) else 0
-            return max(ins[k].address, sy)
-        for u in unres:
-            st = fstart(u)
-            if _a0_to_v0(ins[idx[st]:idx[u]]): W[st] = W.get(st, 0) + 1
-        if W:
-            tr = mipspic.Tracker(d, I); calls_w = collections.Counter(); nocall_w = collections.Counter()
-            targets = set()   # đích nhánh nội hàm: điểm hợp lưu, giá trị thanh ghi có thể khác -> bỏ hết (kết quả bảo thủ: chưa xác định thay vì đoán)
-            for i in ins:
-                if i.mnemonic in _BRANCH and re.search(r'(0x[0-9a-f]+)$', i.op_str): targets.add(int(re.search(r'(0x[0-9a-f]+)$', i.op_str).group(1), 16))
-            for k, i in enumerate(ins):
-                if i.address in targets: tr.regs.clear()
-                a0 = tr.regs.get('$a0')   # trạng thái TRƯỚC delay slot
-                tgt = tr.step(i)
-                if i.mnemonic in ('jal', 'j', 'bal') and re.fullmatch(r'(0x)?[0-9a-f]+', i.op_str): tgt = int(i.op_str, 0)
-                if tgt in W:
-                    calls_w[tgt] += 1; n = a0
-                    ds = ins[k + 1] if k + 1 < len(ins) else None   # delay slot chạy trước khi vào hàm
-                    if ds is not None:
-                        dst = ds.op_str.split(',')[0].strip()
-                        if ds.mnemonic in WRITES and dst == '$a0':   # delay slot ghi $a0: chỉ nhận hằng nạp trực tiếp, còn lại là không đọc được
-                            m = re.match(r'\$a0, \$zero, (\S+)$', ds.op_str) if ds.mnemonic in ('addiu', 'ori') else None
-                            n = _imm(m.group(1)) if m else None
-                    if n and 0 < n < 0x2000: via[n] += 1
-                    else: nocall_w[tgt] += 1
-            names = {v: n for n, v, sz, ty in elfinfo.symbols(d, I) if ty == 2}
-            wrappers = [(a, names.get(a, f'sub_{a:x}'), calls_w[a], nocall_w[a]) for a in sorted(W)]
-            left = [u for u in unres if not (fstart(u) in W and calls_w[fstart(u)] > 0 and nocall_w[fstart(u)] == 0)]   # chỉ coi là đã giải khi mọi nơi gọi thấy được đều đọc được số; nơi gọi gián tiếp không thấy vẫn có thể còn sót   # syscall nằm trong hàm bọc đã giải ở nơi gọi: không còn "chưa xác định" theo từng lệnh
-            via['_nocall'] = sum(nocall_w.values())
-    return dict(abi=abi, text=(t['addr'], t['size']), ninstr=len(ins), total=sum(res.values()) + len(unres), resolved=res, unresolved=left, via=via, wrappers=wrappers, in_wrappers=len(unres) - len(left))
+    return dict(abi=abi, text=(t['addr'], t['size']), ninstr=len(ins), total=sum(res.values()) + len(unres), resolved=res, unresolved=unres)
 
 def report(d, name='FILE'):
     R = scan(d); T = table(R['abi']); res = R['resolved']
     L = [f"# syscalls {name}: abi={R['abi']} .text={R['text'][0]:#x} size={R['text'][1]} lệnh={R['ninstr']} (bảng: static/data/syscalls_{R['abi']}.json, từ header kernel)",
-         f"syscall tổng {R['total']} | số tức thời {sum(res.values())} | trong hàm bọc nhận số ở $a0 {R['in_wrappers']} | còn chưa xác định {len(R['unresolved'])}",
+         f"syscall tổng {R['total']} | số tức thời {sum(res.values())} | không có số tức thời {len(R['unresolved'])}",
          '# giới hạn: số đặt gián tiếp (hàm bọc, tham số, GOT/jalr) không giải được; vắng mặt một syscall ở đây KHÔNG loại trừ nó nếu còn syscall chưa xác định số',
          '--- đã xác định (số tên: số lệnh)']
     L += [f'{n} {T.get(n, "?")} {c}' for n, c in sorted(res.items(), key=lambda x: (-x[1], x[0]))]
-    if R['wrappers']:
-        nv = R['via'].pop('_nocall', 0); L.append('--- hàm bọc nhận số syscall ở $a0 (địa chỉ tên số lời gọi); số giải ở nơi gọi (GOT/jal)')
-        L += [f'{a:#x} {n} lời gọi thấy {c}, không đọc được số {nc}' for a, n, c, nc in R['wrappers']]
-        L.append(f'lời gọi không đọc được số ở $a0: {nv}; nơi gọi gián tiếp (con trỏ hàm, jalr qua thanh ghi khác) không thấy được nên số liệu qua hàm bọc có thể thiếu'); L.append('--- số qua hàm bọc (số tên: số lời gọi)')
-        L += [f'{n} {T.get(n, "?")} {c}' for n, c in sorted(R['via'].items(), key=lambda x: (-x[1], x[0]))]
-    L.append('--- nhạy cảm (tên: số lệnh; gồm cả số qua hàm bọc)')
+    L.append('--- nhạy cảm (tên: số lệnh)')
     rev = collections.defaultdict(int)
-    for n, c in list(res.items()) + [(n, c) for n, c in R['via'].items() if n != '_nocall']: rev[T.get(n, '?')] += c
+    for n, c in res.items(): rev[T.get(n, '?')] += c
     L += [f'{nm} {rev.get(nm, 0)}' for nm in SENSITIVE if nm in set(T.values())]
     L.append('--- chưa xác định số (địa chỉ)')
     L += [f'{a:#x}' for a in R['unresolved']]

@@ -55,7 +55,9 @@ def new(c, srcs):
     sd = os.path.join(c, 'work', 'sample')
     for d in (sd, os.path.join(c, 'work', 'runs'), os.path.join(c, 'report', 'evidence')): os.makedirs(d, exist_ok=True)
     rel = lambda: {os.path.relpath(p, sd) for p in samples(c)}
-    before = rel(); existed = sorted(x for x in before if not x.endswith('.unupx')); added = []   # tên mẫu thực có trong work/sample (đường dẫn tương đối), không phải tên tệp nén người dùng đưa vào
+    # Một "mẫu" = một mục ở gốc work/sample: tệp ở gốc tính theo tên tệp, mọi thứ nằm trong một thư mục con tính chung là '<thư mục>/' (ứng dụng dạng cây thư mục là MỘT mẫu).
+    top = lambda xs: sorted({x.split(os.sep)[0] + ('/' if os.sep in x else '') for x in xs})
+    before = rel(); existed = top(x for x in before if not x.endswith('.unupx')); added = []
     for s in srcs:
         if os.path.isdir(s):   # mẫu dạng thư mục (app Electron…): chép nguyên cây vào work/sample/<tên thư mục>, không giải nén gì bên trong
             dn = os.path.basename(os.path.abspath(s))
@@ -71,7 +73,7 @@ def new(c, srcs):
                 if r.returncode == 0: print(f'giải nén {s} (mật khẩu {pw!r})'); break
             else: raise SystemExit(f'không giải nén được {s}: cần mật khẩu')
         else: shutil.copy2(s, sd)
-        now = rel(); added += sorted(now - before); before = now   # tệp mới xuất hiện sau khi chép/giải nén nguồn này: zip nhiều mẫu cho nhiều tên
+        now = rel(); added += top(now - before); before = now   # mục mới sau khi chép/giải nén nguồn này: zip phẳng nhiều tệp cho nhiều mẫu, zip chứa cây thư mục cho một mẫu
     for p in samples(c): os.chmod(p, 0o400)
     case.add_sources(c, added, base=existed)   # từ hai mẫu trở lên thì checklist đòi mục quan hệ giữa các mẫu (C12); case cũ chưa có sources.json: tính cả mẫu đã có sẵn
     case.migrate_report(c)   # case cũ: report/README.md -> report/report-<ngày>.md

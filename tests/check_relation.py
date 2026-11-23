@@ -75,4 +75,16 @@ assert run('flow.py', 'new', 'D1', 'appdir', 'agent_a.bin', 'helper_b.bin').retu
 assert case.sources(D1) == ['appdir/', 'agent_a.bin', 'helper_b.bin'], case.sources(D1)
 assert run('flow.py', 'link', 'D1').returncode == 0 and 'bỏ qua, không đối chiếu: appdir/ (mẫu dạng thư mục)' in open(os.path.join(D1, 'report', 'evidence', 'link_samples.txt'), encoding='utf-8').read()
 r = run('case.py', 'add', 'D1', 'id=l.d', 'kind=relation', 'value=appdir nạp agent_a.bin', 'src=S', 'evidence=report/evidence/link_samples.txt'); assert 'relation_samples' not in r.stdout, r.stdout   # tên thư mục cũng tính là tên mẫu
+# --- "một mẫu" = một mục ở gốc work/sample: zip chứa cây thư mục là MỘT mẫu (C12 không áp dụng); zip có cả thư mục lẫn tệp phẳng thì mỗi mục gốc một mẫu
+if shutil.which('7z') or shutil.which('7zz') or shutil.which('7za'):
+    with zipfile.ZipFile(os.path.join(ws, 'app.zip'), 'w') as z: z.writestr('app/a.js', 'console.log(1)\n'); z.writestr('app/sub/b.js', 'console.log(2)\n'); z.writestr('app/package.json', '{}\n')
+    assert run('flow.py', 'new', 'T1', 'app.zip').returncode == 0; T1 = os.path.join(ws, 'T1')
+    assert case.sources(T1) == ['app/'] and ck(T1)['C12'].startswith('n/a') and review.report_relation(T1) == '', (case.sources(T1), ck(T1)['C12'])
+    with zipfile.ZipFile(os.path.join(ws, 'mix.zip'), 'w') as z: z.writestr('tool/x.js', '1\n'); z.writestr('tool/y.js', '2\n'); z.writestr('drop.bin', A_)
+    assert run('flow.py', 'new', 'T2', 'mix.zip').returncode == 0 and case.sources(os.path.join(ws, 'T2')) == ['drop.bin', 'tool/'], case.sources(os.path.join(ws, 'T2'))
+# --- case cũ có mẫu dạng thư mục, chưa có sources.json: khi thêm mẫu, thư mục đã có vẫn là MỘT mẫu (không đếm từng tệp bên trong)
+os.makedirs(os.path.join(ws, 'bigapp', 'sub')); [open(os.path.join(ws, 'bigapp', n), 'w').write(f'{n}\n') for n in ('a.js', 'b.js', os.path.join('sub', 'c.js'))]
+assert run('flow.py', 'new', 'G1', 'bigapp').returncode == 0; G1 = os.path.join(ws, 'G1'); assert case.sources(G1) == ['bigapp/']
+os.remove(os.path.join(G1, 'work', 'sources.json'))
+r = run('flow.py', 'new', 'G1', 'solo.bin'); assert r.returncode == 0 and case.sources(G1) == ['bigapp/', 'solo.bin'] and ck(G1)['C12'] == 'missing', case.sources(G1)   # thêm mẫu thứ hai thật: C12 bật
 print('OK check_relation')

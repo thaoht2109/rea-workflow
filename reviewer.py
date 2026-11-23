@@ -472,7 +472,7 @@ def run_tools(c, k, ids, mech_items):
                 if m: USAGE.append(dict(cost_usd=0, input=m.get('input_tokens', 0), cache_write=m.get('cache_creation_input_tokens', 0), cache_read=m.get('cache_read_input_tokens', 0), output=m.get('output_tokens', 0)))
             if can is None: why.append('thiếu dòng CANARY')
             elif any(n and n in json.dumps(can, ensure_ascii=False).lower() for n in names): why.append('canary lộ tên case/IOC')
-            part = [i for i in part if i['id'] in send]
+            part = [i for i in part if i['id'] in send and i['id'] not in owed]   # fact đang bị ghi nợ: dòng dở của nó không được giữ (như phiên kiểm lại)
             kept = 0 if why else len({i['id'] for i in part})
             if again: kept = 0   # phiên kiểm lại bị ngắt: không giữ dòng nào của nó (một dòng pass dở không được thay cho việc phiên đầu đã nêu fact)
             if kept:
@@ -855,6 +855,9 @@ def selftest():
     assert led[-1]['status'].startswith('lỗi') and led[-1]['usage']['cost_usd'] == 0.01 and led[-1]['usage']['output'] == 3, led[-1]   # chi phí phiên đầu + phiên dở
     sv = [json.loads(l) for l in open(os.path.join(c, 'work', 'review', 'r5', 'salvage.jsonl'))]
     assert [d['id'] for d in sv if 'id' in d] == ['c2'] and [list(d['flagged']) for d in sv if 'flagged' in d] == [['m']], sv
+    try: run(c, 5, ['c2', 'm'], []); raise AssertionError('lần chạy lại cũng bị ngắt')   # ngắt lần hai (phiên thường cho fact đang nợ): dòng pass dở của m vẫn không được giữ
+    except RuntimeError as e: assert 'giữ 0/1' in str(e), e
+    assert [d['id'] for d in map(json.loads, open(os.path.join(c, 'work', 'review', 'r5', 'salvage.jsonl'))) if 'id' in d] == ['c2']
     os.environ['STUB_COMPACT'] = 'lostpass'; open(cnt, 'w').close(); CFG.CLAUDE, CFG.REVIEW_IDLE = stub, 300
     its, miss, iso = run(c, 5, ['c2', 'm'], [])   # chạy lại: chỉ m được gửi; phiên mới cho qua -> m vẫn có mục weak, c2 lấy từ phần đã giữ
     assert iso['valid'] and iso['salvaged'] == ['c2'] and len(open(cnt).read()) == 1 and sorted((i['id'], i['verdict']) for i in its) == [('c2', 'weak'), ('m', 'weak')], (its, iso)

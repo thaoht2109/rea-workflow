@@ -31,8 +31,11 @@ try:
     C.add(c, id='u2', kind='url', value='https://raw.githubusercontent.com/user-x/repo-y/main/cfg', src='S', evidence='report/evidence/s.txt#L1', supersedes='u1', status='hypothesis')
     assert R.lookup_hint(c) == ''                                                    # fact đã bị thay và bản mới chỉ là giả thuyết: không nhắc
 finally: shutil.rmtree(c, ignore_errors=True)
-for url in ('https://updates.example.com/raw.githubusercontent.com/x', 'https://github.com/user-x/repo-y', 'không phải url'):   # host khác, kể cả khi tên host nằm trong đường dẫn
+for url in ('https://updates.example.com/raw.githubusercontent.com/x', 'https://github.com/user-x/repo-y', 'không phải url',   # host khác, kể cả khi tên host nằm trong đường dẫn
+            'http://host[abc/x', 'http://a]b/', 'http://evil[.]example/', 'http://x[1]/'):                                       # giá trị làm urlsplit ném ValueError: next không được sập
     c = mk(url)
-    try: assert R.lookup_hint(c) == '' and 'lưu ý (không chặn)' not in nxt(c).stdout, url
+    try:
+        r = nxt(c)
+        assert R.lookup_hint(c) == '' and 'lưu ý (không chặn)' not in r.stdout and 'Traceback' not in r.stderr and any(re.match(STATES, l) for l in r.stdout.splitlines()), (url, r.stdout, r.stderr)
     finally: shutil.rmtree(c, ignore_errors=True)
 print('OK check_lookup_hint')

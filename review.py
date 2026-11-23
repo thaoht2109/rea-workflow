@@ -248,8 +248,11 @@ def lookup_hint(c):
     """Mẫu lấy địa chỉ máy chủ từ nơi chứa nội dung công cộng (fact url còn hiệu lực có host trong DEADDROP) mà case chưa có evidence lookup_*:
     địa chỉ C2 thật chưa có trong báo cáo. Trả MỘT câu nhắc hỏi người dùng (FLOW.md mục 0), không có lệnh nào để chạy; '' nếu không áp dụng.
     Chỉ là lời nhắc: không chặn DONE, không đổi trạng thái của next. Danh sách host là gợi ý, không đầy đủ."""
-    ids = sorted(i for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active'
-                 and (urllib.parse.urlsplit(f.get('value', '').split()[0] if f.get('value', '').split() else '').hostname or '').lower() in DEADDROP)
+    def host(v):   # value là văn bản tự do lấy từ mẫu/giả lập: urlsplit ném ValueError với ngoặc vuông lệch hoặc host dạng defang
+        t = str(v or '').split()
+        try: return (urllib.parse.urlsplit(t[0]).hostname or '').lower() if t else ''
+        except ValueError: return ''
+    ids = sorted(i for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active' and host(f.get('value')) in DEADDROP)
     if not ids or glob.glob(os.path.join(c, 'report', 'evidence', 'lookup_*')): return ''
     return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, case chưa có evidence lookup_*: địa chỉ C2 thật chưa có. "
             'KHÔNG tự tra. Hỏi người dùng theo FLOW.md mục 0 (đồng ý riêng cho case này, đường mạng riêng, duyệt đúng URL); '
@@ -380,7 +383,8 @@ def next_step(c, accept=''):
     ok, why = gate(c)
     if not ok and why.startswith('đã STOPPED'):   # cổng đã đóng: báo dừng trước mọi việc khác, không dẫn agent đi phân tích thêm
         print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không phân tích thêm, không tự tạo OVERRIDE)'); return 1
-    lh = lookup_hint(c)
+    try: lh = lookup_hint(c)
+    except Exception: lh = ''   # lời nhắc không bao giờ được làm next thất bại
     if lh: print(lh)
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')

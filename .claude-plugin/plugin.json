@@ -1,6 +1,6 @@
 {
   "name": "rea-workflow",
-  "description": "Dịch ngược mã độc có kiểm chứng: rea-workflow:manual phân tích từng mẫu, rea-workflow:auto chạy cả thư mục và theo dõi mẫu mới",
+  "description": "Dịch ngược mã độc có kiểm chứng: rea-workflow:manual phân tích từng mẫu, rea-workflow:all gom cả thư mục thu mẫu thành một case, rea-workflow:auto chạy cả thư mục (mỗi mẫu một case) và theo dõi mẫu mới",
   "author": {
     "name": "thaoht2109"
   },

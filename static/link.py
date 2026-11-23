@@ -12,6 +12,7 @@ HOST = re.compile(r'(?i)^(?:https?://)?([a-z0-9.-]+\.[a-z]{2,})(?:[:/]|$)')
 
 MAX_SAMPLES = 12   # đối chiếu từng cặp: giới hạn số mẫu, lấy các tệp lớn nhất
 MAX_BYTES = 256 << 20   # tệp lớn hơn ngưỡng này không nạp vào bộ nhớ để đối chiếu (firmware, app đóng gói): bỏ qua có thông báo
+MAX_TOTAL = 512 << 20   # trần tổng dung lượng tệp được nạp; bộ nhớ thực dùng khoảng gấp đôi (giữ thêm bản chữ thường để đếm) cộng phần của quick
 
 def _sha(p):
     h = hashlib.sha256()
@@ -31,8 +32,13 @@ def _files(case):
             else: out.append((n, p, a))
         else: skip.append(f'{n} (không còn trong work/sample)')
     if len(out) > MAX_SAMPLES:
-        out.sort(key=lambda x: -os.path.getsize(x[1])); skip += [f'{n} (vượt giới hạn {MAX_SAMPLES} mẫu lớn nhất)' for n, _, _ in out[MAX_SAMPLES:]]; out = sorted(out[:MAX_SAMPLES])
-    return out, skip
+        out.sort(key=lambda x: -os.path.getsize(x[2])); skip += [f'{n} (vượt giới hạn {MAX_SAMPLES} mẫu lớn nhất)' for n, _, _ in out[MAX_SAMPLES:]]; out = sorted(out[:MAX_SAMPLES])
+    keep, tot = [], 0
+    for x in sorted(out, key=lambda x: os.path.getsize(x[2])):   # nhận từ tệp nhỏ tới lớn cho tới trần tổng: giữ được nhiều mẫu nhất
+        sz = os.path.getsize(x[2])
+        if tot + sz > MAX_TOTAL: skip.append(f'{x[0]} (tổng dung lượng vượt {MAX_TOTAL >> 20} MiB)')
+        else: keep.append(x); tot += sz
+    return sorted(keep), skip
 
 def _triage(case, sha):
     """triage.json của tệp có sha256 này trong report/evidence (tên file do triage đặt: cắt 32 ký tự, có thể kèm hậu tố), tìm theo nội dung chứ không đoán tên."""
@@ -58,7 +64,7 @@ def _idents(name, G):
 def build(case):
     F, skipped = _files(case)
     if len(F) < 2: raise ValueError(f'case có {len(F)} mẫu dạng tệp trong work/sources.json: cần từ hai mẫu trở lên để đối chiếu (mẫu thêm bằng `flow.py new CASE MẪU...`)')
-    D = {n: open(a, 'rb').read() for n, _, a in F}; T = {}; G = {}
+    D = {n: open(a, 'rb').read() for n, _, a in F}; LOW = {n: v.lower() for n, v in D.items()}; T = {}; G = {}
     for n, p, a in F:
         R = _triage(case, hashlib.sha256(D[n]).hexdigest())
         st = os.stat(p); T[n] = dict(size=st.st_size, mtime=st.st_mtime, sha256=_sha(p), type=' '.join([R['type']] + R.get('flags', [])) if R and R.get('type') else None, unp=a != p)
@@ -81,7 +87,7 @@ def build(case):
         ids = _idents(a, G[a])
         for b, _, _ in F:
             if a == b: continue
-            hits = [(x, len(re.findall(re.escape(x.encode('utf-8')), D[b], re.I))) for x in ids if x.encode('utf-8')]   # UTF-8: tên không phải Latin không bị cắt thành mẫu rỗng
+            hits = [(x, LOW[b].count(x.lower().encode('utf-8'))) for x in ids if x.encode('utf-8')]   # đếm trên bản chữ thường bằng bytes.count (một lượt C, không regex); UTF-8 nên tên không phải Latin không thành mẫu rỗng
             L.append(f'{b} chứa định danh của {a}: ' + (', '.join(f'"{x}" {c} lần' for x, c in hits if c) or 'không có') + f' (đã thử {len(ids)} định danh: {", ".join(ids[:8])}{"…" if len(ids) > 8 else ""})')
     L.append('## Chuỗi chung đáng chú ý (URL/tên miền, đường dẫn không phổ biến, tham số dòng lệnh có ở từ hai mẫu trở lên)')
     seen = {}

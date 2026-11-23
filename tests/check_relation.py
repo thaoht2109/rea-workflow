@@ -107,4 +107,20 @@ try:
 except ValueError as e: assert 'cần từ hai mẫu' in str(e)
 finally: link.MAX_BYTES = old_max
 assert 'bỏ qua' not in link.build(F1)
+# --- relation 'n/a' không kèm lý do: chưa đủ cho C12 và bị lint nhắc; có lý do thì đạt
+assert run('flow.py', 'new', 'N1', 'agent_a.bin', 'solo.bin').returncode == 0; N1 = os.path.join(ws, 'N1')
+r = run('case.py', 'add', 'N1', 'id=l.n0', 'kind=relation', 'value=n/a', 'src=S', 'evidence=report/evidence/triage_solo_bin.json')
+assert 'relation_na' in r.stdout and ck(N1)['C12'] == 'partial', (r.stdout, ck(N1)['C12'])
+r = run('case.py', 'add', 'N1', 'id=l.n1', 'kind=relation', 'value=n/a: không có định danh chéo giữa agent_a.bin và solo.bin', 'src=S', 'evidence=report/evidence/triage_solo_bin.json', 'supersedes=l.n0')
+assert 'relation_na' not in r.stdout and ck(N1)['C12'] == 'ok', (r.stdout, ck(N1)['C12'])
+# --- link: đếm không phân biệt hoa thường; trần tổng dung lượng bỏ bớt tệp lớn có thông báo
+open(os.path.join(ws, 'up_a.bin'), 'wb').write(b'\x01' + b'\0'.join([b'http://c2.example.net/x', b'pad-pad-pad']) + b'\0')
+open(os.path.join(ws, 'up_b.bin'), 'wb').write(b'\x02' + b'\0'.join([b'C2.EXAMPLE.NET', b'c2.Example.Net again', b'pad']) + b'\0' + b'z' * 4000)
+open(os.path.join(ws, 'up_c.bin'), 'wb').write(b'\x03' + b'\0'.join([b'nothing here', b'pad']) + b'\0')
+assert run('flow.py', 'new', 'M1', 'up_a.bin', 'up_b.bin', 'up_c.bin').returncode == 0; M1 = os.path.join(ws, 'M1')
+tm = link.build(M1); assert [l for l in tm.splitlines() if l.startswith('up_b.bin chứa định danh của up_a.bin')][0].count('"c2.example.net" 2 lần') == 1, tm
+old_tot = link.MAX_TOTAL; link.MAX_TOTAL = 2000
+try: tm2 = link.build(M1)
+finally: link.MAX_TOTAL = old_tot
+assert 'up_b.bin (tổng dung lượng vượt' in tm2 and 'up_b.bin chứa định danh' not in tm2 and 'up_c.bin chứa định danh của up_a.bin' in tm2, tm2
 print('OK check_relation')

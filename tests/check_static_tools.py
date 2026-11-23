@@ -326,8 +326,8 @@ def gopcln(va, funcs):   # .gopclntab tối thiểu (Go 1.18+, big-endian 32-bit
     ft += struct.pack('>II', 0x1000, 0)
     return struct.pack('>IBBBB', 0xFFFFFFF1, 0, 0, 4, 4) + struct.pack('>8I', len(funcs), 0, va, nameoff, 0, 0, 0, pcln) + names + ft + fs
 VG = 0x400000; cg = be32(0x0c000000 | ((VG + 0x40) >> 2), 0, 0x03e00008, 0); cg += b'\0' * (0x40 - len(cg)) + be32(0x03e00008, 0) + b'\0' * 0x18 + be32(0x03e00008, 0)
-strs = b'\0'.join([b'-buildmode=exe', b'-trimpath=true', b'-key=KEY', b'http://OPTIONSCreated', b'http://c2.example.net/x', b'runtime.lock', b'/etc/app.conf']) + b'\0'
-gp_ = os.path.join(tempfile.mkdtemp(), 'go.elf'); open(gp_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime.main', VG + 0x60)]) + b'\0' * 8 + strs))
+strs = b'\0'.join([b'-buildmode=exe', b'-trimpath=true', b'-key=KEY', b'http://OPTIONSCreated', b'http://c2.example.net/x', b'runtime.lock', b'/etc/app.conf', b'main.log', b'x' * 130 + b' trace.lock then /opt/agent/state.db tail']) + b'\0'
+gp_ = os.path.join(tempfile.mkdtemp(), 'go.elf'); open(gp_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime.lock', VG + 0x58), ('runtime.main', VG + 0x60)]) + b'\0' * 8 + strs))
 rg_ = xref.report(gp_); assert 'bộ tên mặc định: Go' in rg_ and '## os/exec.Command @0x400040: 1 nơi gọi' in rg_ and 'trong main.run' in rg_ and 'execve' not in rg_, rg_
 assert 'bộ tên mặc định: libc' in xref.report(jp)
 tg, sg_ = quick.build(gp_); assert '-key=KEY' in tg and '-buildmode=exe' not in tg and '-trimpath=true' not in tg and 'http://OPTIONSCreated' not in tg and 'http://c2.example.net/x' in tg, tg
@@ -338,3 +338,58 @@ r = run('xref', 'C1', 'j.elf'); assert '# bộ tên mặc định: libc' in r.st
 print('OK check_static_tools (xref stdout)')
 tl, _ = quick.build('x', b'\0'.join([b'http://localhost', b'http://c2host/', b'padding-padding']) + b'\0'); assert 'http://localhost' in tl and 'http://c2host/' in tl, tl   # không phải Go: URL host một nhãn vẫn giữ
 print('OK check_static_tools (quick: URL host một nhãn ngoài Go)')
+# --- quick trên Go: tên tệp thật trùng tên package (main.log) được giữ, chỉ bỏ tên là hàm Go; chuỗi dài có đường dẫn tuyệt đối đứng sau một đuôi tệp vẫn giữ đường dẫn; có dòng đếm URL bị lọc
+pg = tg.split('## Đường dẫn và tệp')[1].split('##')[0]
+assert 'main.log' in pg and '/opt/agent/state.db' in pg and 'runtime.lock' not in pg, pg
+assert '(đã bỏ 1 URL không có dấu chấm trong host' in tg and all(not l.startswith('(') for ls in quick.groups(tg).values() for l in ls), tg
+print('OK check_static_tools (quick Go: main.log, đường dẫn sau đuôi tệp, đếm URL bị lọc)')
+# --- xref: binary Go có hàm nhập khẩu (cgo) dùng cả bộ tên Go lẫn libc; Go thuần chỉ bộ Go
+cgo_ = os.path.join(tempfile.mkdtemp(), 'cgo.elf'); open(cgo_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime.main', VG + 0x60)]), syms=[('system', None, 0)]))
+rc_ = xref.report(cgo_); assert 'bộ tên mặc định: Go và libc' in rc_ and 'system' in rc_.split('## nhập khẩu từ thư viện động')[1].split('\n')[0] and '## os/exec.Command @' in rc_, rc_
+assert 'bộ tên mặc định: Go (binary có .gopclntab, không có hàm nhập khẩu' in xref.report(gp_) and 'execve' not in xref.report(gp_)
+# --- xref PLT: i386 không PIC (jmp [địa chỉ], .rel.plt 32-bit), nhiều stub cho một hàm (.plt và .plt.sec), stub không có relocation thì đếm PLT nhưng không gắn tên
+def elfx2(cls, machine, body, va, secs):
+    c64 = cls == 64; eh, ph, sh = (64, 56, 64) if c64 else (52, 32, 40); names = [b''] + [s[0].encode() for s in secs] + [b'.shstrtab']; shs = b'\0'; noff = [0]
+    for n in names[1:]: noff.append(len(shs)); shs += n + b'\0'
+    o_body = eh + ph; blobs = b''; offs = []
+    for s in secs:
+        if s[3] is not None: offs.append((o_body + s[3], len(s[4])))
+        else: offs.append((o_body + len(body) + len(blobs), len(s[4]))); blobs += s[4]
+    o_shs = o_body + len(body) + len(blobs); o_sh = (o_shs + len(shs) + 7) & ~7; idx = {s[0]: i + 1 for i, s in enumerate(secs)}
+    hf, pf, sf = ('<HHIQQQIHHHHHH', '<IIQQQQQQ', '<IIQQQQIIQQ') if c64 else ('<HHIIIIIHHHHHH', '<IIIIIIII', '<IIIIIIIIII')
+    hdr = b'\x7fELF' + bytes([2 if c64 else 1, 1, 1]) + b'\0' * 9 + struct.pack(hf, 2, machine, 1, va, eh, o_sh, 0, eh, ph, 1, sh, len(secs) + 2, len(secs) + 1)
+    phb = struct.pack(pf, 1, 5, o_body, va, va, len(body), len(body), 0x1000) if c64 else struct.pack(pf, 1, o_body, va, va, len(body), len(body), 5, 0x1000)
+    shdr = struct.pack(sf, *([0] * 10))
+    for i, s in enumerate(secs): shdr += struct.pack(sf, noff[i + 1], s[1], 2, s[2], offs[i][0], offs[i][1], idx.get(s[5], 0), 0, 4, s[6])
+    shdr += struct.pack(sf, noff[-1], 3, 0, 0, o_shs, len(shs), 0, 0, 1, 0)
+    return hdr + phb + body + blobs + shs + b'\0' * (o_sh - o_shs - len(shs)) + shdr
+V3 = 0x8048000; b3 = bytes.fromhex('e81b000000' + 'c3') + b'\x90' * 26                    # f32 @V3: call V3+0x20 ; ret
+b3 += bytes.fromhex('ff25') + struct.pack('<I', V3 + 0x40) + b'\x90' * 10                 # .plt @V3+0x20: jmp dword ptr [V3+0x40]
+b3 += b'\0' * 16                                                                          # .got @V3+0x40
+ds3 = b'\0system\0'; dy3 = b'\0' * 16 + struct.pack('<IIIBBH', 1, 0, 0, 0x12, 0, 0); sy3 = b'\0' * 16 + struct.pack('<IIIBBH', 1, V3, 6, 2, 0, 1); st3 = b'\0f32\0'
+i3f = os.path.join(tempfile.mkdtemp(), 'i386.elf'); open(i3f, 'wb').write(elfx2(32, 3, b3, V3, [
+    ('.text', 1, V3, 0, b3[:0x20], '', 0), ('.plt', 1, V3 + 0x20, 0x20, b3[0x20:0x30], '', 4), ('.dynsym', 11, 0, None, dy3, '.dynstr', 16), ('.dynstr', 3, 0, None, ds3, '', 0),
+    ('.rel.plt', 9, 0, None, struct.pack('<II', V3 + 0x40, (1 << 8) | 7), '.dynsym', 8), ('.symtab', 2, 0, None, sy3, '.strtab', 16), ('.strtab', 3, 0, None, st3, '', 0)]))
+d3 = open(i3f, 'rb').read(); I3 = elfinfo.parse(d3); assert elfinfo.abi(I3) == 'i386' and elfinfo.got_relocs(d3, I3) == {V3 + 0x40: 'system'}, elfinfo.got_relocs(d3, I3)
+r3 = xref.report(i3f); assert f'## system (nhập khẩu, stub @{V3 + 0x20:#x}): 1 nơi gọi' in r3 and 'trong f32' in r3, r3
+VM = 0x1000; bm = bytes.fromhex('e81b000000' + 'e826000000' + 'e841000000' + 'c3') + b'\x90' * 16   # fm: call .plt stub ; call .plt.sec stub ; call stub không reloc ; ret
+bm += bytes.fromhex('ff251a000000') + b'\x90' * 10                                        # .plt @0x1020: jmp [rip+0x1a] -> 0x1040
+bm += bytes.fromhex('f30f1efaf2ff2505000000') + b'\x90' * 5                               # .plt.sec @0x1030: endbr64 ; bnd jmp [rip+5] -> 0x1040
+bm += b'\0' * 8 + b'\0' * 8                                                               # .got @0x1040 (system), @0x1048 (không reloc)
+bm += bytes.fromhex('ff25f2ffffff') + b'\x90' * 10                                        # .plt.got @0x1050: jmp [rip-0xe] -> 0x1048
+dsm = b'\0system\0'; dym = b'\0' * 24 + struct.pack('<IBBHQQ', 1, 0x12, 0, 0, 0, 0); sym_ = b'\0' * 24 + struct.pack('<IBBHQQ', 1, 2, 0, 1, VM, 16); stm = b'\0fm\0'
+mf = os.path.join(tempfile.mkdtemp(), 'multi.elf'); open(mf, 'wb').write(elfx2(64, 62, bm, VM, [
+    ('.text', 1, VM, 0, bm[:0x20], '', 0), ('.plt', 1, VM + 0x20, 0x20, bm[0x20:0x30], '', 16), ('.plt.sec', 1, VM + 0x30, 0x30, bm[0x30:0x40], '', 16), ('.plt.got', 1, VM + 0x50, 0x50, bm[0x50:0x60], '', 8),
+    ('.dynsym', 11, 0, None, dym, '.dynstr', 24), ('.dynstr', 3, 0, None, dsm, '', 0), ('.rela.plt', 4, 0, None, struct.pack('<QQq', 0x1040, (1 << 32) | 7, 0), '.dynsym', 24),
+    ('.symtab', 2, 0, None, sym_, '.strtab', 24), ('.strtab', 3, 0, None, stm, '', 0)]))
+Xm_ = xref.build(mf); assert Xm_['stats']['plt'] == 3 and Xm_['stats']['plt_named'] == 2 and Xm_['stats']['unnamed'] == 0 and Xm_['stats']['direct'] == 0, Xm_['stats']
+rm_ = xref.report(mf); assert '## system (nhập khẩu, stub @0x1020, 0x1030): 2 nơi gọi' in rm_ and rm_.count('trong fm') == 2, rm_   # hai stub của cùng hàm gom lại; stub không reloc không được gắn tên
+print('OK check_static_tools (xref: cgo, PLT i386, nhiều stub)')
+# --- disasm x86-64: lea với độ dời nhỏ capstone in dạng thập phân ([rip + 5]) vẫn chú thích được chuỗi
+VL = 0x401000; cl = bytes.fromhex('488d0505000000' + 'c3') + b'\x90' * 4 + b'/etc/near.conf\0'   # lea rax,[rip+5] -> VL+0xc ; ret ; chuỗi tại VL+0xc
+lp_ = os.path.join(tempfile.mkdtemp(), 'lea.elf'); open(lp_, 'wb').write(elf(62, 64, False, 2, 0, cl, VL, syms=[('f_lea', VL, 8)]))
+tl_ = '\n'.join(disasm.disasm(lp_, ['f_lea'])[0][0]['lines']); assert '"/etc/near.conf"' in tl_ and 'rip + 5' in tl_, tl_
+# --- quick.groups: chỉ bỏ ghi chú của công cụ, không bỏ chuỗi thật có dạng (…)
+gq = quick.groups('## Tham số dòng lệnh / usage\n(default: /etc/x.conf) --help\n(default: -v)\n(không có)\n## URL, tên miền, IP\nc2.example.net\n(đã bỏ 2 URL không có dấu chấm trong host: x)\n')
+assert gq['cli'] == ['(default: /etc/x.conf) --help', '(default: -v)'] and gq['net'] == ['c2.example.net'], gq
+print('OK check_static_tools (disasm lea thập phân, quick.groups)')

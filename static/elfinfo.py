@@ -77,7 +77,7 @@ def symbols(d, I, und=False):
             if shndx == 0:
                 if und:
                     a = T['off'] + nm; e = d.find(b'\0', a) if a < len(d) else -1
-                    if e >= 0: out.append((d[a:e].decode('latin1'), 0, 0, 'UND'))
+                    if e >= 0: out.append((d[a:e].decode('latin1'), val, 0, 'UND'))   # MIPS: st_value khác 0 = địa chỉ stub (.MIPS.stubs) của hàm nhập khẩu
                 continue
             a = T['off'] + nm
             if a >= len(d): continue

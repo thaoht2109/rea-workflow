@@ -70,5 +70,13 @@ def build(path, d=None, cap=40):
             L += list(dict.fromkeys(ext))[:cap * 2] or ['(không có)']
     return '\n'.join(L) + '\n', sug
 
+def groups(text):
+    """Tách output của build() thành {khóa nhóm: [dòng]} theo tiêu đề nhóm (GROUPS)."""
+    title = {t: k for k, t, _ in GROUPS}; out = {k: [] for k, _, _ in GROUPS}; cur = None
+    for l in text.splitlines():
+        if l.startswith('## '): cur = title.get(l[3:]); continue
+        if cur and l and l != '(không có)': out[cur].append(l)
+    return out
+
 if __name__ == '__main__':
     print(build(sys.argv[1])[0], end='')

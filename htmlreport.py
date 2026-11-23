@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Bản HTML của báo cáo case (report/report-<ngày>.html), do case.report() sinh mỗi lần chạy `flow.py report`.
-# Gộp: tóm tắt số liệu + checklist C0–C11 + báo cáo viết tay (report-<ngày>.md) + bảng sinh từ facts (GENERATED.md).
+# Gộp: tóm tắt số liệu + checklist C0–C12 + báo cáo viết tay (report-<ngày>.md) + bảng sinh từ facts (GENERATED.md).
 # Chỉ để xem: nguồn chân lý vẫn là facts.jsonl và file .md. Không thư viện ngoài, không tải tài nguyên mạng
 # (CSP chặn mọi request), liên kết ngoài (URL/IOC trong báo cáo) không bấm được, chỉ đường dẫn tương đối mới thành link.
 import re, html, datetime
@@ -177,7 +177,7 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None, v
     rows = ''.join(f'<tr><td>{esc(k)}</td><td>{badge(v)}</td><td>{esc(n)}</td></tr>' for k, v, n in checklist)
     S = [('active', 'fact hiệu lực'), ('hypothesis', 'giả thuyết'), ('retracted', 'đã rút/thay'), ('ioc', 'IOC'), ('evidence', 'file evidence')]
     stat = ''.join(f'<div class="stat"><b>{stats.get(k, 0)}</b><span>{t}</span></div>' for k, t in S)
-    nav = ''.join(f'<a href="#{a}">{esc(t)}</a>' for a, t in [('checklist', 'Checklist C0–C11')] + toc + [('phu-luc', 'Phụ lục: bảng sinh từ facts')])
+    nav = ''.join(f'<a href="#{a}">{esc(t)}</a>' for a, t in [('checklist', 'Checklist C0–C12')] + toc + [('phu-luc', 'Phụ lục: bảng sinh từ facts')])
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     vd = verdict_html(verdict) if verdict else ''
     return f"""<!doctype html>
@@ -189,7 +189,7 @@ def render(case, date, body_md, gen_md, checklist, stats, gate=None, src=None, v
 <div class="meta">Ngày phân tích {esc(date)} · sinh lúc {now} bởi rea-workflow · nguồn: <code>facts.jsonl</code>, <code>{esc(src or f'report-{date}.md')}</code></div>
 <div class="draft{' final' if done else ''}">{'Cổng phản biện: đạt (' + esc(why) + ')' if done else 'BẢN NHÁP: cổng phản biện chưa đạt (' + esc(why) + ')'}</div>
 <div class="stats" id="tom-tat">{stat}</div></header>
-<section><h2 id="checklist">Checklist C0–C11</h2><div class="tw"><table><thead><tr><th>Mục</th><th>Trạng thái</th><th>Việc còn lại</th></tr></thead><tbody>{rows}</tbody></table></div></section>
+<section><h2 id="checklist">Checklist C0–C12</h2><div class="tw"><table><thead><tr><th>Mục</th><th>Trạng thái</th><th>Việc còn lại</th></tr></thead><tbody>{rows}</tbody></table></div></section>
 <section>{body}</section>
 <section><h2 id="phu-luc">Phụ lục: bảng sinh từ facts</h2><p class="note">Sinh từ <code>facts.jsonl</code> (cùng nội dung <code>GENERATED.md</code>). Liên kết ngoài bị vô hiệu: URL/IOC chỉ hiện dạng chữ.</p>
 <input id="filter" class="filter" type="search" placeholder="Lọc dòng trong các bảng phụ lục…"><div id="phu-luc-body">{gen}</div></section>

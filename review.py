@@ -11,7 +11,7 @@ import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
-GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt'}   # fact sai ở đây làm sai IOC/kết luận -> high
+GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'verdict_value', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
@@ -243,6 +243,13 @@ def blank_lines():
     t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'report.md'), encoding='utf-8').read()
     return [s for s in map(_norm, t.splitlines()) if '{' not in s and (re.fullmatch(r'\|[^|]+\|(?: ?\|)+', s) or re.search(r'_\([^)]*\)_', s) or re.fullmatch(r'\([^)]+\)', s))]
 
+def report_relation(c):
+    """Case có từ hai mẫu trở lên: báo cáo viết tay phải có mục nói về quan hệ giữa các mẫu (tiêu đề chứa 'Quan hệ giữa'). Trả câu nhắc hoặc ''."""
+    if len(C.sources(c)) < 2 or 'C12' in accepted(c): return ''   # C12 đã được chấp nhận là hạn chế (next --accept C12=lý do): không đòi mục báo cáo
+    r = C.report_md(c); t = open(r, encoding='utf-8', errors='replace').read() if os.path.isfile(r) else ''
+    if re.search(r'(?im)^#{1,6} .*quan hệ giữa', t): return ''
+    return f"{r} chưa có mục 'Quan hệ giữa các mẫu' (case có {len(C.sources(c))} mẫu): thêm tiêu đề đó, bảng nhận định / trạng thái (đã chứng minh hay giả thuyết) / fact relation làm căn cứ"
+
 def report_blank(c):
     """Dòng giữ chỗ của template còn nguyên trong báo cáo viết tay (C.report_md): còn thì phần chữ chưa được viết, case không được DONE.
     So nguyên dòng (bỏ khoảng trắng thừa và dấu > của blockquote): dòng đã viết lại, dù chỉ một phần, không bị tính."""
@@ -376,6 +383,8 @@ def next_step(c, accept=''):
               'tóm tắt, chuỗi thực thi, phân tích chi tiết (nguồn S/E/V + evidence#L), bảng đính chính, IOC, hạn chế/OPSEC, bảng evidence, rồi chạy lại next. Dòng giữ chỗ còn lại:')
         for x in rb: print(f'  {x}')
         return 1
+    rr = report_relation(c)
+    if rr: print(f'NEED_REPORT: {rr}, rồi chạy lại next'); return 1
     rt = report_todo(c)
     if rt:
         print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} chưa nhắc các fact đã sửa; cập nhật phần chữ, ghi id vào bảng đính chính, rồi chạy lại next:')

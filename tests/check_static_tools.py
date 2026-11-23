@@ -336,3 +336,5 @@ tn, _ = quick.build('x', b'\0'.join([b'-buildmode=exe', b'runtime.lock', b'paddi
 print('OK check_static_tools (Go: xref mặc định, quick bớt nhiễu)')
 r = run('xref', 'C1', 'j.elf'); assert '# bộ tên mặc định: libc' in r.stdout and '## không có symbol tên:' in r.stdout, r.stdout[:400]   # stdout có đủ các dòng đầu và tổng kết
 print('OK check_static_tools (xref stdout)')
+tl, _ = quick.build('x', b'\0'.join([b'http://localhost', b'http://c2host/', b'padding-padding']) + b'\0'); assert 'http://localhost' in tl and 'http://c2host/' in tl, tl   # không phải Go: URL host một nhãn vẫn giữ
+print('OK check_static_tools (quick: URL host một nhãn ngoài Go)')

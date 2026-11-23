@@ -43,7 +43,7 @@ def build(path, d=None, cap=40):
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
             if not m or (len(s) > 400 and key != 'net') or (key == 'net' and SKIP_NET.search(m.group(0))) or (key == 'path' and SKIP_PATH.search(s)) or s.startswith(('_Z', 'type:', '*')): continue
             if key == 'cli' and is_go and GO_BUILD.match(s): continue
-            if key == 'net' and HOSTLESS.match(m.group(0).rstrip('/')): continue
+            if key == 'net' and is_go and HOSTLESS.match(m.group(0).rstrip('/')): continue
             if key == 'path' and is_go and not m.group(0).strip(' "\'=').startswith('/') and (len(s) > 120 or s.rsplit('.', 1)[0] in go_pkgs): continue   # 'runtime.lock', 'math.log' trong kho chuỗi Go là tên định danh, không phải tệp
             L.append(m.group(0) if key == 'net' else s[:160].replace('\n', ' ')); n += 1
             if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))

@@ -257,7 +257,7 @@ rs_ = xref.report(Xs, ['ext_fn']); assert '## ext_fn (nhập khẩu, stub @0x400
 Xn = xref.build(pic2(be32(0x0320f809), got0=VP + 0xe0, syms=[('pic_a', VP, 0x80)])); assert Xn['stats']['unnamed'] == 1 and 'KHÔNG có tên=1' in xref.report(pic2(be32(0x0320f809), got0=VP + 0xe0, syms=[('pic_a', VP, 0x80)]), ['pic_a'])
 VY = 0x401000; cy = bytes.fromhex('e90b000000') + b'\x90' * 11 + bytes.fromhex('c3') + b'\x90' * 15 + bytes.fromhex('ffe0') + b'\x90' * 14 + bytes.fromhex('eb00c3')
 yp = os.path.join(tempfile.mkdtemp(), 'y.elf'); open(yp, 'wb').write(elf(62, 64, False, 2, 0, cy, VY, syms=[('f_tail', VY, 5), ('system', VY + 0x10, 1), ('f_ind', VY + 0x20, 2), ('f_loc', VY + 0x30, 3)]))
-Xy = xref.build(yp); assert [fa for _, fa in Xy['callers'][VY + 0x10]] == [VY] and Xy['stats'] == dict(funcs=4, direct=1, indirect_ok=0, indirect_unknown=1, unnamed=0), Xy['stats']   # jmp đuôi = lời gọi; jmp rax = chưa giải; jmp nội hàm không tính
+Xy = xref.build(yp); assert [fa for _, fa in Xy['callers'][VY + 0x10]] == [VY] and Xy['stats'] == dict(funcs=4, direct=1, indirect_ok=0, indirect_unknown=1, plt=0, plt_named=0, unnamed=0), Xy['stats']   # jmp đuôi = lời gọi; jmp rax = chưa giải; jmp nội hàm không tính
 # --- vỏ flow.py xref: tên evidence không trùng cho truy vấn khác nhau; stdout luôn có hai dòng tổng kết
 run('xref', 'C1', 'j.elf', 'a.b'); run('xref', 'C1', 'j.elf', 'a_b')
 assert len([f for f in os.listdir(os.path.join(C, 'report', 'evidence')) if f.startswith('xref_j_elf_a_b_')]) == 2
@@ -284,3 +284,57 @@ rn = xref.report(np_); kn = rn.split('## không có symbol tên:')[1].split(', '
 assert all(any(l.startswith(f'## {w} @') for l in rn.splitlines()) for w in ('__libc_fork', '__GI_execve', '__system')) and not {'fork', 'execve', 'system'} & {k.strip() for k in kn}, rn
 assert ' connect' in rn.split('## không có symbol tên:')[1] or 'connect' in [k.strip() for k in kn]   # my_connect_helper KHÔNG phải connect: khớp đúng tên không nhận nhầm
 print('OK check_static_tools (xref: tên nội bộ libc)')
+
+# --- x86-64 liên kết động: lời gọi qua stub PLT được gắn tên hàm nhập khẩu (stub jmp [rip+disp] -> ô GOT -> relocation -> tên)
+def elfx(body, va, secs):
+    """ELF64 LE x86-64 ET_DYN với danh sách section tùy ý: (tên, loại, địa chỉ, off_trong_body|None, dữ liệu|None, tên_section_link, entsize)."""
+    eh, ph, sh = 64, 56, 64; names = [b''] + [s[0].encode() for s in secs] + [b'.shstrtab']; shs = b'\0'; noff = [0]
+    for n in names[1:]: noff.append(len(shs)); shs += n + b'\0'
+    o_body = eh + ph; blobs = b''; offs = []
+    for s in secs:
+        if s[3] is not None: offs.append((o_body + s[3], len(s[4]) if s[4] is not None else 0))
+        else: offs.append((o_body + len(body) + len(blobs), len(s[4]))); blobs += s[4]
+    o_shs = o_body + len(body) + len(blobs); o_sh = (o_shs + len(shs) + 7) & ~7; idx = {s[0]: i + 1 for i, s in enumerate(secs)}
+    hdr = b'\x7fELF' + bytes([2, 1, 1]) + b'\0' * 9 + struct.pack('<HHIQQQIHHHHHH', 3, 62, 1, va, eh, o_sh, 0, eh, ph, 1, sh, len(secs) + 2, len(secs) + 1)
+    phb = struct.pack('<IIQQQQQQ', 1, 5, o_body, va, va, len(body), len(body), 0x1000)
+    shdr = struct.pack('<IIQQQQIIQQ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    for i, s in enumerate(secs): shdr += struct.pack('<IIQQQQIIQQ', noff[i + 1], s[1], 2, s[2], offs[i][0], offs[i][1], idx.get(s[5], 0), 0, 8, s[6])
+    shdr += struct.pack('<IIQQQQIIQQ', noff[-1], 3, 0, 0, o_shs, len(shs), 0, 0, 1, 0)
+    return hdr + phb + body + blobs + shs + b'\0' * (o_sh - o_shs - len(shs)) + shdr
+VQ = 0x1000; bodyq = bytes.fromhex('e81b000000' + 'c3') + b'\x90' * 26        # fmain @0x1000: call 0x1020 (stub PLT) ; ret
+bodyq += bytes.fromhex('ff251a000000') + b'\x90' * 10                           # .plt @0x1020: jmp [rip+0x1a] -> ô GOT 0x1040
+bodyq += b'\0' * 16                                                             # .got @0x1040
+dynstr = b'\0system\0'; dynsym = b'\0' * 24 + struct.pack('<IBBHQQ', 1, 0x12, 0, 0, 0, 0)
+symstr = b'\0fmain\0'; symtab = b'\0' * 24 + struct.pack('<IBBHQQ', 1, 2, 0, 1, VQ, 6)
+rela = struct.pack('<QQq', 0x1040, (1 << 32) | 7, 0)                            # R_X86_64_JUMP_SLOT cho symbol 1 tại ô 0x1040
+qf = os.path.join(tempfile.mkdtemp(), 'plt.elf'); open(qf, 'wb').write(elfx(bodyq, VQ, [
+    ('.text', 1, VQ, 0, bodyq[:0x20], '', 0), ('.plt', 1, VQ + 0x20, 0x20, bodyq[0x20:0x30], '', 16), ('.dynsym', 11, 0, None, dynsym, '.dynstr', 24), ('.dynstr', 3, 0, None, dynstr, '', 0),
+    ('.rela.plt', 4, 0, None, rela, '.dynsym', 24), ('.symtab', 2, 0, None, symtab, '.strtab', 24), ('.strtab', 3, 0, None, symstr, '', 0)]))
+dq = open(qf, 'rb').read(); Iq = elfinfo.parse(dq); assert elfinfo.plt_ranges(Iq) == [(0x1020, 0x1030)] and elfinfo.got_relocs(dq, Iq) == {0x1040: 'system'} and elfinfo.imports(dq, Iq) == ['system']
+Xq = xref.build(qf); assert Xq['stats']['plt'] == 1 and Xq['stats']['plt_named'] == 1 and Xq['stats']['direct'] == 0 and Xq['stats']['unnamed'] == 0, Xq['stats']
+rq = xref.report(qf); assert '## system (nhập khẩu, stub @0x1020): 1 nơi gọi' in rq and 'trong fmain' in rq and 'system' not in rq.split('## nhập khẩu từ thư viện động')[1], rq
+dq2 = dq.replace(struct.pack('<QQq', 0x1040, (1 << 32) | 7, 0), struct.pack('<QQq', 0x9999, (1 << 32) | 7, 0)); qf2 = os.path.join(tempfile.mkdtemp(), 'plt2.elf'); open(qf2, 'wb').write(dq2)
+Xq2 = xref.build(qf2); rq2 = xref.report(qf2)   # relocation không khớp ô GOT của stub: vẫn đếm là PLT nhưng KHÔNG gắn tên, system chỉ nằm ở dòng nhập khẩu chưa giải
+assert Xq2['stats']['plt'] == 1 and Xq2['stats']['plt_named'] == 0 and '## system (nhập khẩu, stub' not in rq2 and 'system' in rq2.split('## nhập khẩu từ thư viện động')[1].split('\n')[0], rq2
+print('OK check_static_tools (xref: PLT x86-64)')
+# --- binary Go: bộ tên mặc định của xref là tên Go; quick bỏ cờ build, URL không có host, tên định danh pkg.name
+def gopcln(va, funcs):   # .gopclntab tối thiểu (Go 1.18+, big-endian 32-bit): funcs = [(tên, địa chỉ)]
+    names = b''; noff = []
+    for n, _ in funcs: noff.append(len(names)); names += n.encode() + b'\0'
+    hdr_len = 8 + 8 * 4; nameoff = hdr_len; pcln = nameoff + len(names); ft = b''; fs = b''; base = len(funcs) * 8 + 8
+    for k, (n, a) in enumerate(funcs): ft += struct.pack('>II', a - va, base + k * 8); fs += struct.pack('>II', a - va, noff[k])
+    ft += struct.pack('>II', 0x1000, 0)
+    return struct.pack('>IBBBB', 0xFFFFFFF1, 0, 0, 4, 4) + struct.pack('>8I', len(funcs), 0, va, nameoff, 0, 0, 0, pcln) + names + ft + fs
+VG = 0x400000; cg = be32(0x0c000000 | ((VG + 0x40) >> 2), 0, 0x03e00008, 0); cg += b'\0' * (0x40 - len(cg)) + be32(0x03e00008, 0) + b'\0' * 0x18 + be32(0x03e00008, 0)
+strs = b'\0'.join([b'-buildmode=exe', b'-trimpath=true', b'-key=KEY', b'http://OPTIONSCreated', b'http://c2.example.net/x', b'runtime.lock', b'/etc/app.conf']) + b'\0'
+gp_ = os.path.join(tempfile.mkdtemp(), 'go.elf'); open(gp_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime.main', VG + 0x60)]) + b'\0' * 8 + strs))
+rg_ = xref.report(gp_); assert 'bộ tên mặc định: Go' in rg_ and '## os/exec.Command @0x400040: 1 nơi gọi' in rg_ and 'trong main.run' in rg_ and 'execve' not in rg_, rg_
+assert 'bộ tên mặc định: libc' in xref.report(jp)
+tg, sg_ = quick.build(gp_); assert '-key=KEY' in tg and '-buildmode=exe' not in tg and '-trimpath=true' not in tg and 'http://OPTIONSCreated' not in tg and 'http://c2.example.net/x' in tg, tg
+assert 'runtime.lock' not in tg.split('## Đường dẫn và tệp')[1].split('##')[0] and '/etc/app.conf' in tg and 'main.run' in tg, tg
+tn, _ = quick.build('x', b'\0'.join([b'-buildmode=exe', b'runtime.lock', b'padding-padding']) + b'\0'); assert '-buildmode=exe' in tn and 'runtime.lock' in tn   # không phải Go: giữ nguyên
+print('OK check_static_tools (Go: xref mặc định, quick bớt nhiễu)')
+r = run('xref', 'C1', 'j.elf'); assert '# bộ tên mặc định: libc' in r.stdout and '## không có symbol tên:' in r.stdout, r.stdout[:400]   # stdout có đủ các dòng đầu và tổng kết
+print('OK check_static_tools (xref stdout)')
+tl, _ = quick.build('x', b'\0'.join([b'http://localhost', b'http://c2host/', b'padding-padding']) + b'\0'); assert 'http://localhost' in tl and 'http://c2host/' in tl, tl   # không phải Go: URL host một nhãn vẫn giữ
+print('OK check_static_tools (quick: URL host một nhãn ngoài Go)')

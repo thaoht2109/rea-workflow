@@ -56,6 +56,32 @@ def ghidra_base(I):
     measured = (I['machine'], I['cls']) in (('mips', 32), ('x86_64', 64))
     return (0x100000 if I['cls'] == 64 else 0x10000), measured
 
+def plt_ranges(I):
+    """[(đầu, cuối)] của các section PLT (x86: .plt, .plt.sec, .plt.got)."""
+    return [(v['addr'], v['addr'] + v['size']) for n, v in I['sections'].items() if n in ('.plt', '.plt.sec', '.plt.got') and v['size']]
+
+def got_relocs(d, I):
+    """{địa chỉ ô GOT: tên symbol} từ .rela.plt/.rela.dyn (64-bit) và .rel.plt/.rel.dyn (32-bit): ô GOT của hàm nhập khẩu mà stub PLT nhảy qua."""
+    E = I['_E']; S = I['sections'].get('.dynsym'); T = I['sections'].get('.dynstr'); out = {}
+    if not S or not T: return out
+    ent = S['entsize'] or (24 if I['cls'] == 64 else 16)
+    def name(i):
+        o = S['off'] + i * ent
+        if i <= 0 or ent < 16 or o + ent > len(d): return None
+        nm = struct.unpack_from(E + 'I', d, o)[0]; a = T['off'] + nm; e = d.find(b'\0', a) if a < len(d) else -1
+        return d[a:e].decode('latin1') if nm and e >= 0 else None
+    for sn in ('.rela.plt', '.rela.dyn', '.rel.plt', '.rel.dyn'):
+        R = I['sections'].get(sn)
+        if not R: continue
+        rela = sn.startswith('.rela'); fmt = E + (('QQq' if rela else 'QQ') if I['cls'] == 64 else ('IIi' if rela else 'II')); n = struct.calcsize(fmt)
+        for k in range(R['size'] // n):
+            o = R['off'] + k * n
+            if o < 0 or o + n > len(d): break
+            f = struct.unpack_from(fmt, d, o); sym = f[1] >> 32 if I['cls'] == 64 else f[1] >> 8
+            nmv = name(sym)
+            if nmv: out[f[0]] = nmv
+    return out
+
 def imports(d, I):
     """Tên symbol nhập khẩu (UND: do thư viện động cung cấp, gọi qua PLT/GOT)."""
     return sorted({n for n, v, sz, ty in symbols(d, I, und=True) if ty == 'UND'})

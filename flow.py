@@ -172,7 +172,8 @@ def xref_cmd(c, f, names):
     L = text.splitlines(); hdr = [x for x in L if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
     print('\n'.join([x for x in L if x.startswith('# ')] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
 
-SCAN_REPORT = re.compile(r'(?i)(?:^|[_\-. ])(?:reports?|bao[_-]?cao)(?:[_\-. ]|$)')   # 'report' là một từ riêng trong tên (old_report, x_report_new); ReportingAgent, crashreporter là mẫu
+# 'report' là một từ riêng trong tên, kể cả viết liền kiểu CamelCase hay kèm số (old_report, OldReport, report2024, BaoCaoV2); ReportingAgent, crashreporter là mẫu
+SCAN_REPORT = re.compile(r'(?<![A-Za-z])[Rr]eports?(?![a-z])|(?<=[a-z])Reports?(?![a-z])|(?<![A-Za-z])REPORTS?(?![A-Za-z])|(?<![a-z])(?i:bao[_-]?cao)(?![a-z])')
 SCAN_MAX = 8   # số mẫu tối đa gom vào một case; nhiều hơn thì chia nhóm hoặc dùng flow.py watch (mỗi mẫu một case)
 
 def scan_collect(d, workspace):
@@ -224,6 +225,7 @@ def scan_cmd(d, c=None, dry=False):
         print(f'case {c} đã có: không tạo lại.')
         if dry: print('--dry-run: không ghi gì')
         elif review.gate(c)[0]: print('case đã qua cổng phản biện: không thêm evidence đọc nhanh (tránh evidence mồ côi trong case đã chốt)')
+        elif review.gate(c)[1].startswith('đã STOPPED'): print('case đã STOPPED ở cổng phản biện: không phân tích thêm, không thêm evidence (xem work/review/STOP_REPORT.md)')
         else: _fastpass(c, only_missing=True)
         print('Trạng thái:'); review.next_step(c); return 0
     if not ok: raise SystemExit('không có mẫu nào để phân tích trong thư mục này')
@@ -246,12 +248,19 @@ def _fastpass(c, only_missing=False):
     todo = []
     for p in files:
         a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
-        if os.path.isfile(a) and not (only_missing and os.path.isfile(os.path.join(ev, f'quick_{tagof(a)}.txt'))): todo.append(a)
+        if not os.path.isfile(a): continue
+        tools = [(quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')]
+        if only_missing:   # bù từng công cụ còn thiếu evidence; xref/syscalls chỉ áp cho ELF có bảng ABI (loại khác vốn bị bỏ qua)
+            from static import elfinfo
+            try: I = elfinfo.parse(open(a, 'rb').read()); elf_ok = bool(I and elfinfo.abi(I))
+            except Exception: elf_ok = False   # header cố ý làm hỏng: coi như không phải ELF hỗ trợ, không làm dừng lượt bù
+            tools = [(fn, lb) for fn, lb in tools if not os.path.isfile(os.path.join(ev, f'{lb}_{tagof(a)}.txt')) and (lb == 'quick' or elf_ok)]
+        if tools: todo.append((a, tools))
     need_link = len(files) >= 2 and (not only_missing or todo or not os.path.isfile(os.path.join(ev, 'link_samples.txt')))
     if only_missing and not todo and not need_link: return
     print('== lượt đọc nhanh (evidence, chưa phải fact)' + (' - bù phần còn thiếu' if only_missing else ''))
-    for a in todo:
-        for fn, label in ((quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')):
+    for a, tools in todo:
+        for fn, label in tools:
             print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
     if not only_missing:
         for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')

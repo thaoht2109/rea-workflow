@@ -21,7 +21,7 @@ SKIP_NET = re.compile(r'(?i)gcc\.gnu\.org|golang\.org|go\.dev|\.so\b|\.go\b|\.h\
 CLS = re.compile(r'_ZN[KVr]*(\d+)')   # tên Itanium: _ZN<độ dài><tên>...; lấy đúng độ dài, không lấy phần còn lại
 
 GO_BUILD = re.compile(r'^\s*-(?:buildmode|compiler|trimpath|ldflags|tags|gcflags|asmflags|race|msan|asan|buildvcs|mod|pgo)\b')   # cài đặt build Go nằm trong buildinfo, không phải tham số của mẫu
-GO_IDENT = re.compile(r'[a-z][\w/]*\.[a-z_]\w*')   # dạng package.tên của Go
+GO_IDENT = re.compile(r'[a-z][\w/]*\.[a-z_]\w*$')   # dạng package.tên của Go
 HOSTLESS = re.compile(r'(?i)^https?://[^./?#:]+$')   # 'URL' không có dấu chấm trong host (hằng nối liền trong kho chuỗi Go, ví dụ http://OPTIONS...)
 
 def build(path, d=None, cap=40):
@@ -32,17 +32,19 @@ def build(path, d=None, cap=40):
             from static import gopclntab
             gofuncs = [n for _, n in gopclntab.funcs(path)] if os.path.exists(path) else []
         except (SystemExit, Exception): gofuncs = []
-    is_go = bool(gofuncs); go_names = set(gofuncs); go_pkgs = set()
-    for n in gofuncs:   # tên package của từng hàm: phần trước dấu chấm đầu tiên sau dấu '/' cuối (net/http.(*Client).Get -> net/http), kèm tên ngắn (http)
-        dot = n.find('.', n.rfind('/') + 1)
-        if dot > 0: go_pkgs.update((n[:dot], n[:dot].rsplit('/', 1)[-1]))
-    go_pkgs.discard('main')   # main.log, main.conf thường là tên tệp thật
+    is_go = bool(gofuncs); go_names = set(gofuncs)
+    go_pref = {n[:k] for n in gofuncs for k, ch in enumerate(n) if k and ch in '.('}   # mọi tiền tố đứng trước '.' hoặc '(' của một tên hàm thật (runtime.lock của runtime.lock.func1)
+    go_pkgs = set()   # tên package của từng hàm (net/http) và tên ngắn (http); chỉ dùng để ĐÁNH DẤU mục nghi là định danh, không dùng để bỏ
+    for n in gofuncs:
+        k = n.find('.', n.rfind('/') + 1)
+        if k > 0: go_pkgs.update((n[:k], n[:k].rsplit('/', 1)[-1]))
+    go_pkgs.discard('main')
     L.append(f'# quick {os.path.basename(path)}: {len(d)} B')
     if I:
         L.append(f"elf: {I['machine']} {I['cls']}-bit {'BE' if I['be'] else 'LE'} etype={I['etype']} entry={I['entry']:#x} abi={elfinfo.abi(I)} section={len(I['sections'])} symbol={len(elfinfo.symbols(d, I))}")
     asc, wide = scan_strings(d, 6); seen = set(); S = [s for s in asc + wide if not (s in seen or seen.add(s))]
     for key, title, rx in GROUPS:
-        L.append(f'## {title}'); n = 0; dropped = 0
+        L.append(f'## {title}'); n = 0; dropped = 0; dnames = []; ident = []
         for s in S:
             m = rx.search(s)
             if key == 'net' and len(s) > 120: m = URL_IP.search(s)   # chuỗi dài (kho chuỗi Go nối liền): chỉ nhận URL/IP, bỏ 'tên miền' ghép ngẫu nhiên
@@ -53,17 +55,21 @@ def build(path, d=None, cap=40):
             if key == 'path' and is_go:   # kho chuỗi Go: xét MỌI kết quả khớp; có đường dẫn tuyệt đối thì giữ đúng đường dẫn đó, không thì bỏ chuỗi dài và tên định danh Go (runtime.lock, math.log)
                 ab = next((x for x in rx.finditer(s) if x.group(0).strip(' "\'=').startswith('/')), None)
                 if ab is not None: m = ab; gopath = ab.group(0).strip(' "\'=') if len(s) > 120 else None
-                elif len(s) > 120 or s in go_names or (GO_IDENT.match(s) and s.rsplit('.', 1)[0] in go_pkgs): continue   # pkg.ident của package có trong binary (sync.lock, os.log) là định danh, không phải tệp
+                elif len(s) > 120: continue
+                elif s in go_names or s in go_pref: dropped += 1; dnames.append(s); continue   # đúng là tên hàm Go (hoặc tiền tố của tên hàm thật), không phải tệp
+                elif GO_IDENT.match(s) and s.rsplit('.', 1)[0] in go_pkgs: ident.append(s)   # trùng tên package (sync.lock, debug.log): có thể là định danh, có thể là tệp thật -> VẪN liệt kê, chỉ không sinh gợi ý fact
             L.append(m.group(0) if key == 'net' else gopath if gopath else s[:160].replace('\n', ' ')); n += 1
             if key == 'cli' and s.lstrip().startswith('-') and sum(1 for x in sug if x[0] == 'cli') < 6: sug.append(('cli', s.strip()[:80], len(L)))
-            if key in ('net', 'path') and len(sug) < 24:
+            if key in ('net', 'path') and len(sug) < 24 and s not in ident:
                 v = m.group(0).strip(' "\'=')
                 if key == 'path' and not v.startswith('/'):   # nhánh theo đuôi tệp (.conf, .json): lấy cả token chứa nó
                     t = re.search(r'[\w./-]*' + re.escape(v), s); v = t.group(0) if t else ''
                 if len(v) >= 5: sug.append((key, v, len(L)))
             if n >= cap: break
         if not n: L.append('(không có)')
-        if dropped: L.append(f'(đã bỏ {dropped} URL không có dấu chấm trong host: hằng nối liền trong kho chuỗi Go, xem strings nếu cần)')
+        if dropped and key == 'net': L.append(f'(đã bỏ {dropped} URL không có dấu chấm trong host: hằng nối liền trong kho chuỗi Go, xem strings nếu cần)')
+        if dropped and key == 'path': L.append(f"(đã bỏ {dropped} chuỗi trùng tên hàm Go hoặc tiền tố của tên hàm: {', '.join(dnames[:6])}{' ...' if len(dnames) > 6 else ''})")
+        if ident: L.append(f"(lưu ý: {len(ident)} mục ở trên có phần đầu trùng tên package Go, có thể là định danh chứ không phải tệp, không sinh gợi ý fact: {', '.join(ident[:6])}{' ...' if len(ident) > 6 else ''})")
     if I:
         syms = [x[0] for x in elfinfo.symbols(d, I)]
         L.append('## Lớp C++ trong symbol (không tính std/boost/fmt/spdlog/__gnu)'); C = collections.Counter()
@@ -85,7 +91,7 @@ def groups(text):
     title = {t: k for k, t, _ in GROUPS}; out = {k: [] for k, _, _ in GROUPS}; cur = None
     for l in text.splitlines():
         if l.startswith('## '): cur = title.get(l[3:]); continue
-        if cur and l and l != '(không có)' and not l.startswith('(đã bỏ '): out[cur].append(l)   # chỉ bỏ đúng hai ghi chú của công cụ; chuỗi thật dạng '(default: ...)' vẫn là mục
+        if cur and l and l != '(không có)' and not l.startswith(('(đã bỏ ', '(lưu ý: ')): out[cur].append(l)   # chỉ bỏ đúng các ghi chú của công cụ; chuỗi thật dạng '(default: ...)' vẫn là mục
     return out
 
 if __name__ == '__main__':

@@ -385,3 +385,11 @@ mf = os.path.join(tempfile.mkdtemp(), 'multi.elf'); open(mf, 'wb').write(elfx2(6
 Xm_ = xref.build(mf); assert Xm_['stats']['plt'] == 3 and Xm_['stats']['plt_named'] == 2 and Xm_['stats']['unnamed'] == 0 and Xm_['stats']['direct'] == 0, Xm_['stats']
 rm_ = xref.report(mf); assert '## system (nhập khẩu, stub @0x1020, 0x1030): 2 nơi gọi' in rm_ and rm_.count('trong fm') == 2, rm_   # hai stub của cùng hàm gom lại; stub không reloc không được gắn tên
 print('OK check_static_tools (xref: cgo, PLT i386, nhiều stub)')
+# --- disasm x86-64: lea với độ dời nhỏ capstone in dạng thập phân ([rip + 5]) vẫn chú thích được chuỗi
+VL = 0x401000; cl = bytes.fromhex('488d0505000000' + 'c3') + b'\x90' * 4 + b'/etc/near.conf\0'   # lea rax,[rip+5] -> VL+0xc ; ret ; chuỗi tại VL+0xc
+lp_ = os.path.join(tempfile.mkdtemp(), 'lea.elf'); open(lp_, 'wb').write(elf(62, 64, False, 2, 0, cl, VL, syms=[('f_lea', VL, 8)]))
+tl_ = '\n'.join(disasm.disasm(lp_, ['f_lea'])[0][0]['lines']); assert '"/etc/near.conf"' in tl_ and 'rip + 5' in tl_, tl_
+# --- quick.groups: chỉ bỏ ghi chú của công cụ, không bỏ chuỗi thật có dạng (…)
+gq = quick.groups('## Tham số dòng lệnh / usage\n(default: /etc/x.conf) --help\n(default: -v)\n(không có)\n## URL, tên miền, IP\nc2.example.net\n(đã bỏ 2 URL không có dấu chấm trong host: x)\n')
+assert gq['cli'] == ['(default: /etc/x.conf) --help', '(default: -v)'] and gq['net'] == ['c2.example.net'], gq
+print('OK check_static_tools (disasm lea thập phân, quick.groups)')

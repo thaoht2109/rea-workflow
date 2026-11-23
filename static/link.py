@@ -12,7 +12,7 @@ HOST = re.compile(r'(?i)^(?:https?://)?([a-z0-9.-]+\.[a-z]{2,})(?:[:/]|$)')
 
 MAX_SAMPLES = 12   # đối chiếu từng cặp: giới hạn số mẫu, lấy các tệp lớn nhất
 MAX_BYTES = 256 << 20   # tệp lớn hơn ngưỡng này không nạp vào bộ nhớ để đối chiếu (firmware, app đóng gói): bỏ qua có thông báo
-MAX_TOTAL = 512 << 20   # trần tổng dung lượng các tệp nạp cùng lúc
+MAX_TOTAL = 512 << 20   # trần tổng dung lượng tệp được nạp; bộ nhớ thực dùng khoảng gấp đôi (giữ thêm bản chữ thường để đếm) cộng phần của quick
 
 def _sha(p):
     h = hashlib.sha256()
@@ -32,7 +32,7 @@ def _files(case):
             else: out.append((n, p, a))
         else: skip.append(f'{n} (không còn trong work/sample)')
     if len(out) > MAX_SAMPLES:
-        out.sort(key=lambda x: -os.path.getsize(x[1])); skip += [f'{n} (vượt giới hạn {MAX_SAMPLES} mẫu lớn nhất)' for n, _, _ in out[MAX_SAMPLES:]]; out = sorted(out[:MAX_SAMPLES])
+        out.sort(key=lambda x: -os.path.getsize(x[2])); skip += [f'{n} (vượt giới hạn {MAX_SAMPLES} mẫu lớn nhất)' for n, _, _ in out[MAX_SAMPLES:]]; out = sorted(out[:MAX_SAMPLES])
     keep, tot = [], 0
     for x in sorted(out, key=lambda x: os.path.getsize(x[2])):   # nhận từ tệp nhỏ tới lớn cho tới trần tổng: giữ được nhiều mẫu nhất
         sz = os.path.getsize(x[2])

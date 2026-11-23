@@ -80,7 +80,7 @@ def groups(text):
     title = {t: k for k, t, _ in GROUPS}; out = {k: [] for k, _, _ in GROUPS}; cur = None
     for l in text.splitlines():
         if l.startswith('## '): cur = title.get(l[3:]); continue
-        if cur and l and not (l.startswith('(') and l.endswith(')')): out[cur].append(l)   # dòng trong ngoặc là ghi chú của công cụ, không phải mục
+        if cur and l and l != '(không có)' and not l.startswith('(đã bỏ '): out[cur].append(l)   # chỉ bỏ đúng hai ghi chú của công cụ; chuỗi thật dạng '(default: ...)' vẫn là mục
     return out
 
 if __name__ == '__main__':

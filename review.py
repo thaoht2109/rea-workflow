@@ -248,7 +248,7 @@ def report_relation(c):
     if len(C.sources(c)) < 2 or 'C12' in accepted(c): return ''   # C12 đã được chấp nhận là hạn chế (next --accept C12=lý do): không đòi mục báo cáo
     r = C.report_md(c); t = open(r, encoding='utf-8', errors='replace').read() if os.path.isfile(r) else ''
     if re.search(r'(?im)^#{1,6} .*quan hệ giữa', t): return ''
-    return f"{r} chưa có mục 'Quan hệ giữa các mẫu' (case có {len(C.sources(c))} mẫu): thêm tiêu đề đó, bảng nhận định / trạng thái (đã chứng minh hay giả thuyết) / fact relation làm căn cứ"
+    return f"{r} chưa có mục 'Quan hệ giữa các mẫu' (case có {len(C.sources(c))} mẫu): thêm tiêu đề đó, bối cảnh thu mẫu, bảng nhận định / mức (direct, shared, context, unrelated) / trạng thái (đã chứng minh hay giả thuyết) / fact relation làm căn cứ"
 
 def report_blank(c):
     """Dòng giữ chỗ của template còn nguyên trong báo cáo viết tay (C.report_md): còn thì phần chữ chưa được viết, case không được DONE.

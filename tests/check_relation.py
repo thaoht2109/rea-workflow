@@ -29,8 +29,14 @@ r = add(id='l.h', kind='relation', value='agent_a.bin khởi chạy helper_b.bin
 assert r.returncode == 0 and ck(R1)['C12'] == 'partial', r.stdout   # chỉ có giả thuyết: chưa đủ
 r = add(id='l.one', kind='relation', value='helper_b.bin dùng chung cấu hình', src='S', evidence=f'report/evidence/link_samples.txt#L{ln}')
 assert 'relation_samples' in r.stdout, r.stdout   # chỉ nêu một mẫu: cảnh báo
-r = add(id='l.ok', kind='relation', value='agent_a.bin và helper_b.bin cùng dùng /opt/agent/helper.conf và host c2.example.net', src='S', evidence=f'report/evidence/link_samples.txt#L{ln}')
-assert 'relation_samples' not in r.stdout and ck(R1)['C12'] == 'ok', r.stdout
+r = add(id='l.nolevel', kind='relation', value='agent_a.bin và helper_b.bin cùng dùng /opt/agent/helper.conf', src='S', evidence=f'report/evidence/link_samples.txt#L{ln}')
+assert 'relation_level' in r.stdout and 'relation_samples' not in r.stdout and ck(R1)['C12'] == 'partial', r.stdout   # chưa nêu mức nhận định: chưa đủ
+open(os.path.join(R1, 'report', 'evidence', 'host_collection.txt'), 'w', encoding='utf-8').write('người thu mẫu: agent_a.bin và helper_b.bin lấy từ cùng một thiết bị, nghi liên quan\n')
+r = add(id='l.ctx', kind='relation', value='context: người thu mẫu cho biết agent_a.bin và helper_b.bin lấy từ cùng một thiết bị', src='V', evidence='report/evidence/host_collection.txt')
+assert 'relation_level' not in r.stdout and ck(R1)['C12'] == 'partial', r.stdout   # bối cảnh do người thu mẫu cung cấp (V) không thay cho nhận định từ dịch ngược
+r = add(id='l.ok', kind='relation', value='shared: agent_a.bin và helper_b.bin cùng dùng /opt/agent/helper.conf và host c2.example.net', src='S', evidence=f'report/evidence/link_samples.txt#L{ln}')
+assert 'relation_samples' not in r.stdout and 'relation_level' not in r.stdout and ck(R1)['C12'] == 'ok', r.stdout
+assert set(case.RELATION) == {'direct', 'shared', 'context', 'unrelated'} and case.RELATION_RX.match('unrelated: khác hạ tầng') and not case.RELATION_RX.match('direct') and not case.RELATION_RX.match('lien quan: x')
 # báo cáo: case nhiều mẫu phải có mục 'Quan hệ giữa các mẫu'
 assert 'Quan hệ giữa các mẫu' in review.report_relation(R1)
 rp = case.report_md(R1); open(rp, 'a', encoding='utf-8').write('\n### 4.3 Quan hệ giữa các mẫu\n\n| Nhận định | Trạng thái | Căn cứ |\n|---|---|---|\n')
@@ -123,4 +129,14 @@ old_tot = link.MAX_TOTAL; link.MAX_TOTAL = 2000
 try: tm2 = link.build(M1)
 finally: link.MAX_TOTAL = old_tot
 assert 'up_b.bin (tổng dung lượng vượt' in tm2 and 'up_b.bin chứa định danh' not in tm2 and 'up_c.bin chứa định danh của up_a.bin' in tm2, tm2
+# --- link: tín hiệu cho mức nhận định, mốc thời gian nhúng trong mẫu, đặc trưng pivot
+open(os.path.join(ws, 'go_a.bin'), 'wb').write(b'\x01' + b'\0'.join([b'vcs.time=2024-08-05T20:07:33Z', b'vcs.revision=c4f3637877ce822627fda5713284ecbecb24ac18', b'http://c2.example.net/x']) + b'\0')
+open(os.path.join(ws, 'c_b.bin'), 'wb').write(b'\x02' + b'\0'.join([b'nothing shared here', b'pad-pad']) + b'\0')
+assert run('flow.py', 'new', 'S1', 'go_a.bin', 'c_b.bin').returncode == 0; S1 = os.path.join(ws, 'S1'); ts = link.build(S1)
+lg = [l for l in ts.splitlines() if l.startswith('go_a.bin: ') and 'vcs.' in l][0]
+assert 'vcs.time=2024-08-05T20:07:33Z' in lg and 'vcs.revision=c4f3637877ce822627fda5713284ecbecb24ac18' in lg and 'c_b.bin: không có mốc thời gian nhúng đọc được' in ts, ts
+sig = ts.split('## Tín hiệu cho mức nhận định')[1]
+assert 'KHÔNG phải kết luận' in ts and 'direct: chưa thấy tín hiệu tĩnh' in sig and 'shared: chưa thấy tín hiệu tĩnh' in sig and 'chỉ còn context hoặc unrelated' in sig, sig
+tr = link.build(os.path.join(ws, 'F1')); sg = tr.split('## Tín hiệu cho mức nhận định')[1]   # F1 = agent_a.bin + helper_b.bin: có định danh chéo và chuỗi chung
+assert 'direct: có định danh chéo' in sg and 'shared: 1 chuỗi chung' in sg and 'chỉ còn context' not in sg, sg
 print('OK check_relation')

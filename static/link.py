@@ -67,7 +67,7 @@ def build(case):
     D = {n: open(a, 'rb').read() for n, _, a in F}; LOW = {n: v.lower() for n, v in D.items()}; T = {}; G = {}
     for n, p, a in F:
         R = _triage(case, hashlib.sha256(D[n]).hexdigest())
-        st = os.stat(p); T[n] = dict(size=st.st_size, mtime=st.st_mtime, sha256=_sha(p), type=' '.join([R['type']] + R.get('flags', [])) if R and R.get('type') else None, unp=a != p)
+        st = os.stat(p); T[n] = dict(size=st.st_size, mtime=st.st_mtime, sha256=_sha(p), type=' '.join([R['type']] + R.get('flags', [])) if R and R.get('type') else None, unp=a != p, R=R or {})
         G[n] = quick.groups(quick.build(a, D[n])[0])
     L = [f'# đối chiếu chéo tĩnh giữa {len(F)} mẫu của case (không chạy mẫu): ' + ', '.join(n for n, _, _ in F),
          '# giới hạn: chỉ so chuỗi rõ và siêu dữ liệu tệp; không có tham chiếu chéo KHÔNG loại trừ liên hệ lúc chạy (lệnh từ máy chủ, script khởi động ngoài bộ mẫu).',
@@ -83,11 +83,13 @@ def build(case):
         L.append(('cùng định dạng và kiến trúc: ' + next(iter(arch.values()))) if len(set(arch.values())) == 1 else 'khác định dạng/kiến trúc: ' + ' | '.join(f'{n}: {a}' for n, a in arch.items()))
         L += [f"{n}: {T[n]['type']}" for n, _, _ in F]
     L.append('## Định danh của mẫu này trong mẫu kia (số lần xuất hiện, không phân biệt hoa thường)')
+    cross = []   # (mẫu chứa, mẫu có định danh, định danh, số lần): tín hiệu cho mức 'direct'
     for a, _, _ in F:
         ids = _idents(a, G[a])
         for b, _, _ in F:
             if a == b: continue
             hits = [(x, LOW[b].count(x.lower().encode('utf-8'))) for x in ids if x.encode('utf-8')]   # đếm trên bản chữ thường bằng bytes.count (một lượt C, không regex); UTF-8 nên tên không phải Latin không thành mẫu rỗng
+            cross += [(b, a, x, c) for x, c in hits if c]
             L.append(f'{b} chứa định danh của {a}: ' + (', '.join(f'"{x}" {c} lần' for x, c in hits if c) or 'không có') + f' (đã thử {len(ids)} định danh: {", ".join(ids[:8])}{"…" if len(ids) > 8 else ""})')
     L.append('## Chuỗi chung đáng chú ý (URL/tên miền, đường dẫn không phổ biến, tham số dòng lệnh có ở từ hai mẫu trở lên)')
     seen = {}
@@ -97,6 +99,35 @@ def build(case):
             if len(l) >= 6 and not GENERIC.match(l): seen.setdefault(l, []).append(n)
     common = [(l, ns) for l, ns in seen.items() if len(ns) >= 2]
     L += [f'{l}  [{", ".join(ns)}]' for l, ns in common[:30]] or ['(không có)']
+    L.append('## Đặc trưng chung theo triage (pivot)'); piv = []
+    for key in ('imphash', 'rich', 'build_id', 'pdb_guid'):
+        by = {}
+        for n, _, _ in F:
+            v = T[n]['R'].get('pivot', {}).get(key)
+            if v: by.setdefault(str(v), []).append(n)
+        piv += [f'cùng {key} {v}: {", ".join(ns)}' for v, ns in by.items() if len(ns) >= 2]
+    secs = {n: {x.get('md5') for x in T[n]['R'].get('sections', []) if isinstance(x, dict) and x.get('md5')} for n, _, _ in F}
+    for i, (a, _, _) in enumerate(F):
+        for b, _, _ in F[i + 1:]:
+            sh = secs[a] & secs[b]
+            if sh: piv.append(f'{a} và {b} có {len(sh)} section trùng md5')
+    L += piv or ['(không có đặc trưng trùng: imphash, rich, build_id, pdb_guid, md5 section)']
+    tl = {n: T[n]['R'].get('pivot', {}).get('tlsh') for n, _, _ in F}
+    if sum(1 for v in tl.values() if v) >= 2:
+        try:
+            import tlsh
+            ns = [n for n in tl if tl[n]]; L += [f'khoảng cách tlsh {a} - {b}: {tlsh.diff(tl[a], tl[b])} (càng nhỏ càng giống; dưới khoảng 100 mới đáng chú ý)' for i, a in enumerate(ns) for b in ns[i + 1:]]
+        except Exception: L.append('tlsh của các mẫu có trong triage nhưng máy chưa cài py-tlsh nên chưa tính khoảng cách')
+    L.append('## Mốc thời gian nằm trong mẫu (đối chiếu với thời điểm phản ánh do người thu mẫu cung cấp)')
+    for n, _, _ in F:
+        marks = [m.decode('latin1') for m in re.findall(rb'vcs\.(?:time|revision)=[0-9A-Za-z:T-]{6,64}', D[n])[:2]]
+        ts = T[n]['R'].get('pivot', {}).get('timestamp')
+        if isinstance(ts, int) and 0 < ts < 4102444800: marks.append('PE TimeDateStamp ' + datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat(timespec='seconds') + ' (có thể bị giả)')
+        L.append(f'{n}: ' + ('; '.join(marks) if marks else 'không có mốc thời gian nhúng đọc được'))
+    L.append('## Tín hiệu cho mức nhận định (KHÔNG phải kết luận: nhận định phải dựa trên kết quả dịch ngược từng mẫu)')
+    L.append('direct: ' + ('có định danh chéo: ' + '; '.join(f'{b} chứa "{x}" của {a}' for b, a, x, c in cross[:6]) if cross else 'chưa thấy tín hiệu tĩnh (không mẫu nào chứa định danh của mẫu khác)'))
+    L.append('shared: ' + (f'{len(common)} chuỗi chung đáng chú ý, {len(piv)} đặc trưng pivot trùng' if common or piv else 'chưa thấy tín hiệu tĩnh (không có chuỗi chung đáng chú ý hay đặc trưng trùng)'))
+    if not cross and not common and not piv: L.append('chưa có tín hiệu kỹ thuật: chỉ còn context hoặc unrelated, trừ khi dịch ngược tìm ra liên hệ (chung C2, khóa, giao thức, mã) mà phép so chuỗi không thấy')
     return '\n'.join(L) + '\n'
 
 if __name__ == '__main__':

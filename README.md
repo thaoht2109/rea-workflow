@@ -125,9 +125,10 @@ Agent tự tạo case, triage, phân tích, ghi fact, chạy phản biện và v
 Có hai chế độ. Thư mục skill có `.claude-plugin/plugin.json`, nên khi nằm trong `~/.claude/skills/` (cài bằng `npx` hay `git clone` như trên) Claude Code tự nạp nó thành plugin `rea-workflow@skills-dir` với hai skill (kiểm: `claude plugin details rea-workflow@skills-dir`; nơi khác thì `claude --plugin-dir $SKILL`):
 
 - `/rea-workflow:manual`: phân tích từng mẫu, có người theo dõi từng bước (như ví dụ trên).
-- `/rea-workflow:auto`: chạy cả một thư mục và theo dõi mẫu mới (`flow.py watch INBOX`). Mỗi mẫu một case, mỗi mốc một phiên `claude -p` riêng; quét cả thư mục con; `--report` gom báo cáo của case xong vào `Report_<tên INBOX>` cạnh INBOX; case dừng và báo người khi phản biện FAIL 2 lần, hết trần phiên hoặc không còn tiến triển. Phiên không có người duyệt, nên chạy trong VM không có mạng ra ngoài.
+- `/rea-workflow:all`: gom mọi mẫu trong một thư mục thu mẫu (cùng chiến dịch, cùng thiết bị) vào MỘT case bằng `flow.py scan THƯ_MỤC`; một mẫu thì phân tích một mẫu, từ hai mẫu thì phân tích tất cả, nhận định quan hệ giữa các mẫu và phản biện cả bộ trong một lượt, một báo cáo chung.
+- `/rea-workflow:auto`: chạy cả một thư mục và theo dõi mẫu mới (`flow.py watch INBOX`). Mỗi mẫu một case với nhận định riêng, mỗi mốc một phiên `claude -p` riêng; quét cả thư mục con; `--report` gom báo cáo của case xong vào `Report_<tên INBOX>` cạnh INBOX; case dừng và báo người khi phản biện FAIL 2 lần, hết trần phiên hoặc không còn tiến triển. Phiên không có người duyệt, nên chạy trong VM không có mạng ra ngoài.
 
-Agent khác (Codex, Cursor…) dùng `SKILL.md` ở gốc, trong đó có mục "Hai chế độ".
+Agent khác (Codex, Cursor…) dùng `SKILL.md` ở gốc, trong đó có mục "Ba chế độ".
 
 **Lệnh thường dùng** (khi muốn tự điều khiển):
 

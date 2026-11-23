@@ -26,7 +26,7 @@ compatibility: Linux x86-64; Python >= 3.9; Node.js >= 22.20; JDK 21 + Ghidra 12
 Code dẫn đường, không cần đọc lại tài liệu:
 
 1. `python3 $SKILL/flow.py new <CASE> <mẫu|zip>...` tạo case và triage. Triage gợi ý chế độ nhẹ cho PE/ELF không đóng gói: `new ... --light` hoặc `flow.py mode <CASE> light` (chỉ tầng tĩnh, khóa `tool`/`v8`; cổng phản biện không đổi; cần giả lập thì `mode <CASE> full`).
-1a. Các mẫu thu cùng nhau (cùng thư mục, cùng thiết bị, cùng sự cố) đưa vào MỘT case: `flow.py new <CASE> <mẫu1> <mẫu2>...`. Khi đó checklist có mục C12: chạy `flow.py link <CASE>`, ghi quan hệ thành fact `kind=relation` (đã chứng minh = active, suy luận = hypothesis, không thấy = `n/a: lý do`) và viết mục "Quan hệ giữa các mẫu" trong báo cáo.
+1a. Các mẫu thu cùng nhau (cùng thư mục, cùng thiết bị, cùng sự cố) đưa vào MỘT case: `flow.py new <CASE> <mẫu1> <mẫu2>...`, hoặc `flow.py scan <THƯ_MỤC>` để gom cả thư mục và chạy luôn lượt đọc nhanh. Khi đó checklist có mục C12: chạy `flow.py link <CASE>`, ghi quan hệ thành fact `kind=relation` (đã chứng minh = active, suy luận = hypothesis, không thấy = `n/a: lý do`) và viết mục "Quan hệ giữa các mẫu" trong báo cáo.
 1b. Đọc nhanh trước khi dịch ngược sâu (vài giây, không cần Ghidra): `flow.py quick <CASE> <file>` (chuỗi/symbol gom nhóm, gợi ý fact), `flow.py syscalls <CASE> <file>` (syscall ELF MIPS/x86), `flow.py disasm <CASE> <file> <tên|0xĐỊACHỈ|list:CHUỖI>` (disasm có tên hàm và chuỗi, rất hợp Go bị strip), `flow.py xref <CASE> <file> [tên...]` (ai gọi hàm đó; không có tên = bộ hàm nhạy cảm). Kết quả là evidence `quick_*`/`syscalls_*`/`disasm_*`/`xref_*`; kết luận vẫn phải thành fact.
 2. `python3 $SKILL/flow.py next <CASE>` cho việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy; `status` cho checklist, `resume` sau khi ngữ cảnh bị nén. Làm đúng theo output rồi gọi lại.
 3. Triage trả `unknown` (định dạng chưa có đường đi): tự viết công cụ trong khuôn `python3 $SKILL/flow.py tool <CASE> new`, tự chạy nó (vẫn theo quy tắc không chạy mẫu), rồi `tool <CASE> seal` (phải có phép tự kiểm đạt mới dùng được làm bằng chứng; `FLOW.md` mục 2, tầng T1b).
@@ -38,7 +38,8 @@ Kho tra chéo giữa các case (`flow.py kb`): `new`/`triage` tự in gợi ý m
 
 Giả lập shellcode/loader Windows x86: `$SKILL/winemu/README.md`. Lệnh `rea` được phép theo loại mẫu và lệnh bị cấm: `$SKILL/FLOW.md` mục 4a.
 
-## Hai chế độ
+## Ba chế độ
 
 - **Từng mẫu, có người theo dõi:** quy trình ở trên. Trong Claude Code là skill `rea-workflow:manual`.
+- **Cả thư mục thu mẫu thành một case, có người theo dõi:** `flow.py scan <THƯ_MỤC>` gom mọi mẫu ở cấp một của thư mục vào một case (1 mẫu hay nhiều mẫu), chạy lượt đọc nhanh và `link`; hướng dẫn ở `$SKILL/plugin-skills/all/SKILL.md`. Trong Claude Code là skill `rea-workflow:all`.
 - **Cả thư mục và theo dõi mẫu mới, không người trực:** `flow.py watch`, hướng dẫn ở `$SKILL/plugin-skills/auto/SKILL.md`. Trong Claude Code là skill `rea-workflow:auto`.

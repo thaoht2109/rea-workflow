@@ -2,6 +2,9 @@
 # Điều phối flow phân tích dịch ngược cho mọi mẫu (FLOW.md). Không bao giờ thực thi mẫu.
 #   flow.py new CASE MẪU...            tạo case, chép/giải nén mẫu vào work/sample (0400), report/report-<ngày>.md từ template, triage tất cả
 #   flow.py mode CASE [light|full]     chế độ case: light = mẫu đơn giản, chỉ tầng tĩnh (khóa `tool` và `v8`; winemu/T3 không bị khóa nhưng không dùng, không bắt buộc tách phiên); full (mặc định). Cổng phản biện giống nhau. Không tham số = xem
+#   flow.py scan THƯ_MỤC [CASE] [--dry-run]   gom MỌI mẫu ở cấp một của thư mục thu mẫu vào MỘT case (1 mẫu: case một mẫu; từ 2 mẫu: bật C12), rồi chạy lượt đọc nhanh
+#                                      (quick, xref, syscalls cho từng mẫu dạng tệp; link khi có từ 2 mẫu) và in bảng việc; bỏ file ẩn, ghi chú thu mẫu, thư mục báo cáo/case; --dry-run chỉ liệt kê;
+#                                      workspace và case phải nằm ngoài thư mục thu mẫu
 #   flow.py triage CASE [FILE...]      triage tĩnh (tự upx -d bản sao nếu là UPX), ghi fact src=S
 #   flow.py dec CASE FILE HÀM...       (HÀM = tên | 0xĐỊACHỈ Ghidra | va:0xĐỊACHỈ ELF, tự cộng base Ghidra theo loại ELF) decompile từng hàm (rea; kiến trúc rea không hỗ trợ thì Ghidra headless),
 #                                      'list:CHUỖI' liệt kê hàm; lưu work/runs/dec/, in tối đa 80 dòng mỗi hàm
@@ -169,12 +172,77 @@ def xref_cmd(c, f, names):
     L = text.splitlines(); hdr = [x for x in L if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
     print('\n'.join([x for x in L if x.startswith('# ')] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
 
+SCAN_MAX = 8   # số mẫu tối đa gom vào một case; nhiều hơn thì chia nhóm hoặc dùng flow.py watch (mỗi mẫu một case)
+
+def scan_collect(d, workspace):
+    """Mẫu ở CẤP MỘT của thư mục thu mẫu -> ([đường dẫn nhận], [(tên, lý do bỏ)]). Thư mục con là một mẫu dạng thư mục. Không đọc sâu, không chạy gì."""
+    import watch
+    ok, skip = [], []
+    for n in sorted(os.listdir(d)):
+        p = os.path.join(d, n)
+        if n.startswith('.'): skip.append((n, 'ẩn')); continue
+        if os.path.islink(p): skip.append((n, 'symlink')); continue
+        if os.path.isdir(p):
+            if os.path.realpath(p) == os.path.realpath(workspace): skip.append((n + '/', 'là workspace')); continue
+            if os.path.exists(os.path.join(p, 'facts.jsonl')) or os.path.isdir(os.path.join(p, 'work', 'sample')): skip.append((n + '/', 'thư mục case')); continue
+            if n.startswith('Report_') or re.search(r'(?i)report|bao[_-]?cao', n): skip.append((n + '/', 'thư mục báo cáo')); continue
+            if not any(fs for _, _, fs in os.walk(p)): skip.append((n + '/', 'thư mục rỗng')); continue
+            ok.append(p); continue
+        if not os.path.isfile(p): skip.append((n, 'không phải tệp thường')); continue
+        if os.path.getsize(p) == 0: skip.append((n, 'tệp rỗng')); continue
+        why = watch.note_of(p)
+        if why: skip.append((n, 'ghi chú thu mẫu: ' + why)); continue
+        ok.append(p)
+    return ok, skip
+
+def _quiet(label, fn, *a):
+    """Chạy một lệnh con của lượt đọc nhanh, nuốt phần in dài, trả một dòng: nhãn + nơi ghi evidence, hoặc lý do bỏ qua."""
+    import io, contextlib
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf): fn(*a)
+    except SystemExit as e: return f'{label}: bỏ qua ({str(e)[:140]})'
+    out = [x for x in buf.getvalue().splitlines() if '-> ' in x]
+    return f"{label} {out[-1][out[-1].index('-> '):].split(' (')[0] if out else '-> (xong)'}"
+
+def scan_cmd(d, c=None, dry=False):
+    if not os.path.isdir(d): raise SystemExit(f'không thấy thư mục {d}')
+    c = c or (re.sub(r'\W+', '_', os.path.basename(os.path.abspath(d))).strip('_').upper() or 'CASE')
+    rd, rw, rc = os.path.realpath(d), os.path.realpath(os.getcwd()), os.path.realpath(c); inside = lambda x, top: os.path.commonpath([x, top]) == top
+    # Không ghi gì vào nơi lưu bằng chứng gốc: workspace và thư mục case phải nằm NGOÀI thư mục thu mẫu (ở mọi độ sâu), và thư mục thu mẫu không nằm trong case.
+    if inside(rw, rd): raise SystemExit('chạy từ workspace nằm NGOÀI thư mục thu mẫu (đang đứng trong chính thư mục thu mẫu hoặc thư mục con của nó)')
+    if inside(rc, rd): raise SystemExit(f'thư mục case {c} sẽ nằm trong (hoặc trùng) thư mục thu mẫu {d}: đặt tên case khác (`flow.py scan THƯ_MỤC TÊN_CASE`) hoặc chạy từ workspace khác')
+    if inside(rd, rc): raise SystemExit(f'thư mục thu mẫu {d} nằm trong thư mục case {c}: chọn tên case khác')
+    ok, skip = scan_collect(d, os.getcwd())
+    print(f'thư mục {d}: {len(ok)} mẫu nhận, {len(skip)} mục bỏ qua -> case {c}')
+    for p in ok: print(f"  nhận    {os.path.basename(p)}{'/' if os.path.isdir(p) else ''}")
+    for n, why in skip: print(f'  bỏ qua  {n} ({why})')
+    if os.path.exists(os.path.join(c, 'facts.jsonl')):   # case đã có: không tạo lại, không chép đè mẫu
+        print(f'case {c} đã có: không tạo lại. Trạng thái:'); import review; review.next_step(c); return 0
+    if not ok: raise SystemExit('không có mẫu nào để phân tích trong thư mục này')
+    if len(ok) > SCAN_MAX: raise SystemExit(f'{len(ok)} mẫu vượt giới hạn {SCAN_MAX} mẫu cho một case: chia thư mục theo nhóm liên quan, hoặc dùng `flow.py watch` (mỗi mẫu một case)')
+    if dry: print('--dry-run: chưa tạo case'); return 0
+    new(c, ok)
+    tj = [json.load(open(x, encoding='utf-8')) for x in sorted(glob.glob(os.path.join(c, 'report', 'evidence', 'triage_*.json')))]
+    if tj and all(r.get('light') for r in tj): print(f'gợi ý: mọi mẫu đều đơn giản (không đóng gói, entropy thấp) -> có thể dùng chế độ nhẹ: flow.py mode {shlex.quote(c)} light (người dùng quyết)')
+    files = [os.path.join(c, 'work', 'sample', n) for n in case.sources(c) if not n.endswith('/')]; dirs = [n for n in case.sources(c) if n.endswith('/')]
+    print('== lượt đọc nhanh (evidence, chưa phải fact)')
+    for p in files:
+        a = p + '.unupx' if os.path.isfile(p + '.unupx') else p   # bản đã gỡ UPX nếu triage tạo được
+        for fn, label in ((quick, 'quick'), (lambda cc, ff: xref_cmd(cc, ff, []), 'xref'), (syscalls_cmd, 'syscalls')):
+            print('  ' + _quiet(label + ' ' + os.path.basename(a), fn, c, a))
+    for n in dirs: print(f'  {n}: bỏ qua lượt đọc nhanh (mẫu dạng thư mục: chạy `flow.py quick {shlex.quote(c)} <tệp>` cho từng tệp đáng chú ý bên trong)')
+    if len(files) >= 2: print('  ' + _quiet('link', link_cmd, c))
+    print(f'== bảng việc của case {c} ({len(case.sources(c))} mẫu)'); status(c)
+    print(f'BƯỚC KẾ: python3 flow.py next {shlex.quote(c)}; phân tích lần lượt từng mẫu, ghi đủ fact' + (" (kể cả fact relation và mục 'Quan hệ giữa các mẫu')" if len(case.sources(c)) >= 2 else '') + ', rồi MỘT lần review --llm cho cả case')
+    return 0
+
 def link_cmd(c):
     from static import link as LK
     try: text = LK.build(c)
     except ValueError as e: raise SystemExit(str(e))
     _ev(c, 'link_samples.txt', text)
-    print('\n'.join(x for x in text.splitlines() if x.startswith(('# ', '## '))) + f'\n-> {c}/report/evidence/link_samples.txt\nGhi quan hệ thành fact: case.py add {shlex.quote(c)} id=l.<tên> kind=relation value=... src=S evidence=report/evidence/link_samples.txt#L<dòng> [status=hypothesis]')
+    print('\n'.join(x for x in text.splitlines() if x.startswith(('# ', '## '))) + f'\n-> {c}/report/evidence/link_samples.txt\nSau khi dịch ngược từng mẫu, ghi NHẬN ĐỊNH: case.py add {shlex.quote(c)} id=l.<tên> kind=relation value="direct|shared|context|unrelated: <tên các mẫu và căn cứ>" src=S evidence=report/evidence/<file>#L<dòng> [status=hypothesis]')
     return 0
 
 def disasm_cmd(c, f, specs):
@@ -531,6 +599,10 @@ if __name__ == '__main__':
     if a[:1] == ['rules']: sys.exit(rules(a[1:]))
     if a[:1] == ['opencode']: sys.exit(opencode(a[1:]))
     if a[:1] == ['watch']: import watch; sys.exit(watch.main(a[1:]))
+    if a[:1] == ['scan']:
+        r = [x for x in a[1:] if x != '--dry-run']
+        if not r or len(r) > 2: raise SystemExit('dùng: flow.py scan THƯ_MỤC [CASE] [--dry-run]')
+        sys.exit(scan_cmd(r[0], r[1] if len(r) > 1 else None, '--dry-run' in a))
     if a[:1] == ['kb']: import kb; sys.exit(kb.main(a[1:]))
     if a[:1] in (['help'], ['-h'], ['--help']): print(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0]); sys.exit(0)
     if len(a) < 2: raise SystemExit(open(__file__, encoding='utf-8').read().split('\nimport', 1)[0])

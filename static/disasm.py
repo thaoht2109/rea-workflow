@@ -69,7 +69,7 @@ def disasm(path, specs, d=None):
             note = ''
             if i.address in targets:   # điểm hợp lưu của nhánh: giá trị thanh ghi đi từ đường khác có thể khác -> bỏ, thà không chú thích còn hơn chú thích sai
                 hi.clear()
-                if tr: tr.regs.clear()
+                if tr: tr.reset()
             if abi == 'mips_o32':
                 tgt = tr.step(i, entry=a)   # gp-relative (PIC): gp từ prologue của hàm, đích jalr qua GOT
                 if i.mnemonic == 'lui': m = re.match(r'(\$\w+), (\S+)$', i.op_str); hi[m.group(1)] = int(m.group(2), 0) << 16 if m else None
@@ -95,8 +95,8 @@ def disasm(path, specs, d=None):
                     t = int(i.op_str, 0) if re.fullmatch(r'(0x)?[0-9a-f]+', i.op_str) else None
                     if t: note = '; ' + nm.get(t, f'sub_{t:x}'); calls.append(nm.get(t, f'sub_{t:x}'))
             if tr and not note and i.mnemonic in ('addiu', 'ori'):
-                dv = tr.regs.get(i.op_str.split(',')[0].strip())
-                if dv and dv > 0x1000:
+                dr = i.op_str.split(',')[0].strip(); dv = tr.regs.get(dr)
+                if dv and dv > 0x1000 and dr in tr.got:   # chỉ khi giá trị bắt nguồn từ ô GOT (gp): hằng nhỏ như `li $a2, 0x2000` không phải con trỏ chuỗi
                     sv = cstr(dv, 80)
                     if sv: note = f'; {dv:#x} "{sv}"'
             lines.append(f'{i.address:#x}\t{i.mnemonic}\t{i.op_str}{note}')

@@ -10,6 +10,7 @@
 #   flow.py quick CASE FILE            đọc nhanh (vài giây): chuỗi/symbol gom nhóm (CLI, mạng, đường dẫn, mật mã, hành vi, lớp C++/hàm Go) -> evidence quick_*.txt, in gợi ý fact (không tự ghi)
 #   flow.py syscalls CASE FILE         thống kê syscall trong .text (MIPS o32, x86-64, i386; bảng từ header kernel) -> evidence syscalls_*.txt; nói rõ số chưa xác định
 #   flow.py disasm CASE FILE SPEC...   disasm theo tên (Go/symbol), 0xĐỊACHỈ hoặc list:CHUỖI, lời gọi đổi sang tên, chú thích hằng chuỗi -> evidence disasm_*.txt (nhanh hơn Ghidra)
+#   flow.py xref CASE FILE [TÊN...]    ai gọi hàm TÊN (theo tên symbol/Go; MIPS PIC giải qua GOT) -> evidence xref_*.txt; không có TÊN = bộ hàm nhạy cảm (exec, mạng, kill...); nêu số lời gọi chưa giải
 #   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
 #                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
 #   flow.py status CASE                checklist C1–C11 + bước kế tiếp từ triage
@@ -145,6 +146,16 @@ def syscalls_cmd(c, f):
     except ValueError as e: raise SystemExit(str(e))
     rel = f'syscalls_{tag}.txt'; _ev(c, rel, text)
     print('\n'.join(text.splitlines()[:2]) + f'\n-> {c}/report/evidence/{rel}'); return 0
+
+def xref_cmd(c, f, names):
+    from static import xref as XR
+    f = _sample(c, f); tag = re.sub(r'\W+', '_', os.path.basename(f))
+    try: text = XR.report(f, names)
+    except ValueError as e: raise SystemExit(str(e))
+    sfx = ('_' + re.sub(r'[^A-Za-z0-9]+', '_', '_'.join(names))[:40] + '_' + hashlib.sha256('\0'.join(names).encode()).hexdigest()[:8]) if names else ''   # băm: hai truy vấn khác nhau không ghi đè evidence của nhau
+    rel = f'xref_{tag}{sfx}.txt'; _ev(c, rel, text)
+    L = text.splitlines(); hdr = [x for x in L[3:] if x.startswith('## ')]   # hai dòng '## ' cuối là tổng kết (nhập khẩu, không có symbol): luôn in
+    print('\n'.join(L[:3] + hdr[:-2][:38] + hdr[-2:]) + f'\n-> {c}/report/evidence/{rel}'); return 0
 
 def disasm_cmd(c, f, specs):
     from static import disasm as DS
@@ -521,10 +532,11 @@ if __name__ == '__main__':
         if len(a) < 3: raise SystemExit('dùng: flow.py v8 CASE FILE [dis BC...|grep REGEX|big [OBJ...]]')
         v8(c, a[2], a[3:])
     elif cmd == 'tool': import adhoc; sys.exit(adhoc.main(c, a[2:]))
-    elif cmd in ('quick', 'syscalls', 'disasm') and len(a) < (4 if cmd == 'disasm' else 3): raise SystemExit(f'dùng: flow.py {cmd} CASE FILE' + (' SPEC... (SPEC: tên | 0xĐỊACHỈ | list:CHUỖI)' if cmd == 'disasm' else ''))
+    elif cmd in ('quick', 'syscalls', 'disasm', 'xref') and len(a) < (4 if cmd == 'disasm' else 3): raise SystemExit(f'dùng: flow.py {cmd} CASE FILE' + (' SPEC... (SPEC: tên | 0xĐỊACHỈ | list:CHUỖI)' if cmd == 'disasm' else ''))
     elif cmd == 'quick': sys.exit(quick(c, a[2]))
     elif cmd == 'syscalls': sys.exit(syscalls_cmd(c, a[2]))
     elif cmd == 'disasm': sys.exit(disasm_cmd(c, a[2], a[3:]))
+    elif cmd == 'xref': sys.exit(xref_cmd(c, a[2], a[3:]))
     elif cmd == 'status': status(c)
     elif cmd == 'resume': resume(c)
     elif cmd == 'checkpoint': sys.exit(checkpoint(c))

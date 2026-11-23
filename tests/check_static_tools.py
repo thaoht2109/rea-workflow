@@ -11,7 +11,8 @@ def elf(machine, cls, be, etype, flags, text, text_va, extra=b'', syms=()):
     symtab = b'\0' * (24 if c64 else 16)
     off = 1
     for n, a, sz in syms:
-        symtab += struct.pack(E + 'IBBHQQ', off, 2, 0, 1, a, sz) if c64 else struct.pack(E + 'IIIBBH', off, a, sz, 2, 0, 1)
+        sh_ = 0 if a is None or isinstance(a, tuple) else 1; a = a[1] if isinstance(a, tuple) else (a or 0)   # None = symbol nhập khẩu (UND); ('und', địa chỉ) = UND có địa chỉ stub (MIPS)
+        symtab += struct.pack(E + 'IBBHQQ', off, 2, 0, sh_, a, sz) if c64 else struct.pack(E + 'IIIBBH', off, a, sz, 2, 0, sh_)
         off += len(n) + 1
     names = [b'', b'.text', b'.symtab', b'.strtab', b'.shstrtab']; shs = b'\0'; noff = []
     for n in names[1:]: noff.append(len(shs)); shs += n + b'\0'
@@ -207,3 +208,79 @@ for ln_ in [l for l in out.splitlines() if 'gợi ý:' in l]:
     line_ = open(os.path.join(C, m_.group(4)), encoding='utf-8').read().splitlines()[int(m_.group(5)) - 1]
     assert m_.group(3).strip("'").split(':')[-1].strip().split(',')[0] in line_ or m_.group(2) == 'string', (ln_, line_)   # #L trỏ đúng dòng chứa giá trị
 print('OK check_static_tools (gợi ý quick qua flow.py)')
+
+# --- chú thích chuỗi chỉ khi giá trị bắt nguồn từ GOT: hằng nhỏ nạp bằng li trỏ vào vùng có byte in được thì KHÔNG chú thích
+lic = be32(0x24062000, 0x24c60000, 0x03e00008, 0); lic += b'\0' * (0x1000 - len(lic)) + b'not a pointer\0'        # addiu a2,zero,0x2000 ; addiu a2,a2,0 ; jr ra ; nop ; chuỗi tại VA 0x2000
+lf = os.path.join(tempfile.mkdtemp(), 'li.elf'); open(lf, 'wb').write(elf(8, 32, True, 3, 0x1007, lic, 0x1000, syms=[('f_li', 0x1000, 16)]))
+assert '"not a pointer"' not in '\n'.join(disasm.disasm(lf, ['f_li'])[0][0]['lines'])
+assert '"hello pic"' in '\n'.join(disasm.disasm(picstr(b''), ['pic_s'])[0][0]['lines'])                          # từ GOT vẫn chú thích
+# --- xref: ai gọi hàm theo tên (GOT trên MIPS PIC, jal trực tiếp, call x86-64), đếm lời gọi chưa giải, không đoán
+from static import xref   # noqa: E402
+Xp = xref.build(picfn(b'')); assert Xp['stats']['indirect_ok'] == 1 and [fa for _, fa in Xp['callers'][VP + 0x80]] == [VP], Xp['stats']
+rp_ = xref.report(picfn(b''), ['pic_b', 'khong_co']); assert '## pic_b @0x400080: 1 nơi gọi' in rp_ and 'trong pic_a' in rp_ and 'không có symbol tên: khong_co' in rp_ and 'KHÔNG chứng minh' in rp_, rp_
+Xm = xref.build(picfn(be32(0x0202C80A))); assert Xm['stats']['indirect_ok'] == 0 and Xm['stats']['indirect_unknown'] == 1 and not Xm['callers'].get(VP + 0x80), Xm['stats']   # movz chen giữa: chưa giải, không gán
+assert '## pic_b @0x400080: 0 nơi gọi' in xref.report(picfn(be32(0x0202C80A)), ['pic_b'])
+VJ = 0x400000; cj = be32(0x0c000000 | ((VJ + 0x40) >> 2), 0, 0x03e00008, 0); cj += b'\0' * (0x40 - len(cj)) + be32(0x03e00008, 0)
+jp = os.path.join(tempfile.mkdtemp(), 'j.elf'); open(jp, 'wb').write(elf(8, 32, True, 2, 0x1007, cj, VJ, syms=[('caller', VJ, 0x40), ('connect', VJ + 0x40, 8)]))
+rj = xref.report(jp); assert '## connect @0x400040: 1 nơi gọi' in rj and 'trong caller' in rj and 'execve' in rj.split('không có symbol tên:')[1], rj   # không có TÊN: bộ hàm nhạy cảm, khớp đúng tên
+assert 'caller' not in [l for l in xref.report(jp, ['conn']).splitlines() if l.startswith('## ')][0] and '## connect' in xref.report(jp, ['conn'])   # truy vấn của người dùng: khớp chứa
+VX2 = 0x401000; cx = bytes.fromhex('e80b000000' + 'c3') + b'\x90' * 10 + bytes.fromhex('c3')    # call +0xb -> 0x401010 ; ret ... ; ret
+xq = os.path.join(tempfile.mkdtemp(), 'x2.elf'); open(xq, 'wb').write(elf(62, 64, False, 2, 0, cx, VX2, syms=[('fmain', VX2, 6), ('system', VX2 + 0x10, 1)]))
+rx = xref.report(xq, ['system']); assert '## system @0x401010: 1 nơi gọi' in rx and 'trong fmain' in rx, rx
+try: xref.build(os.path.join(W, 'x.elf'), elf(40, 32, False, 3, 0, b'\0' * 8, 0x1000)); raise AssertionError('ARM phải bị từ chối')
+except ValueError as e: assert 'chưa hỗ trợ' in str(e)
+open(os.path.join(C, 'work', 'sample', 'j.elf'), 'wb').write(open(jp, 'rb').read())
+r = run('xref', 'C1', 'j.elf'); assert r.returncode == 0 and '## connect @0x400040: 1 nơi gọi' in r.stdout and os.path.isfile(os.path.join(C, 'report', 'evidence', 'xref_j_elf.txt')), (r.stdout, r.stderr[-300:])
+r = run('xref', 'C1', 'j.elf', 'connect'); assert r.returncode == 0 and [f for f in os.listdir(os.path.join(C, 'report', 'evidence')) if f.startswith('xref_j_elf_connect_')], r.stderr[-300:]
+r = run('xref', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
+r = run('xref', 'C1', 'bad.elf'); assert r.returncode != 0 and 'Traceback' not in r.stderr, r.stderr[-300:]
+print('OK check_static_tools (nguồn gốc GOT, xref)')
+
+# --- xref trên ELF liên kết động: hàm nhập khẩu (UND) phải báo là CÓ tham chiếu, không được xếp vào "không có symbol"
+xu = os.path.join(tempfile.mkdtemp(), 'u.elf'); open(xu, 'wb').write(elf(62, 64, False, 3, 0, bytes.fromhex('c3'), 0x1000, syms=[('fmain', 0x1000, 1), ('system', None, 0), ('connect', None, 0)]))
+ru = xref.report(xu); nh = ru.split('## nhập khẩu')[1].split('\n')[0]; kh = ru.split('## không có symbol tên:')[1]
+assert 'system' in nh and 'connect' in nh and 'system' not in kh and 'connect' not in kh and 'execve' in kh, ru
+assert elfinfo.imports(open(xu, 'rb').read(), elfinfo.parse(open(xu, 'rb').read())) == ['connect', 'system']
+print('OK check_static_tools (xref: symbol nhập khẩu)')
+
+# --- xref: nhảy đuôi (jr $t9 qua GOT, j, jmp) là lời gọi; nhảy qua thanh ghi không giải được phải đếm là CHƯA giải; stub hàm nhập khẩu; đích không tên
+def pic2(tail, got0=None, syms=None):   # prologue gp ; lw t9,-0x10(gp) ; <tail> ; nop  ; hàm B tại +0x80 ; GOT[gp-0x10] = got0 (mặc định B)
+    c = be32(0x3c1c0000, 0x279c0200, 0x0399e021, 0x8f99fff0) + tail + be32(0)
+    c += b'\0' * (0x80 - len(c)) + be32(0x03e00008, 0); c += b'\0' * (0x1f0 - len(c)) + be32(got0 or VP + 0x80, 0)
+    f = os.path.join(tempfile.mkdtemp(), 't.elf'); open(f, 'wb').write(elf(8, 32, True, 3, 0x1007, c, VP, syms=syms or [('pic_a', VP, 0x80), ('pic_b', VP + 0x80, 8)])); return f
+Xt = xref.build(pic2(be32(0x03200008))); assert [fa for _, fa in Xt['callers'][VP + 0x80]] == [VP] and Xt['stats']['indirect_ok'] == 1, Xt['stats']            # jr $t9 (tail-call qua GOT)
+Xj = xref.build(pic2(be32(0x08000000 | ((VP + 0x80) >> 2)))); assert [fa for _, fa in Xj['callers'][VP + 0x80]] == [VP] and Xj['stats']['direct'] == 1, Xj['stats']   # j tới hàm khác
+Xv = xref.build(pic2(be32(0x00400008))); assert not Xv['callers'].get(VP + 0x80) and Xv['stats']['indirect_unknown'] == 1, Xv['stats']                      # jr $v0: không biết đích
+assert '0 nơi gọi' in xref.report(pic2(be32(0x00400008)), ['pic_b']) and 'CHƯA giải=1' in xref.report(pic2(be32(0x00400008)), ['pic_b'])
+Xs = pic2(be32(0x0320f809), got0=VP + 0xc0, syms=[('pic_a', VP, 0x80), ('ext_fn', ('und', VP + 0xc0), 0)])                                                 # GOT trỏ stub của hàm nhập khẩu
+rs_ = xref.report(Xs, ['ext_fn']); assert '## ext_fn (nhập khẩu, stub @0x4000c0): 1 nơi gọi' in rs_ and 'trong pic_a' in rs_ and 'ext_fn' not in rs_.split('## không có symbol tên:')[1], rs_
+Xn = xref.build(pic2(be32(0x0320f809), got0=VP + 0xe0, syms=[('pic_a', VP, 0x80)])); assert Xn['stats']['unnamed'] == 1 and 'KHÔNG có tên=1' in xref.report(pic2(be32(0x0320f809), got0=VP + 0xe0, syms=[('pic_a', VP, 0x80)]), ['pic_a'])
+VY = 0x401000; cy = bytes.fromhex('e90b000000') + b'\x90' * 11 + bytes.fromhex('c3') + b'\x90' * 15 + bytes.fromhex('ffe0') + b'\x90' * 14 + bytes.fromhex('eb00c3')
+yp = os.path.join(tempfile.mkdtemp(), 'y.elf'); open(yp, 'wb').write(elf(62, 64, False, 2, 0, cy, VY, syms=[('f_tail', VY, 5), ('system', VY + 0x10, 1), ('f_ind', VY + 0x20, 2), ('f_loc', VY + 0x30, 3)]))
+Xy = xref.build(yp); assert [fa for _, fa in Xy['callers'][VY + 0x10]] == [VY] and Xy['stats'] == dict(funcs=4, direct=1, indirect_ok=0, indirect_unknown=1, unnamed=0), Xy['stats']   # jmp đuôi = lời gọi; jmp rax = chưa giải; jmp nội hàm không tính
+# --- vỏ flow.py xref: tên evidence không trùng cho truy vấn khác nhau; stdout luôn có hai dòng tổng kết
+run('xref', 'C1', 'j.elf', 'a.b'); run('xref', 'C1', 'j.elf', 'a_b')
+assert len([f for f in os.listdir(os.path.join(C, 'report', 'evidence')) if f.startswith('xref_j_elf_a_b_')]) == 2
+r = run('xref', 'C1', 'j.elf'); assert '## nhập khẩu' in r.stdout and '## không có symbol tên:' in r.stdout, r.stdout[-400:]
+print('OK check_static_tools (xref: nhảy đuôi, stub, đích không tên, tên evidence)')
+
+# --- xref: alias cùng địa chỉ, truy vấn khớp chứa với hàm nhập khẩu, bal nội hàm không tính
+VA2 = 0x400000; ca = be32(0x0c000000 | ((VA2 + 0x40) >> 2), 0, 0x03e00008, 0); ca += b'\0' * (0x40 - len(ca)) + be32(0x03e00008, 0)
+al = os.path.join(tempfile.mkdtemp(), 'al.elf'); open(al, 'wb').write(elf(8, 32, True, 2, 0x1007, ca, VA2, syms=[('caller', VA2, 0x40), ('__libc_connect', VA2 + 0x40, 8), ('__connect', VA2 + 0x40, 8), ('connect', VA2 + 0x40, 8)]))
+ra = xref.report(al); la = [l for l in ra.splitlines() if l.startswith('## connect @')]
+assert la and '1 nơi gọi' in la[0] and '__libc_connect' in la[0] and 'connect' not in ra.split('## không có symbol tên:')[1].split(', '), ra   # tên giữ trong nm là __libc_connect, vẫn khớp connect
+assert 'trong caller' in ra and '## __libc_connect @' in xref.report(al, ['__libc_connect']) and '1 nơi gọi' in [l for l in xref.report(al, ['conn']).splitlines() if l.startswith('## ') and 'connect' in l][0]
+ru2 = xref.report(xu, ['conn', 'sys', 'khongco']); nh2 = ru2.split('## nhập khẩu')[1].split('\n')[0]; kh2 = ru2.split('## không có symbol tên:')[1]
+assert 'connect' in nh2 and 'system' in nh2 and 'conn' not in kh2.split(', ') and 'khongco' in kh2, ru2   # khớp chứa áp cả cho hàm nhập khẩu
+cb = be32(0x04110001, 0, 0x0c000000 | (VA2 >> 2), 0, 0x03e00008, 0)                                           # bal +1 (đích trong hàm) ; nop ; jal chính nó (đệ quy) ; nop ; jr ra ; nop
+bp = os.path.join(tempfile.mkdtemp(), 'b.elf'); open(bp, 'wb').write(elf(8, 32, True, 2, 0x1007, cb, VA2, syms=[('rec', VA2, 24)]))
+Xb = xref.build(bp); assert Xb['stats']['direct'] == 1 and Xb['stats']['unnamed'] == 0 and [fa for _, fa in Xb['callers'][VA2]] == [VA2], Xb['stats']   # bal nội hàm bỏ, đệ quy vẫn tính
+print('OK check_static_tools (xref: alias, nhập khẩu khớp chứa, bal nội hàm)')
+
+# --- xref: libc tĩnh chỉ có tên nội bộ (__libc_fork, __GI_execve, __system) vẫn khớp truy vấn mặc định
+VN = 0x400000; cn = be32(0x03e00008, 0) * 4
+np_ = os.path.join(tempfile.mkdtemp(), 'n.elf'); open(np_, 'wb').write(elf(8, 32, True, 2, 0x1007, cn, VN, syms=[('__libc_fork', VN, 8), ('__GI_execve', VN + 8, 8), ('__system', VN + 16, 8), ('my_connect_helper', VN + 24, 8)]))
+rn = xref.report(np_); kn = rn.split('## không có symbol tên:')[1].split(', ')
+assert all(any(l.startswith(f'## {w} @') for l in rn.splitlines()) for w in ('__libc_fork', '__GI_execve', '__system')) and not {'fork', 'execve', 'system'} & {k.strip() for k in kn}, rn
+assert ' connect' in rn.split('## không có symbol tên:')[1] or 'connect' in [k.strip() for k in kn]   # my_connect_helper KHÔNG phải connect: khớp đúng tên không nhận nhầm
+print('OK check_static_tools (xref: tên nội bộ libc)')

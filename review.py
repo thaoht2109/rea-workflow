@@ -5,7 +5,7 @@
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
 #   review.py next CASE [--accept C4=lý do]...     DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
-import sys, os, re, json, shlex, hashlib, tempfile, subprocess, datetime
+import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -243,6 +243,18 @@ def blank_lines():
     t = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'report.md'), encoding='utf-8').read()
     return [s for s in map(_norm, t.splitlines()) if '{' not in s and (re.fullmatch(r'\|[^|]+\|(?: ?\|)+', s) or re.search(r'_\([^)]*\)_', s) or re.fullmatch(r'\([^)]+\)', s))]
 
+DEADDROP = ('raw.githubusercontent.com', 'gist.githubusercontent.com', 'gist.github.com', 'pastebin.com', 'paste.ee', 'telegra.ph', 't.me', 'docs.google.com', 'drive.google.com')
+def lookup_hint(c):
+    """Mẫu lấy địa chỉ máy chủ từ nơi chứa nội dung công cộng (fact url còn hiệu lực có host trong DEADDROP) mà case chưa có evidence lookup_*:
+    địa chỉ C2 thật chưa có trong báo cáo. Trả MỘT câu nhắc hỏi người dùng (FLOW.md mục 0), không có lệnh nào để chạy; '' nếu không áp dụng.
+    Chỉ là lời nhắc: không chặn DONE, không đổi trạng thái của next. Danh sách host là gợi ý, không đầy đủ."""
+    ids = sorted(i for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active'
+                 and (urllib.parse.urlsplit(f.get('value', '').split()[0] if f.get('value', '').split() else '').hostname or '').lower() in DEADDROP)
+    if not ids or glob.glob(os.path.join(c, 'report', 'evidence', 'lookup_*')): return ''
+    return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, case chưa có evidence lookup_*: địa chỉ C2 thật chưa có. "
+            'KHÔNG tự tra. Hỏi người dùng theo FLOW.md mục 0 (đồng ý riêng cho case này, đường mạng riêng, duyệt đúng URL); '
+            'chưa được đồng ý hoặc phiên không có người trực thì chỉ ghi điều này vào mục hạn chế của báo cáo.')
+
 def report_relation(c):
     """Case có từ hai mẫu trở lên: báo cáo viết tay phải có mục nói về quan hệ giữa các mẫu (tiêu đề chứa 'Quan hệ giữa'). Trả câu nhắc hoặc ''."""
     if len(C.sources(c)) < 2 or 'C12' in accepted(c): return ''   # C12 đã được chấp nhận là hạn chế (next --accept C12=lý do): không đòi mục báo cáo
@@ -368,6 +380,8 @@ def next_step(c, accept=''):
     ok, why = gate(c)
     if not ok and why.startswith('đã STOPPED'):   # cổng đã đóng: báo dừng trước mọi việc khác, không dẫn agent đi phân tích thêm
         print(f'STOPPED: {why} -> dừng, báo người dùng nội dung {DIR(c)}/STOP_REPORT.md (không review lại, không phân tích thêm, không tự tạo OVERRIDE)'); return 1
+    lh = lookup_hint(c)
+    if lh: print(lh)
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo and C.mode(c) == 'light': print('NEED_MORE (light): làm tiếp bằng tầng tĩnh (flow.py dec, rea inspect-*). Mục còn thiếu cần giả lập hoặc công cụ ad-hoc thì nâng chế độ: flow.py mode ' + shlex.quote(c) + ' full, hoặc chấp nhận hạn chế: next --accept Cx=lý do'); return 1

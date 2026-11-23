@@ -6,7 +6,7 @@ Công cụ: đọc file bằng công cụ Read, tìm chuỗi bằng công cụ G
 
 Quy tắc an toàn: không chạy mẫu hay bất kỳ file nào trong `work/sample/`, `work/extract/`. Không kết nối mạng. Chỉ chạy Python bằng `python3 -I` với pefile/capstone/hashlib trên dữ liệu đọc được (`-I` bỏ qua PYTHONPATH: import pefile/capstone lỗi thì thêm `import sys, os; sys.path.insert(0, os.path.expanduser('{PYLIB}'))` trước). Không ghi file.
 
-Định nghĩa nguồn: S = phân tích tĩnh trên file gốc; E = giả lập CPU (Windows giả, mạng giả, mọi request thất bại); V = chạy trên VM. Fact E chỉ là "quan sát trong giả lập".
+Định nghĩa nguồn: S = phân tích tĩnh trên file gốc; E = giả lập CPU (Windows giả, mạng giả, mọi request thất bại); V = chạy trên VM, hoặc quan sát/bối cảnh do người thu mẫu cung cấp (evidence tên `host_*`: ảnh chụp, log, hoàn cảnh thu mẫu; phiên phân tích không chạy mẫu). Fact V dẫn `host_*` là dữ liệu đầu vào: không coi là sai nguồn vì "không có VM", chỉ kiểm rằng fact không nói quá những gì evidence ghi và không được dùng một mình làm căn cứ cho kết luận dịch ngược. Fact E chỉ là "quan sát trong giả lập".
 
 BƯỚC 0 (trước khi đọc bất kỳ file nào): liệt kê trong trường `canary` mọi tên riêng, tên mẫu, tên miền, hash hoặc tên công cụ mà bạn đã thấy trong ngữ cảnh của mình TRƯỚC khi mở file. Nếu không có thì `[]`. Đây là kiểm tra bạn không bị nhiễm ngữ cảnh cũ. Không được bịa.
 

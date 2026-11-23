@@ -326,12 +326,12 @@ def gopcln(va, funcs):   # .gopclntab tối thiểu (Go 1.18+, big-endian 32-bit
     ft += struct.pack('>II', 0x1000, 0)
     return struct.pack('>IBBBB', 0xFFFFFFF1, 0, 0, 4, 4) + struct.pack('>8I', len(funcs), 0, va, nameoff, 0, 0, 0, pcln) + names + ft + fs
 VG = 0x400000; cg = be32(0x0c000000 | ((VG + 0x40) >> 2), 0, 0x03e00008, 0); cg += b'\0' * (0x40 - len(cg)) + be32(0x03e00008, 0) + b'\0' * 0x18 + be32(0x03e00008, 0)
-strs = b'\0'.join([b'-buildmode=exe', b'-trimpath=true', b'-key=KEY', b'http://OPTIONSCreated', b'http://c2.example.net/x', b'runtime.lock', b'/etc/app.conf', b'main.log', b'x' * 130 + b' trace.lock then /opt/agent/state.db tail']) + b'\0'
-gp_ = os.path.join(tempfile.mkdtemp(), 'go.elf'); open(gp_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime.lock', VG + 0x58), ('runtime.main', VG + 0x60)]) + b'\0' * 8 + strs))
+strs = b'\0'.join([b'-buildmode=exe', b'-trimpath=true', b'-key=KEY', b'http://OPTIONSCreated', b'http://c2.example.net/x', b'runtime.lock', b'/etc/app.conf', b'main.log', b'sync.lock', b'exec.conf', b'other.lock', b'debug.log', b'http.log', b'x' * 130 + b' trace.lock then /opt/agent/state.db tail']) + b'\0'
+gp_ = os.path.join(tempfile.mkdtemp(), 'go.elf'); open(gp_, 'wb').write(elf(8, 32, True, 2, 0x50001004, cg, VG, extra=b'\0' * 8 + gopcln(VG, [('main.run', VG), ('os/exec.Command', VG + 0x40), ('runtime/debug.SetGCPercent', VG + 0x48), ('sync.(*Mutex).Lock', VG + 0x50), ('runtime.lock.func1', VG + 0x58), ('runtime.main', VG + 0x60)]) + b'\0' * 8 + strs))
 rg_ = xref.report(gp_); assert 'bộ tên mặc định: Go' in rg_ and '## os/exec.Command @0x400040: 1 nơi gọi' in rg_ and 'trong main.run' in rg_ and 'execve' not in rg_, rg_
 assert 'bộ tên mặc định: libc' in xref.report(jp)
 tg, sg_ = quick.build(gp_); assert '-key=KEY' in tg and '-buildmode=exe' not in tg and '-trimpath=true' not in tg and 'http://OPTIONSCreated' not in tg and 'http://c2.example.net/x' in tg, tg
-assert 'runtime.lock' not in tg.split('## Đường dẫn và tệp')[1].split('##')[0] and '/etc/app.conf' in tg and 'main.run' in tg, tg
+assert 'runtime.lock' not in tg.split('## Đường dẫn và tệp')[1].split('##')[0].splitlines() and '/etc/app.conf' in tg and 'main.run' in tg, tg
 tn, _ = quick.build('x', b'\0'.join([b'-buildmode=exe', b'runtime.lock', b'padding-padding']) + b'\0'); assert '-buildmode=exe' in tn and 'runtime.lock' in tn   # không phải Go: giữ nguyên
 print('OK check_static_tools (Go: xref mặc định, quick bớt nhiễu)')
 r = run('xref', 'C1', 'j.elf'); assert '# bộ tên mặc định: libc' in r.stdout and '## không có symbol tên:' in r.stdout, r.stdout[:400]   # stdout có đủ các dòng đầu và tổng kết
@@ -340,7 +340,7 @@ tl, _ = quick.build('x', b'\0'.join([b'http://localhost', b'http://c2host/', b'p
 print('OK check_static_tools (quick: URL host một nhãn ngoài Go)')
 # --- quick trên Go: tên tệp thật trùng tên package (main.log) được giữ, chỉ bỏ tên là hàm Go; chuỗi dài có đường dẫn tuyệt đối đứng sau một đuôi tệp vẫn giữ đường dẫn; có dòng đếm URL bị lọc
 pg = tg.split('## Đường dẫn và tệp')[1].split('##')[0]
-assert 'main.log' in pg and '/opt/agent/state.db' in pg and 'runtime.lock' not in pg, pg
+assert 'main.log' in pg and '/opt/agent/state.db' in pg and 'runtime.lock' not in pg.splitlines(), pg
 assert '(đã bỏ 1 URL không có dấu chấm trong host' in tg and all(not l.startswith('(') for ls in quick.groups(tg).values() for l in ls), tg
 print('OK check_static_tools (quick Go: main.log, đường dẫn sau đuôi tệp, đếm URL bị lọc)')
 # --- xref: binary Go có hàm nhập khẩu (cgo) dùng cả bộ tên Go lẫn libc; Go thuần chỉ bộ Go
@@ -393,3 +393,13 @@ tl_ = '\n'.join(disasm.disasm(lp_, ['f_lea'])[0][0]['lines']); assert '"/etc/nea
 gq = quick.groups('## Tham số dòng lệnh / usage\n(default: /etc/x.conf) --help\n(default: -v)\n(không có)\n## URL, tên miền, IP\nc2.example.net\n(đã bỏ 2 URL không có dấu chấm trong host: x)\n')
 assert gq['cli'] == ['(default: /etc/x.conf) --help', '(default: -v)'] and gq['net'] == ['c2.example.net'], gq
 print('OK check_static_tools (disasm lea thập phân, quick.groups)')
+# --- quick trên Go: pkg.ident của package có trong binary (sync.lock, exec.conf) là định danh; tên không thuộc package nào (other.lock) và main.log là tệp
+pg2 = tg.split('## Đường dẫn và tệp')[1].split('##')[0]
+assert all(n in pg2 for n in ('sync.lock', 'exec.conf', 'other.lock', 'main.log', 'debug.log', 'http.log')), pg2   # tên tệp trùng tên package (runtime/debug -> debug.log) KHÔNG bị bỏ
+pl2 = pg2.splitlines()
+assert 'runtime.lock' not in pl2 and '(đã bỏ 2 chuỗi trùng tên hàm Go hoặc tiền tố của tên hàm: runtime.lock.func1, runtime.lock)' in pl2, pg2   # chỉ bỏ chuỗi đúng là tên hàm hoặc tiền tố của tên hàm thật; có đếm và NÊU TÊN
+note = [l for l in pl2 if l.startswith('(lưu ý: ')]; assert len(note) == 1 and all(n in note[0] for n in ('sync.lock', 'exec.conf', 'debug.log')) and 'other.lock' not in note[0] and 'main.log' not in note[0] and 'http.log' not in note[0], pg2   # trùng tên package có trong binary: vẫn liệt kê, có ghi chú
+_, sg = quick.build(gp_); sv = [v for k, v, _ in sg if k == 'path']
+assert 'other.lock' in sv and 'main.log' in sv and 'http.log' in sv and not {'sync.lock', 'exec.conf', 'debug.log'} & set(sv), sv   # mục nghi là định danh không sinh gợi ý fact
+assert not any(x.startswith('(') for x in quick.groups(tg)['path']), quick.groups(tg)['path']   # ghi chú của công cụ không lọt vào dữ liệu đối chiếu của link
+print('OK check_static_tools (quick Go: chỉ bỏ tên hàm, giữ tên tệp trùng package)')

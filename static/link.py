@@ -106,7 +106,8 @@ def build(case):
             v = T[n]['R'].get('pivot', {}).get(key)
             if v: by.setdefault(str(v), []).append(n)
         piv += [f'cùng {key} {v}: {", ".join(ns)}' for v, ns in by.items() if len(ns) >= 2]
-    secs = {n: {x.get('md5') for x in T[n]['R'].get('sections', []) if isinstance(x, dict) and x.get('md5')} for n, _, _ in F}
+    junk = {'d41d8cd98f00b204e9800998ecf8427e'}   # md5 rỗng; section nhỏ hoặc entropy 0 (toàn một giá trị byte, đệm) cũng không tính: giống nhau ở mọi PE
+    secs = {n: {x['md5'] for x in T[n]['R'].get('sections', []) if isinstance(x, dict) and x.get('md5') and x['md5'] not in junk and x.get('raw', 0) >= 512 and x.get('entropy', 1) > 0} for n, _, _ in F}
     for i, (a, _, _) in enumerate(F):
         for b, _, _ in F[i + 1:]:
             sh = secs[a] & secs[b]

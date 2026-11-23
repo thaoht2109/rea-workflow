@@ -69,10 +69,10 @@ tu = open(os.path.join(ws, 'U1', 'report', 'evidence', 'link_samples.txt'), enco
 assert all(int(n) < 50 for n in re.findall(r'" (\d+) lần', tu)) and '"样本一二"' not in tu.split('## Định danh')[1].split('(đã thử')[0], tu
 # --- case cũ chưa có sources.json: thêm mẫu thứ hai thì tính cả mẫu đã có; mẫu dạng thư mục được ghi là một mẫu và link bỏ qua có thông báo
 assert run('flow.py', 'new', 'O1', 'solo.bin').returncode == 0; O1 = os.path.join(ws, 'O1'); os.remove(os.path.join(O1, 'work', 'sources.json'))
-assert run('flow.py', 'new', 'O1', 'agent_a.bin').returncode == 0 and case.sources(O1) == ['solo.bin', 'agent_a.bin'] and ck(O1)['C12'] == 'missing', case.sources(O1)
+assert run('flow.py', 'new', 'O1', 'agent_a.bin').returncode == 0 and case.sources(O1) == ['agent_a.bin', 'solo.bin'] and ck(O1)['C12'] == 'missing', case.sources(O1)
 os.makedirs(os.path.join(ws, 'appdir')); open(os.path.join(ws, 'appdir', 'x.js'), 'w').write('console.log(1)\n')
 assert run('flow.py', 'new', 'D1', 'appdir', 'agent_a.bin', 'helper_b.bin').returncode == 0; D1 = os.path.join(ws, 'D1')
-assert case.sources(D1) == ['appdir/', 'agent_a.bin', 'helper_b.bin'], case.sources(D1)
+assert case.sources(D1) == ['agent_a.bin', 'appdir/', 'helper_b.bin'], case.sources(D1)
 assert run('flow.py', 'link', 'D1').returncode == 0 and 'bỏ qua, không đối chiếu: appdir/ (mẫu dạng thư mục)' in open(os.path.join(D1, 'report', 'evidence', 'link_samples.txt'), encoding='utf-8').read()
 r = run('case.py', 'add', 'D1', 'id=l.d', 'kind=relation', 'value=appdir nạp agent_a.bin', 'src=S', 'evidence=report/evidence/link_samples.txt'); assert 'relation_samples' not in r.stdout, r.stdout   # tên thư mục cũng tính là tên mẫu
 # --- "một mẫu" = một mục ở gốc work/sample: zip chứa cây thư mục là MỘT mẫu (C12 không áp dụng); zip có cả thư mục lẫn tệp phẳng thì mỗi mục gốc một mẫu
@@ -87,4 +87,24 @@ os.makedirs(os.path.join(ws, 'bigapp', 'sub')); [open(os.path.join(ws, 'bigapp',
 assert run('flow.py', 'new', 'G1', 'bigapp').returncode == 0; G1 = os.path.join(ws, 'G1'); assert case.sources(G1) == ['bigapp/']
 os.remove(os.path.join(G1, 'work', 'sources.json'))
 r = run('flow.py', 'new', 'G1', 'solo.bin'); assert r.returncode == 0 and case.sources(G1) == ['bigapp/', 'solo.bin'] and ck(G1)['C12'] == 'missing', case.sources(G1)   # thêm mẫu thứ hai thật: C12 bật
+# --- lần new lỗi giữa chừng rồi chạy lại: danh sách mẫu tính theo trạng thái work/sample nên không sót (case mới và case đã có sources.json)
+r = run('flow.py', 'new', 'F1', 'agent_a.bin', 'helper_b.bin', 'khong_co.bin'); F1 = os.path.join(ws, 'F1'); assert r.returncode != 0 and case.sources(F1) == [], (r.returncode, case.sources(F1))
+r = run('flow.py', 'new', 'F1', 'agent_a.bin', 'helper_b.bin'); assert r.returncode == 0 and case.sources(F1) == ['agent_a.bin', 'helper_b.bin'] and ck(F1)['C12'] == 'missing', (r.stderr[-300:], case.sources(F1))
+assert run('flow.py', 'new', 'F2', 'solo.bin').returncode == 0; F2 = os.path.join(ws, 'F2'); assert case.sources(F2) == ['solo.bin']
+r = run('flow.py', 'new', 'F2', 'agent_a.bin', 'khong_co.bin'); assert r.returncode != 0 and case.sources(F2) == ['solo.bin']            # lỗi sau khi đã chép agent_a.bin
+r = run('flow.py', 'new', 'F2', 'agent_a.bin'); assert r.returncode == 0 and case.sources(F2) == ['solo.bin', 'agent_a.bin'] and ck(F2)['C12'] == 'missing', (r.stderr[-300:], case.sources(F2))
+# --- case cũ nhiều mẫu, chưa có sources.json: chạy lại new mà không thêm mẫu thì KHÔNG bật C12 hồi tố
+assert run('flow.py', 'new', 'K1', 'agent_a.bin', 'helper_b.bin').returncode == 0; K1 = os.path.join(ws, 'K1'); os.remove(os.path.join(K1, 'work', 'sources.json'))
+r = run('flow.py', 'new', 'K1'); assert case.sources(K1) == [] and ck(K1)['C12'].startswith('n/a') and not os.path.exists(os.path.join(K1, 'work', 'sources.json')), (r.returncode, case.sources(K1))
+# --- C12 đã được chấp nhận là hạn chế thì không đòi mục báo cáo
+assert 'Quan hệ giữa các mẫu' in review.report_relation(F1)
+json.dump({'C12': 'bộ mẫu không đủ thông tin để đối chiếu'}, open(os.path.join(F1, 'work', 'accepted.json'), 'w', encoding='utf-8'), ensure_ascii=False); assert review.report_relation(F1) == ''
+# --- link không nạp tệp quá lớn vào bộ nhớ: bỏ qua có thông báo
+from static import link   # noqa: E402
+old_max = link.MAX_BYTES; link.MAX_BYTES = 16
+try:
+    link.build(F1); raise AssertionError('mọi mẫu đều vượt ngưỡng thì phải từ chối')
+except ValueError as e: assert 'cần từ hai mẫu' in str(e)
+finally: link.MAX_BYTES = old_max
+assert 'bỏ qua' not in link.build(F1)
 print('OK check_relation')

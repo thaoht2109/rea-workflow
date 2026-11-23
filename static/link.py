@@ -11,6 +11,13 @@ GENERIC = re.compile(r'^(?:/dev/(?:null|zero|u?random|tty\w*|shm/?|stdin|stdout|
 HOST = re.compile(r'(?i)^(?:https?://)?([a-z0-9.-]+\.[a-z]{2,})(?:[:/]|$)')
 
 MAX_SAMPLES = 12   # đối chiếu từng cặp: giới hạn số mẫu, lấy các tệp lớn nhất
+MAX_BYTES = 256 << 20   # tệp lớn hơn ngưỡng này không nạp vào bộ nhớ để đối chiếu (firmware, app đóng gói): bỏ qua có thông báo
+
+def _sha(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as f:
+        for b in iter(lambda: f.read(1 << 20), b''): h.update(b)
+    return h.hexdigest()
 
 def _files(case):
     """([(tên mẫu, đường dẫn bản gốc, đường dẫn bản để phân tích)], [mẫu bị bỏ qua kèm lý do]). Bản để phân tích là bản gỡ UPX (<tên>.unupx) nếu có."""
@@ -18,7 +25,10 @@ def _files(case):
     for n in C.sources(case):
         p = os.path.join(sd, n)
         if n.endswith('/'): skip.append(f'{n} (mẫu dạng thư mục)')
-        elif os.path.isfile(p) and not os.path.islink(p): out.append((n, p, p + '.unupx' if os.path.isfile(p + '.unupx') else p))
+        elif os.path.isfile(p) and not os.path.islink(p):
+            a = p + '.unupx' if os.path.isfile(p + '.unupx') else p
+            if os.path.getsize(a) > MAX_BYTES: skip.append(f'{n} (lớn hơn {MAX_BYTES >> 20} MiB)')
+            else: out.append((n, p, a))
         else: skip.append(f'{n} (không còn trong work/sample)')
     if len(out) > MAX_SAMPLES:
         out.sort(key=lambda x: -os.path.getsize(x[1])); skip += [f'{n} (vượt giới hạn {MAX_SAMPLES} mẫu lớn nhất)' for n, _, _ in out[MAX_SAMPLES:]]; out = sorted(out[:MAX_SAMPLES])
@@ -51,7 +61,7 @@ def build(case):
     D = {n: open(a, 'rb').read() for n, _, a in F}; T = {}; G = {}
     for n, p, a in F:
         R = _triage(case, hashlib.sha256(D[n]).hexdigest())
-        st = os.stat(p); T[n] = dict(size=st.st_size, mtime=st.st_mtime, sha256=hashlib.sha256(open(p, 'rb').read()).hexdigest(), type=' '.join([R['type']] + R.get('flags', [])) if R and R.get('type') else None, unp=a != p)
+        st = os.stat(p); T[n] = dict(size=st.st_size, mtime=st.st_mtime, sha256=_sha(p), type=' '.join([R['type']] + R.get('flags', [])) if R and R.get('type') else None, unp=a != p)
         G[n] = quick.groups(quick.build(a, D[n])[0])
     L = [f'# đối chiếu chéo tĩnh giữa {len(F)} mẫu của case (không chạy mẫu): ' + ', '.join(n for n, _, _ in F),
          '# giới hạn: chỉ so chuỗi rõ và siêu dữ liệu tệp; không có tham chiếu chéo KHÔNG loại trừ liên hệ lúc chạy (lệnh từ máy chủ, script khởi động ngoài bộ mẫu).',

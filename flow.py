@@ -57,12 +57,12 @@ def new(c, srcs):
     rel = lambda: {os.path.relpath(p, sd) for p in samples(c)}
     # Một "mẫu" = một mục ở gốc work/sample: tệp ở gốc tính theo tên tệp, mọi thứ nằm trong một thư mục con tính chung là '<thư mục>/' (ứng dụng dạng cây thư mục là MỘT mẫu).
     top = lambda xs: sorted({x.split(os.sep)[0] + ('/' if os.sep in x else '') for x in xs})
-    before = rel(); existed = top(x for x in before if not x.endswith('.unupx')); added = []
+    before0 = rel(); old_case = os.path.exists(os.path.join(c, 'facts.jsonl'))   # case đã từng tạo xong (có facts); lần new đầu bị lỗi giữa chừng thì chưa có
     for s in srcs:
         if os.path.isdir(s):   # mẫu dạng thư mục (app Electron…): chép nguyên cây vào work/sample/<tên thư mục>, không giải nén gì bên trong
             dn = os.path.basename(os.path.abspath(s))
             shutil.copytree(s, os.path.join(sd, dn), dirs_exist_ok=True, symlinks=True)   # symlinks=True: giữ link nguyên dạng, không đọc đích
-            added.append(dn + '/'); before = rel(); continue   # cả thư mục là một mẫu: ghi tên thư mục (kết thúc bằng /)
+            continue   # cả thư mục là một mẫu (tính ở cuối theo trạng thái work/sample)
         if not os.path.isfile(s): raise SystemExit(f'không thấy mẫu {s}')
         head = open(s, 'rb').read(8)
         kind = zip_kind(s) if head.startswith(b'PK\x03\x04') else None
@@ -73,9 +73,11 @@ def new(c, srcs):
                 if r.returncode == 0: print(f'giải nén {s} (mật khẩu {pw!r})'); break
             else: raise SystemExit(f'không giải nén được {s}: cần mật khẩu')
         else: shutil.copy2(s, sd)
-        now = rel(); added += top(now - before); before = now   # mục mới sau khi chép/giải nén nguồn này: zip phẳng nhiều tệp cho nhiều mẫu, zip chứa cây thư mục cho một mẫu
     for p in samples(c): os.chmod(p, 0o400)
-    case.add_sources(c, added, base=existed)   # từ hai mẫu trở lên thì checklist đòi mục quan hệ giữa các mẫu (C12); case cũ chưa có sources.json: tính cả mẫu đã có sẵn
+    # Danh sách mẫu tính theo TRẠNG THÁI work/sample ở cuối lần new thành công, không theo hiệu trước/sau: lần trước lỗi giữa chừng rồi chạy lại vẫn ghi đủ.
+    # Case cũ (đã có facts, chưa có sources.json): chỉ bắt đầu ghi khi lần này thực sự thêm mẫu, để không bật C12 hồi tố.
+    allnow = top(x for x in rel() if not x.endswith('.unupx'))
+    if os.path.exists(os.path.join(c, 'work', 'sources.json')) or not old_case or (rel() - before0): case.add_sources(c, allnow)
     case.migrate_report(c)   # case cũ: report/README.md -> report/report-<ngày>.md
     if not os.path.exists(case.report_md(c)):
         d = datetime.date.today().isoformat(); t = open(os.path.join(TOOLS, 'templates', 'report.md'), encoding='utf-8').read()

@@ -284,12 +284,11 @@ def sources(case):
     except (OSError, ValueError): return []
     return [str(x) for x in L] if isinstance(L, list) else []
 
-def add_sources(case, names, base=None):
-    """Thêm tên mẫu (đường dẫn tương đối trong work/sample; thư mục kết thúc bằng /). base: các mẫu đã có sẵn, dùng khi case cũ chưa có sources.json."""
-    p = os.path.join(case, 'work', 'sources.json'); had = os.path.exists(p)
-    cur = sources(case) if had else list(base or [])
+def add_sources(case, names):
+    """Gộp tên mẫu vào work/sources.json (mỗi mục ở gốc work/sample; thư mục kết thúc bằng /), giữ thứ tự cũ, không lặp."""
+    p = os.path.join(case, 'work', 'sources.json'); cur = sources(case)
     out = cur + [n for n in dict.fromkeys(names) if n and n not in cur]
-    if out and (not had or out != cur):
+    if out and (out != cur or not os.path.exists(p)):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         json.dump(out, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
     return out

@@ -245,7 +245,7 @@ def blank_lines():
 
 def report_relation(c):
     """Case có từ hai mẫu trở lên: báo cáo viết tay phải có mục nói về quan hệ giữa các mẫu (tiêu đề chứa 'Quan hệ giữa'). Trả câu nhắc hoặc ''."""
-    if len(C.sources(c)) < 2: return ''
+    if len(C.sources(c)) < 2 or 'C12' in accepted(c): return ''   # C12 đã được chấp nhận là hạn chế (next --accept C12=lý do): không đòi mục báo cáo
     r = C.report_md(c); t = open(r, encoding='utf-8', errors='replace').read() if os.path.isfile(r) else ''
     if re.search(r'(?im)^#{1,6} .*quan hệ giữa', t): return ''
     return f"{r} chưa có mục 'Quan hệ giữa các mẫu' (case có {len(C.sources(c))} mẫu): thêm tiêu đề đó, bảng nhận định / trạng thái (đã chứng minh hay giả thuyết) / fact relation làm căn cứ"

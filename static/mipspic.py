@@ -9,7 +9,7 @@ _INT = lambda s: int(s, 0)
 
 class Tracker:
     def __init__(self, d, I, got_va=None):
-        self.d, self.I, self.E = d, I, '>' if I['be'] else '<'; self.regs = {}; self.gp = None; self.hi = None; self.lui_at = None; self.got = got_va
+        self.d, self.I, self.E = d, I, '>' if I['be'] else '<'; self.regs = {}; self.gp = None; self.hi = None; self.lui_at = None; self.got = got_va; self.pending = None   # pending: 'call' | 'ret' = xử lý sau delay slot
 
     def _u32(self, va):
         from static import elfinfo
@@ -18,7 +18,21 @@ class Tracker:
 
     def step(self, i, entry=None):
         """Cập nhật theo lệnh i. Trả địa chỉ đích nếu là jalr $t9/jr $t9 đã biết giá trị, ngược lại None."""
-        m, ops = i.mnemonic, [x.strip() for x in i.op_str.split(',')]; R = self.regs
+        m, ops = i.mnemonic, [x.strip() for x in i.op_str.split(',')]
+        pend, self.pending = self.pending, None   # pend: lệnh này là delay slot của lời gọi/return trước nó: chạy bình thường rồi áp hiệu ứng
+        r = self._step(i, m, ops, entry)
+        if pend: self._clobber(pend)
+        return r
+
+    def _clobber(self, kind):
+        """Sau lời gọi: thanh ghi caller-saved không còn tin được; sau `jr $ra`: sang hàm khác, bỏ hết (giữ gp: hàm sau tự đặt lại ở prologue)."""
+        if kind == 'ret': self.regs.clear(); return
+        for r in ('$at', '$v0', '$v1', '$a0', '$a1', '$a2', '$a3', *(f'$t{n}' for n in range(10))): self.regs.pop(r, None)
+
+    def _step(self, i, m, ops, entry):
+        R = self.regs
+        if m in ('jalr', 'jal', 'bal', 'bgezal', 'bltzal'): self.pending = 'call'
+        elif m == 'jr' and ops == ['$ra']: self.pending = 'ret'
         if m in ('jalr', 'jr') and ops and ops[-1] == '$t9': return R.get('$t9')
         if m not in WRITES or not ops or not ops[0].startswith('$'): return None
         dst = ops[0]; val = None

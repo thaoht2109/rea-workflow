@@ -163,3 +163,20 @@ for k, v, ln in sq: assert 1 <= ln <= tq.count('\n') + 1 and tq.splitlines()[ln 
 r = run('quick', 'C1'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr) and 'Traceback' not in r.stderr
 r = run('disasm', 'C1', 'm.elf'); assert r.returncode != 0 and 'dùng:' in (r.stdout + r.stderr)
 print('OK check_static_tools (PIC, hàm bọc, quick gợi ý, tham số)')
+
+# --- góp ý bot PR sau: số ở nơi gọi không được là giá trị cũ; hàm bọc còn lời gọi không đọc được thì syscall trong đó vẫn chưa xác định
+W0 = 0x400000; wrapb = be32(0x00801021, 0x0000000c, 0x03e00008, 0x00000000)      # wrapper tại W0: move v0,a0 ; syscall ; jr ra ; nop
+fx = lambda code: elf(8, 32, True, 2, 0x1007, wrapb + code, W0, syms=[('wrapper', W0, 16)])
+jw = 0x0c000000 | (W0 >> 2)
+# (a) li a0,4011 ... jal wrapper ; move a0,s1 (delay slot ghi a0 không phải hằng): KHÔNG được tính là 4011
+Ra = syscalls.scan(fx(be32(0x24040fab, jw, 0x02202021, 0x03e00008, 0))); assert not Ra['via'].get(4011) and Ra['via']['_nocall'] == 1 and len(Ra['unresolved']) == 1, Ra
+# (b) li a0,4011 ; jal f (hàm khác, ghi đè a0) ; nop ; jal wrapper ; nop: a0 cũ đã bị lời gọi f làm hỏng
+Rb = syscalls.scan(fx(be32(0x24040fab, 0x0c000000 | ((W0 + 0x40) >> 2), 0, jw, 0, 0x03e00008, 0))); assert not Rb['via'].get(4011) and Rb['via']['_nocall'] == 1, Rb
+# (c) hai nơi gọi: một có số, một không: syscall trong hàm bọc vẫn chưa xác định và via chỉ có số đọc được
+Rc = syscalls.scan(fx(be32(jw, 0x24040fab, 0x03e00008, 0) + be32(jw, 0x02202021, 0x03e00008, 0))); assert Rc['via'][4011] == 1 and Rc['via']['_nocall'] == 1 and len(Rc['unresolved']) == 1, Rc
+rc = syscalls.report(fx(be32(jw, 0x24040fab, 0x03e00008, 0) + be32(jw, 0x02202021, 0x03e00008, 0)), 'x'); assert 'còn chưa xác định 1' in rc and 'có thể thiếu' in rc, rc
+# (d) điểm hợp lưu: nhánh nhảy tới đích giữa li a0 và jal -> giá trị a0 không chắc
+Rd = syscalls.scan(fx(be32(0x24040fab, 0x10000001, 0, jw, 0, 0x03e00008, 0))); assert not Rd['via'].get(4011), Rd   # b +1 -> đích = lệnh sau delay slot (jal)
+# (e) vẫn đúng ở đường thuận lợi: li a0 ngay trước jal (delay slot nạp hằng)
+Re = syscalls.scan(fx(be32(jw, 0x24040fab, 0x03e00008, 0))); assert Re['via'][4011] == 1 and Re['unresolved'] == [], Re
+print('OK check_static_tools (số ở nơi gọi, hàm bọc một phần)')

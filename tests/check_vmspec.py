@@ -8,11 +8,11 @@ import case as C, watch
 W = tempfile.mkdtemp(prefix='rea-vm-'); c = os.path.join(W, 'CASEVM'); envf = os.path.join(W, 'rea.env')
 stub = os.path.join(W, 'stub_llm.py')
 open(stub, 'w').write('import sys, re, json; t = sys.stdin.read(); print(json.dumps({"canary": [], "items": [], "pass": re.findall(r"(?m)^### (\\S+)  \\[kind=", t), "missing": []}))\n')
-LAB = dict(VM_BACKEND='cape', VM_API_URL='http://lab.invalid:8000')
+LAB = dict(VM_BRIDGE_CMD='/khong/co/bridge')   # chỉ là dấu bật: bản này không bao giờ gọi
 def cfg(**kw): open(envf, 'w').write(''.join(f'{k}={v}\n' for k, v in kw.items()))
 def run(*a, **e):
     env = dict(os.environ, REA_ENV=envf, REVIEW_LLM='cmd', REVIEW_LLM_CMD=f'{sys.executable} {stub}')
-    for k in ('REA_WATCH', 'VM_API_TOKEN', 'VM_BACKEND', 'VM_API_URL'): env.pop(k, None)
+    for k in ('REA_WATCH', 'VM_BRIDGE_CMD'): env.pop(k, None)
     env.update(e)
     return subprocess.run([sys.executable, os.path.join(T, 'flow.py'), *a], capture_output=True, text=True, env=env, cwd=W)
 out = lambda r: r.stdout + r.stderr
@@ -61,11 +61,11 @@ try:
     A(id='obs.tree', kind='observe', value=json.dumps(dict(q='process_tree')), evidence='report/evidence/static.txt#L3')
     A(id='obs.http', kind='observe', value=json.dumps(dict(q='http')), evidence='report/evidence/static.txt#L4')
     r = run('next', c); assert 'NEED_VM' not in r.stdout and 'tầng VM chưa bật' in r.stdout and 'NEED_MORE' in r.stdout, r.stdout   # VM tắt: chỉ nhắc, không chặn
-    cfg(**LAB, VM_NET_MAX='sink', VM_TIMEOUT_MAX='900', VM_GUESTS='windows-x86=w10x86')
+    cfg(**LAB, VM_NET_MAX='sink', VM_TIMEOUT_MAX='900')
     r = run('next', c); assert r.returncode == 1 and r.stdout.strip().splitlines()[-1].startswith('NEED_VM: 2 câu hỏi') and f'flow.py review {c} --llm --detach' in r.stdout, r.stdout
-    r = run('next', c, VM_BACKEND=''); assert 'NEED_VM' in r.stdout   # biến môi trường không tắt/bật được tầng VM: chỉ đọc từ file cấu hình
+    r = run('next', c, VM_BRIDGE_CMD=''); assert 'NEED_VM' in r.stdout   # biến môi trường không tắt/bật được tầng VM: chỉ đọc từ file cấu hình
     cfg(); r = run('next', c, **LAB); assert 'NEED_VM' not in r.stdout, r.stdout
-    cfg(**LAB, VM_NET_MAX='sink', VM_TIMEOUT_MAX='900', VM_GUESTS='windows-x86=w10x86')
+    cfg(**LAB, VM_NET_MAX='sink', VM_TIMEOUT_MAX='900')
     r = run('review', c, '--llm'); assert r.returncode == 0, out(r)
     r = run('next', c); assert 'NEED_VM' in r.stdout and f'`flow.py vmspec {c}`' in r.stdout, r.stdout
     # ---- vmspec: tất định, có nguồn, trần thời gian ----
@@ -79,11 +79,9 @@ try:
     r = run('vmspec', c); assert r.returncode == 0 and open(sp, 'rb').read() == b1   # chạy lại: cùng byte
     r = run('next', c); assert '`flow.py vm-run' in r.stdout and '--dry-run' in r.stdout, r.stdout
     # ---- vm-run: dry-run in yêu cầu, không lộ token; không --dry-run thì từ chối; trong watch thì từ chối ----
-    r = run('vm-run', c, '--dry-run', VM_API_TOKEN='bi-mat-123')
-    assert r.returncode == 0 and 'OK dry-run' in r.stdout and 'windows-x86 -> máy/tag w10x86' in r.stdout and h in r.stdout and 'bi-mat-123' not in out(r) and 'token: đã đặt' in r.stdout, out(r)
-    r = run('vm-run', c, '--dry-run'); assert r.returncode == 0 and 'còn thiếu để gửi thật: VM_API_TOKEN' in r.stdout, out(r)
-    r = run('vm-run', c); assert r.returncode and 'chưa đủ cấu hình' in out(r), out(r)
-    r = run('vm-run', c, VM_API_TOKEN='t'); assert r.returncode and 'chưa có adapter' in out(r), out(r)
+    r = run('vm-run', c, '--dry-run')
+    assert r.returncode == 0 and 'OK dry-run' in r.stdout and 'guest: windows-x86' in r.stdout and h in r.stdout and '/khong/co/bridge' not in out(r), out(r)   # không in lệnh cầu nối (có thể chứa tham số nhạy cảm)
+    r = run('vm-run', c); assert r.returncode and 'chưa gọi cầu nối' in out(r), out(r)
     r = run('vm-run', c, '--dry-run', REA_WATCH='1'); assert r.returncode and 'watch' in out(r), out(r)
     assert not watch.VMRUN.search("grep -n 'flow.py vm-run' FLOW.md") and watch.VMRUN.search('cd x && python3 -I tools/flow.py vm-loop C')   # đọc tĩnh không bị bắt nhầm
     assert watch.VMRUN.search(f'python3 flow.py vm-run {c} --dry-run') and watch.VMRUN.search('subprocess.run(["flow.py", "vm-loop", c])') and not watch.VMRUN.search('flow.py vmspec C')
@@ -109,11 +107,10 @@ try:
     cfg(**LAB, VM_NET_MAX='internett'); r = run('vmspec', c); assert r.returncode and 'vượt trần' in out(r), out(r)   # trần gõ sai: không coi là cho phép
     cfg(**LAB, VM_NET_MAX='internet'); r = run('vmspec', c); assert r.returncode == 0, out(r)
     s = json.load(open(sp)); assert s['net'] == dict(mode='internet', dns=['synth-c2.example'], tcp=[]) and s['time'] == dict(timeout=1800, clamped_from=5000), s
-    r = run('vm-run', c, '--dry-run'); assert r.returncode and 'cần VM_ROUTE' in out(r), out(r)   # ra Internet phải có đường ra riêng
-    cfg(**LAB, VM_NET_MAX='internet', VM_ROUTE='vpn0'); r = run('vm-run', c, '--dry-run'); assert r.returncode == 0 and 'internet qua vpn0' in r.stdout, out(r)
+    r = run('vm-run', c, '--dry-run'); assert r.returncode == 0 and 'mạng: internet' in r.stdout, out(r)
     # ---- trần số task và số vòng ----
-    cfg(**LAB, VM_NET_MAX='internet', VM_ROUTE='vpn0', VM_MAX_TASKS='0'); r = run('vmspec', c); assert r.returncode and 'VM_MAX_TASKS=0' in out(r), out(r)
-    cfg(**LAB, VM_NET_MAX='internet', VM_ROUTE='vpn0', VM_MAX_ROUNDS='1')
+    cfg(**LAB, VM_NET_MAX='internet', VM_MAX_TASKS='0'); r = run('vmspec', c); assert r.returncode and 'VM_MAX_TASKS=0' in out(r), out(r)
+    cfg(**LAB, VM_NET_MAX='internet', VM_MAX_ROUNDS='1')
     tk = os.path.join(c, 'work', 'vm', 'r1', 'task.json'); open(tk, 'w').write('{}')   # vòng 1 coi như đã gửi
     r = run('vmspec', c); assert r.returncode and 'đạt trần VM_MAX_ROUNDS=1' in out(r), out(r)
     os.remove(tk)

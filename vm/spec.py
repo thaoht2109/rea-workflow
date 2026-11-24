@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# Tầng T5 (VM): đặc tả môi trường chạy mẫu, sinh TẤT ĐỊNH từ fact (kind env/observe) và triage. Máy phân tích không chạy mẫu;
-# file này không mở kết nối mạng nào và không ghi bản chép nào của mẫu. Gửi thật sang sandbox là việc của adapter (chưa có ở bản này).
+# Tầng T5 (VM): đặc tả môi trường chạy mẫu, sinh TẤT ĐỊNH từ fact (kind env/observe) và triage. Skill không chứa mã gửi hay chạy mẫu:
+# file này không mở kết nối mạng nào, không ghi bản chép nào của mẫu, không biết địa chỉ hay API của sandbox. Gửi mẫu là việc của cầu nối
+# do người dùng tự cài ngoài skill (VM_BRIDGE_CMD); bản này chưa gọi cầu nối.
 #   build(case)            work/vm/rN/vmspec.json + vm_task.md (cần cổng phản biện PASS khớp facts.jsonl hiện tại)
-#   run(case, dry=True)    kiểm lại cổng, cấu hình VM_*, hash mẫu; in đúng yêu cầu sẽ gửi (không có token)
+#   run(case, dry=True)    dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu); in yêu cầu sẽ giao cho cầu nối
 #   next_hint(case)        dòng dẫn đường cho `flow.py next` khi case có câu hỏi cần VM trả lời
 import os, re, sys, json, glob, shlex, hashlib
 
@@ -64,7 +65,7 @@ def resolve(c, names):
     return out
 
 def rounds(c):
-    """(số vòng đã gửi, vòng đang soạn). Vòng đã gửi có task.json (adapter ghi); vòng chưa gửi được sinh lại tại chỗ."""
+    """(số vòng đã gửi, vòng đang soạn). Vòng đã gửi có task.json (ghi khi gọi cầu nối); vòng chưa gửi được sinh lại tại chỗ."""
     sent = [int(m[1]) for m in (re.fullmatch(r'r(\d+)', n) for n in (os.listdir(VMDIR(c)) if os.path.isdir(VMDIR(c)) else []))
             if m and os.path.exists(os.path.join(VMDIR(c), m[0], 'task.json'))]
     return (max(sent) if sent else 0), (max(sent) if sent else 0) + 1
@@ -148,25 +149,21 @@ def latest(c):
     return json.load(open(p, encoding='utf-8')), p
 
 def run(c, dry=True):
-    """Kiểm mọi điều kiện gửi rồi in yêu cầu. Bản này chưa có adapter: không có --dry-run thì từ chối, không gửi gì."""
+    """Kiểm mọi điều kiện rồi in yêu cầu sẽ giao cho cầu nối. Bản này chưa gọi cầu nối: không có --dry-run thì từ chối."""
     if os.environ.get('REA_WATCH'): die('đang trong phiên watch không người trực: watcher không được gửi mẫu sang VM, để người dùng chạy')
     s, p = latest(c)
     import review
     if s.get('facts_sha256') != review.facts_sha(c): die(f'vmspec đã cũ (facts.jsonl đổi sau khi sinh): review lại rồi flow.py vmspec {shlex.quote(c)}')
     if make(c) != s: die(f'vmspec trên đĩa không khớp fact, mẫu và trần hiện tại (mẫu đổi, hoặc vmspec.json bị sửa tay): sinh lại bằng flow.py vmspec {shlex.quote(c)}')   # make() kiểm lại cổng, trần, hash mẫu
-    if s['net']['mode'] == 'internet' and not CFG.VM_ROUTE: die('mức mạng internet cần VM_ROUTE (đường ra riêng của sandbox) trong rea.env')
     gk = f"{s['guest']['os']}-{s['guest']['arch']}"
     print(f"{'DRY-RUN' if dry else 'GỬI'} vòng {s['round']} ({os.path.relpath(p, c)}), cấu hình: {CFG.FILE}")
-    print(f"  sandbox: {CFG.VM_BACKEND or '(VM_BACKEND trống: chưa phê duyệt)'} tại {CFG.VM_API_URL or '(chưa khai VM_API_URL)'}; token: {'đã đặt' if CFG.VM_API_TOKEN else 'chưa đặt'}")
-    print(f"  guest: {gk} -> máy/tag {CFG.VM_GUESTS.get(gk) or '(chưa khai trong VM_GUESTS)'}")
-    print(f"  mạng: {s['net']['mode']}" + (f" qua {CFG.VM_ROUTE}" if s['net']['mode'] == 'internet' else '') + f"; thời gian: {s['time']['timeout']} giây; số task: {len(s['launches'])}")
+    print(f"  cầu nối: {'đã khai VM_BRIDGE_CMD' if CFG.VM_BRIDGE_CMD else '(VM_BRIDGE_CMD trống: tầng VM chưa bật)'}; guest: {gk}")
+    print(f"  mạng: {s['net']['mode']}; thời gian: {s['time']['timeout']} giây; số task: {len(s['launches'])}")
     for x in s['files']: print(f"  file: {x['sha256']} {x['size']:>9} B  {x['src']}")
     for i, x in enumerate(s['launches'], 1): print(f"  task {i}: {x['mode']}" + (f" (fact {x['id']})" if x['id'] else ' (mặc định)'))
     print(f"  câu hỏi: {', '.join(x['q'] for x in s['observe'])}")
-    miss = [k for k, v in (('VM_BACKEND', CFG.VM_BACKEND), ('VM_API_URL', CFG.VM_API_URL), (f'VM_GUESTS[{gk}]', CFG.VM_GUESTS.get(gk)), ('VM_API_TOKEN', CFG.VM_API_TOKEN)) if not v]
-    if miss: print(f"  còn thiếu để gửi thật: {', '.join(miss)} (người dùng khai trong rea.env / biến môi trường; agent không tự khai)")
-    if dry: print('OK dry-run: không gửi gì, không mở kết nối mạng'); return 0
-    die('bản này chưa có adapter gửi sang sandbox: chỉ chạy được --dry-run' if not miss else 'chưa đủ cấu hình để gửi (xem dòng `còn thiếu` ở trên)')
+    if dry: print('OK dry-run: không gọi cầu nối, không gửi gì, không mở kết nối mạng'); return 0
+    die('bản này chưa gọi cầu nối: chỉ chạy được --dry-run' if CFG.VM_BRIDGE_CMD else 'tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai; agent không tự khai): chỉ chạy được --dry-run')
 
 def signs(c):
     """Dấu hiệu tất định cho thấy tầng tĩnh/giả lập có thể không đủ. Chỉ là gợi ý; quyết định dùng VM là fact observe do người phân tích ghi."""
@@ -180,8 +177,8 @@ def signs(c):
 def next_hint(c, gate_ok, bg=False, fix=''):
     """(dòng in, có chặn không) cho review.next_step khi checklist còn thiếu. Có fact observe + VM đã cấu hình: NEED_VM kèm đúng lệnh kế."""
     obs = observes(c); q = shlex.quote(c)
-    if not CFG.VM_BACKEND:
-        return (f"  lưu ý (không chặn): có {len(obs)} fact observe nhưng tầng VM chưa bật (VM_BACKEND trong rea.env do người dùng khai): báo người dùng, hoặc ghi phần này vào mục hạn chế", False) if obs else ('', False)
+    if not CFG.VM_BRIDGE_CMD:
+        return (f"  lưu ý (không chặn): có {len(obs)} fact observe nhưng tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai): báo người dùng, hoặc ghi phần này vào mục hạn chế", False) if obs else ('', False)
     if not obs:
         sg = signs(c)
         return (f"  lưu ý (không chặn): tầng VM đã bật; dấu hiệu: {'; '.join(sg)}. Khi T2/T3 không lấy được mục còn thiếu: ghi fact observe (câu hỏi VM phải trả lời) và env (FLOW.md mục 2, T5)", False) if sg else ('', False)
@@ -192,4 +189,4 @@ def next_hint(c, gate_ok, bg=False, fix=''):
     try: s, _ = latest(c); fresh = s.get('facts_sha256') == __import__('review').facts_sha(c)
     except SystemExit: fresh = False
     if not fresh: return head + f'`flow.py vmspec {q}`', True
-    return head + f'`flow.py vm-run {q} --dry-run`, đưa kết quả cho người dùng; gửi thật do người dùng chạy (bản này chưa có adapter)', True
+    return head + f'`flow.py vm-run {q} --dry-run`, đưa kết quả cho người dùng (bản này chưa gọi cầu nối)', True

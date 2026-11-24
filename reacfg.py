@@ -53,22 +53,19 @@ REVIEW_MAX_TURNS = int(get('REVIEW_MAX_TURNS', '6', path=False))   # số lượ
 REVIEW_BATCH = int(get('REVIEW_BATCH', '20', path=False))           # số fact mỗi lô: lô nhỏ hợp model có context ngắn
 REVIEW_LLM_CMD = get('REVIEW_LLM_CMD', path=False)          # lớp 2 bằng LLM khác: lệnh không tương tác, prompt qua stdin, JSON ra stdout; trống = claude -p
 ANALYST_LLM_CMD = get('ANALYST_LLM_CMD', path=False)        # phiên sửa fact cho review-loop khi dùng LLM khác; trống = agent hiện tại tự sửa
-# Tầng T5 (VM): sandbox tự dựng nhận mẫu qua API. Người dùng khai MỘT LẦN ở rea.env (agent không ghi được file này): đó là phê duyệt cho mọi case.
-# Các khóa VM_* CHỈ đọc từ file cấu hình (_F), không đọc biến môi trường: một lệnh `VM_BACKEND=... flow.py vm-run` không tự bật được tầng này.
-# (Vẫn chỉ là lớp chặn nhầm: lệnh đặt REA_ENV sang file khác là vượt rào có chủ ý, lộ trong transcript.) Token: chỉ biến môi trường VM_API_TOKEN, không ghi ra đĩa hay log.
+# Tầng T5 (VM): skill KHÔNG chứa mã gửi hay chạy mẫu. Nó sinh đặc tả rồi gọi một CẦU NỐI do người dùng tự cài ngoài skill (VM_BRIDGE_CMD); cầu nối
+# mới là thứ biết địa chỉ, token và API của sandbox. Người dùng khai VM_BRIDGE_CMD MỘT LẦN ở rea.env (agent không ghi được file này): đó là phê duyệt cho mọi case.
+# Các khóa VM_* CHỈ đọc từ file cấu hình (_F), không đọc biến môi trường: một lệnh `VM_BRIDGE_CMD=... flow.py vm-run` không tự bật được tầng này.
+# (Vẫn chỉ là lớp chặn nhầm: lệnh đặt REA_ENV sang file khác là vượt rào có chủ ý, lộ trong transcript.)
 _vm = lambda k, d='': (_F.get(k) or d).strip()
 def _vint(k, d):
     try: return max(0, int(_vm(k, str(d))))
     except ValueError: return d
-VM_BACKEND = _vm('VM_BACKEND')                # loại sandbox (vd cape); trống = tắt: mọi lệnh vm-* chỉ dry-run
-VM_API_URL = _vm('VM_API_URL')                # địa chỉ API của sandbox (mạng nội bộ của lab)
+VM_BRIDGE_CMD = _vm('VM_BRIDGE_CMD')      # lệnh cầu nối (ngoài skill); trống = tắt: mọi lệnh vm-* chỉ dry-run
 VM_NET_MAX = _vm('VM_NET_MAX', 'sink')        # trần mức mạng của guest: none < sink < internet
-VM_ROUTE = _vm('VM_ROUTE')                    # tên đường ra Internet riêng của sandbox (VPN); bắt buộc khi mức mạng là internet
 VM_MAX_ROUNDS = _vint('VM_MAX_ROUNDS', 2)     # số vòng gửi tối đa cho một case
 VM_MAX_TASKS = _vint('VM_MAX_TASKS', 2)       # số lần chạy (cách khởi chạy) tối đa mỗi vòng
 VM_TIMEOUT_MAX = _vint('VM_TIMEOUT_MAX', 1800)   # trần thời gian chạy một task (giây)
-VM_GUESTS = dict(x.split('=', 1) for x in re.split(r'[,\s]+', _vm('VM_GUESTS')) if '=' in x)   # nền -> máy/tag của sandbox: windows-x64=win10,linux-mips=mipsbe
-VM_API_TOKEN = os.environ.get('VM_API_TOKEN', '')
 
 REA_BIN, UPX, SEVENZ, CLAUDE = get('REA_BIN', 'rea'), get('UPX_BIN', 'upx'), get('SEVENZ_BIN', '7z'), get('CLAUDE_BIN', 'claude')
 
@@ -174,9 +171,8 @@ def doctor():
     kbr = os.path.realpath(KB); off = KB.lower() in ('off', '0', 'none', 'no')
     inside = not off and (kbr == os.path.realpath(TOOLS) or kbr.startswith(os.path.realpath(TOOLS) + os.sep))
     row(not inside, 'REA_KB', 'tắt' if off else KB, 'kho tra chéo (flow.py kb), chứa IOC: phải nằm ngoài thư mục skill; off = tắt', False)
-    vmok = VM_NET_MAX in ('none', 'sink', 'internet') and (VM_NET_MAX != 'internet' or bool(VM_ROUTE)) and (not VM_BACKEND or bool(VM_API_URL))
-    row(vmok, 'VM_BACKEND', (f"{VM_BACKEND} tại {VM_API_URL or '(thiếu VM_API_URL)'}, mạng tối đa {VM_NET_MAX}" + (f' qua {VM_ROUTE}' if VM_ROUTE else '') + f", token {'đã đặt' if VM_API_TOKEN else 'chưa đặt (VM_API_TOKEN)'}") if VM_BACKEND else 'tắt',
-        'tầng T5 (flow.py vmspec, vm-run): sandbox tự dựng; trống = chỉ dry-run; VM_NET_MAX=internet cần VM_ROUTE (đường ra riêng)', False)
+    row(VM_NET_MAX in ('none', 'sink', 'internet'), 'VM_BRIDGE_CMD', f'{VM_BRIDGE_CMD}, mạng tối đa {VM_NET_MAX}' if VM_BRIDGE_CMD else 'tắt',
+        'tầng T5 (flow.py vmspec, vm-run): lệnh cầu nối do người dùng tự cài ngoài skill; trống = chỉ dry-run; VM_NET_MAX thuộc none|sink|internet', False)
     for m, use in (('tlsh', 'kb: so khớp mờ TLSH (pip: py-tlsh)'), ('cryptography', 'kb: chủ thể/serial chứng thư Authenticode')):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, '', 'tùy chọn, ' + use, False)
     row(os.path.isdir(WINE_DLL_DIR), 'WINE_DLL_DIR', WINE_DLL_DIR, 'tên export cho DLL giả của winemu', False)

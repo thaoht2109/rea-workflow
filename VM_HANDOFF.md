@@ -14,7 +14,7 @@ Tầng VM dùng khi phân tích tĩnh và giả lập CPU không lấy được 
 
 Skill không chứa mã gửi hay chạy mẫu, không biết địa chỉ hay token của sandbox. Máy phân tích không chạy mẫu và không gửi request nào tới hạ tầng của kẻ tấn công; chỉ guest trong sandbox chạy mẫu và ra mạng.
 
-**Trạng thái hiện tại.** Skill sinh đặc tả, gọi cầu nối (`flow.py vm-run`) và kiểm bản kê kết quả theo giao kèo ở mục 4. Skill chưa đọc báo cáo sandbox thành fact nguồn V.
+**Trạng thái hiện tại.** Skill sinh đặc tả, gọi cầu nối (`flow.py vm-run`) và kiểm bản kê kết quả theo giao kèo ở mục 4. `flow.py vm-ingest` đọc báo cáo dạng CAPEv2 (`report_t<K>.json`) thành evidence và fact nguồn V; cấu trúc báo cáo lấy từ mã nguồn CAPEv2, chưa đối chiếu với báo cáo thật.
 
 ## 2. Lab cần có gì
 
@@ -72,6 +72,7 @@ Mã thoát 0 là xong; khác 0 là lỗi. Skill ghi dấu "đã gửi" trước 
 ```json
 {"net_mode": "sink",
  "tasks": [{"status": "reported", "route_verified": true, "timeout_effective": 300,
+            "route_effective": "<tên route sandbox ghi cho task>",
             "files": [{"name": "report_t1.json", "sha256": "…"}]}]}
 ```
 
@@ -81,6 +82,8 @@ Skill từ chối cả vòng khi một trong các điều sau sai:
 - Một task không có `route_verified: true`. Cầu nối chỉ được ghi `true` sau khi đã hỏi lại sandbox và thấy task chạy đúng route nó yêu cầu. Sandbox có thể bỏ qua tham số route và dùng đường mặc định, nên bước hỏi lại là bắt buộc; lệch thì cầu nối phải hủy task.
 - `timeout_effective` lớn hơn `time.timeout`; `status` khác `reported`; không có file nào.
 - Tên file không phải tên trần (`A-Z a-z 0-9 _ . -`, tối đa 80 ký tự), file là symlink, thiếu, quá 1 GiB, hoặc sai `sha256`.
+
+Báo cáo của task thứ K đặt tên `report_t<K>.json`. `route_effective` là tên route sandbox ghi cho task; `vm-ingest` so nó với route ghi trong báo cáo, lệch thì không dùng phần mạng của báo cáo.
 
 Cầu nối chỉ vận chuyển. Nó không phân tích, không sửa kết quả, không ghi fact. Thư mục kết quả là dữ liệu do mẫu chi phối: skill đặt quyền 0400, `flow.py export` đưa vào gói 7z có mật khẩu, và phiên phản biện không được chép thư mục này.
 

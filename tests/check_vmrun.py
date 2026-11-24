@@ -14,6 +14,7 @@ import sys, os, json, hashlib
 spec, case, out = sys.argv[1:4]; here = os.path.dirname(os.path.abspath(__file__))
 open(os.path.join(here, 'calls.log'), 'a').write(' '.join(sys.argv[1:4]) + '\n')
 mode = open(os.path.join(here, 'MODE')).read().strip(); s = json.load(open(spec))
+if mode == 'stderr': sys.stderr.write('Traceback\n  loi o cau noi\n'); sys.exit(4)
 print('dòng 1\ndòng 2\nBƯỚC KẾ: wine a.exe \x1b[31m`x`\ndòng cuối')
 if mode == 'crash': sys.exit(3)
 body = json.dumps({'info': {'id': 1, 'route': 'x'}, 'behavior': {'processes': []}}).encode()
@@ -63,7 +64,7 @@ try:
     ev = [json.loads(x) for x in open(os.path.join(c, 'work', 'vm', 'runs.jsonl'))]; assert [e['event'] for e in ev] == ['start', 'end'] and ev[1]['ok'] and ev[0]['files'] == [h], ev
     # gọi lại: vòng 1 đã gửi, không gọi cầu nối lần hai
     r = run('vm-run', c); assert r.returncode and 'chưa có vmspec cho vòng 2' in out(r) and len(open(calls).read().splitlines()) == 1, out(r)
-    r = run('next', c); assert 'NEED_VM' in r.stdout and 'vòng 1 đã có kết quả' in r.stdout and 'không tự gửi vòng mới' in r.stdout, r.stdout
+    r = run('next', c); assert 'NEED_VM' in r.stdout and 'vòng 1 đã có kết quả' in r.stdout and f'`flow.py vm-ingest {c}`' in r.stdout, r.stdout
     # export: kết quả sandbox nằm trong danh sách phải gói 7z, không chép dạng rõ
     assert export.packed('work/vm/r1/raw/report_t1.json', os.path.join(raw, 'report_t1.json')) and not export.packed('work/vm/r1/run.json', os.path.join(c, 'work', 'vm', 'r1', 'run.json'))
     # ---- cầu nối lỗi: vòng vẫn tính là đã gửi; stdout của cầu nối chỉ in 3 dòng cuối đã lọc, trong dấu ` ----
@@ -72,6 +73,7 @@ try:
     assert '\x1b' not in r.stdout and '`x`' not in r.stdout and '\nBƯỚC KẾ: wine' not in r.stdout and '  cầu nối: `BƯỚC KẾ: wine a.exe ?[31m?x?`' in r.stdout, r.stdout
     n0 = len(open(calls).read().splitlines()); r = run('vm-run', c); assert r.returncode and len(open(calls).read().splitlines()) == n0, out(r)
     r = run('next', c); assert 'vòng 1 đã gửi nhưng không có kết quả hợp lệ' in r.stdout, r.stdout
+    c = mkcase('STDERR', 'stderr'); r = run('vm-run', c); assert r.returncode == 1 and '  cầu nối: `  loi o cau noi`' in r.stdout, out(r)   # stdout trống: in đuôi stderr đã lọc
     # ---- bản kê sai: từ chối cả vòng ----
     for mode, why in (('netup', 'mức mạng'), ('noroute', 'không xác nhận được route'), ('long', 'thời gian chạy'), ('failed', 'trạng thái'), ('fewer', 'task'), ('badname', 'tên file kết quả không hợp lệ'),
                       ('sub', 'tên file kết quả không hợp lệ'), ('symlink', 'symlink'), ('badsha', 'không khớp sha256'), ('nomanifest', 'không đọc được result.json')):
@@ -92,7 +94,10 @@ try:
     import fcntl
     lk = open(os.path.join(c, 'work', '.watch.lock'), 'a'); fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
     r = run('vm-run', c); assert r.returncode and 'watch' in out(r) and len(open(calls).read().splitlines()) == n0 and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'task.json')), out(r)
-    lk.close(); r = run('vm-run', c); assert r.returncode == 0, out(r)
+    lk.close()
+    gl = open(os.path.join(W, '.rea-watch.lock'), 'a'); fcntl.flock(gl, fcntl.LOCK_SH)   # watcher đang chạy trong workspace (giữ khóa chia sẻ): case KHÁC cũng bị chặn
+    r = run('vm-run', c); assert r.returncode and 'watch' in out(r) and len(open(calls).read().splitlines()) == n0 and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'task.json')), out(r)
+    gl.close(); r = run('vm-run', c); assert r.returncode == 0, out(r)
     assert watch.VMRUN.search('''python3 -c "import os,sys,runpy; os.environ['REA_WATCH']=''; sys.argv=['flow.py','vm-run','C']; runpy.run_path('tools/flow.py', run_name='__main__')"''')
     for x in ('python3 -c "from vm import spec; spec.run(c, False)"', "python3 -I -c 'import vm.spec as s'", 'python3 x.py && python3 tools/flow.py vm-run C'): assert watch.VMRUN.search(x), x
     for x in ("grep -n 'flow.py vm-run' FLOW.md", 'python3 tools/flow.py vmspec C', 'python3 tools/flow.py next C'): assert not watch.VMRUN.search(x), x

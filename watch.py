@@ -369,6 +369,8 @@ def run_round(cases, model, report):
 def main(a):
     if not a or a[0].startswith('-') or not os.path.isdir(a[0]):
         print('dùng: flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   (chạy ở workspace; case tạo trong thư mục hiện tại; quét cả thư mục con)'); return 2
+    global _WS_LOCK
+    _WS_LOCK = open('.rea-watch.lock', 'a'); fcntl.flock(_WS_LOCK, fcntl.LOCK_SH)   # khóa chia sẻ suốt thời gian watcher chạy: flow.py vm-run trong workspace này từ chối gọi cầu nối
     os.environ['REA_WATCH'] = '1'   # phiên con thừa hưởng: flow.py vm-run từ chối trong phiên không người trực (lớp thứ hai là hậu kiểm VMRUN)
     model = pick_model(a)
     if model is None: print('--model cần tên model'); return 2

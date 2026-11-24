@@ -92,7 +92,8 @@ NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py
                     r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
                     r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?watch(?![\w.])''')
 VMRUN = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+vm-(?:run|loop)(?![\w.-])'   # gửi mẫu sang VM: chỉ người dùng chạy; neo vị trí lệnh như NESTED (grep 'flow.py vm-run' là đọc tĩnh)
-                   r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?vm-(?:run|loop)(?![\w.-])''')
+                   r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?vm-(?:run|loop)(?![\w.-])'''
+                   r'''|\bvm\.spec\b|\bfrom\s+vm\s+import\b|\bimport\s+vm\b|\bspec\.(?:run|bridge)\s*\(''')   # gọi thẳng module (python -c, script tự viết)
 RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
 
 def tool_names(out):

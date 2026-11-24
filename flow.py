@@ -39,7 +39,8 @@
 #                                      dừng và báo khi STOPPED/DONE, hết trần phiên hoặc fact không đổi (REA_WATCH_*); không --model thì hỏi; --report: chép báo cáo case xong vào Report_<TÊN|tên INBOX>
 #   flow.py vmspec CASE                tầng T5: gộp fact env/observe + triage thành work/vm/rN/vmspec.json và vm_task.md (cần cổng phản biện PASS; trần lấy từ VM_* trong rea.env); không gửi gì
 #   flow.py vm-run CASE --dry-run      dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu) rồi in yêu cầu sẽ giao cho cầu nối; không mở kết nối mạng.
-#                                      Skill không chứa mã gửi mẫu: gửi là việc của cầu nối do người dùng tự cài (VM_BRIDGE_CMD trong rea.env; bản này chưa gọi); phiên watch không được gọi
+#                                      Skill không chứa mã gửi mẫu: gửi là việc của cầu nối do người dùng tự cài (VM_BRIDGE_CMD trong rea.env); phiên watch không được gọi
+#   flow.py vm-run CASE                giao đặc tả cho cầu nối (một lần mỗi vòng), kiểm bản kê trả về (mức mạng, route, thời gian, sha256) -> work/vm/rN/raw (0400), run.json, runs.jsonl
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)

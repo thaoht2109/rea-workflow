@@ -14,7 +14,7 @@ Tầng VM dùng khi phân tích tĩnh và giả lập CPU không lấy được 
 
 Skill không chứa mã gửi hay chạy mẫu, không biết địa chỉ hay token của sandbox. Máy phân tích không chạy mẫu và không gửi request nào tới hạ tầng của kẻ tấn công; chỉ guest trong sandbox chạy mẫu và ra mạng.
 
-**Trạng thái hiện tại.** Bản này sinh đặc tả và in yêu cầu (`flow.py vm-run --dry-run`). Skill chưa gọi cầu nối và chưa đọc kết quả; giao kèo ở mục 4 là dự kiến, sẽ chốt cùng bản gọi cầu nối.
+**Trạng thái hiện tại.** Skill sinh đặc tả, gọi cầu nối (`flow.py vm-run`) và kiểm bản kê kết quả theo giao kèo ở mục 4. Skill chưa đọc báo cáo sandbox thành fact nguồn V.
 
 ## 2. Lab cần có gì
 
@@ -50,23 +50,39 @@ Với mức `internet`, router của lab **bắt buộc** có các luật sau, v
 
 Skill không tự kiểm được các luật này. Chúng là trách nhiệm của người dựng lab.
 
-## 4. Giao kèo với cầu nối (dự kiến)
+## 4. Giao kèo với cầu nối
 
-Cầu nối là một lệnh không tương tác. Skill gọi nó với đường dẫn `vmspec.json`, thư mục case và thư mục kết quả.
+Cầu nối là một lệnh không tương tác. Skill gọi nó một lần cho mỗi vòng, không qua shell:
+
+```
+<VM_BRIDGE_CMD> <đường dẫn vmspec.json> <thư mục case> <thư mục kết quả>
+```
+
+Mã thoát 0 là xong; khác 0 là lỗi. Skill ghi dấu "đã gửi" trước khi gọi và không gọi lại cùng vòng, kể cả khi cầu nối lỗi. Skill chỉ in ba dòng cuối của stdout, đã lọc ký tự điều khiển.
 
 Đầu vào, lấy từ `vmspec.json`:
 
-- `files`: tên trong guest, đường dẫn nguồn trong case, SHA256. Cầu nối kiểm lại SHA256 trước khi gửi.
-- `guest` (`os`, `arch`), `layout` (thư mục đặt mẫu, file chạy chính), `launches` (mỗi mục là một task), `precond`.
-- `net.mode` và `time.timeout`: cầu nối không được dùng mức mạng cao hơn hay thời gian dài hơn giá trị ghi ở đây.
-- `observe`: các câu hỏi, để cầu nối bật đúng phần thu thập (dump bộ nhớ, pcap).
+- `files`: tên trong guest (`name`), đường dẫn nguồn tính từ thư mục case (`src`), `sha256`. Cầu nối kiểm lại SHA256 trước khi gửi.
+- `guest` (`os`, `arch`), `layout` (`dir`, `main`), `launches` (mỗi mục là một task: `mode`, `args`, tùy chọn `path`), `precond`.
+- `net.mode` (`none`, `sink`, `internet`) và `time.timeout` (giây): cầu nối không được dùng mức mạng cao hơn hay thời gian dài hơn.
+- `observe`: các câu hỏi, để cầu nối bật đúng phần thu thập.
 
-Đầu ra, ghi vào thư mục kết quả:
+Đầu ra: các file kết quả đặt thẳng trong thư mục kết quả (không thư mục con), và một bản kê `result.json`:
 
-- Báo cáo gốc của sandbox và các file kèm (pcap, dump, file mẫu thả ra).
-- Một bản kê: tên từng file kèm SHA256, mã task, mức mạng đã dùng thật, đường ra, thời điểm bắt đầu và kết thúc.
+```json
+{"net_mode": "sink",
+ "tasks": [{"status": "reported", "route_verified": true, "timeout_effective": 300,
+            "files": [{"name": "report_t1.json", "sha256": "…"}]}]}
+```
 
-Cầu nối chỉ vận chuyển. Nó không phân tích, không sửa kết quả, không ghi fact. Việc đọc báo cáo và ghi fact nguồn V do skill làm, với mọi chuỗi trong báo cáo coi là dữ liệu do mẫu chi phối.
+Skill từ chối cả vòng khi một trong các điều sau sai:
+
+- `net_mode` khác `net.mode` của đặc tả; số task khác số `launches`.
+- Một task không có `route_verified: true`. Cầu nối chỉ được ghi `true` sau khi đã hỏi lại sandbox và thấy task chạy đúng route nó yêu cầu. Sandbox có thể bỏ qua tham số route và dùng đường mặc định, nên bước hỏi lại là bắt buộc; lệch thì cầu nối phải hủy task.
+- `timeout_effective` lớn hơn `time.timeout`; `status` khác `reported`; không có file nào.
+- Tên file không phải tên trần (`A-Z a-z 0-9 _ . -`, tối đa 80 ký tự), file là symlink, thiếu, quá 1 GiB, hoặc sai `sha256`.
+
+Cầu nối chỉ vận chuyển. Nó không phân tích, không sửa kết quả, không ghi fact. Thư mục kết quả là dữ liệu do mẫu chi phối: skill đặt quyền 0400, `flow.py export` đưa vào gói 7z có mật khẩu, và phiên phản biện không được chép thư mục này.
 
 ## 5. Bật tầng VM
 
@@ -94,7 +110,7 @@ Kiểm cấu hình: `python3 flow.py doctor` (dòng `VM_BRIDGE_CMD`).
 1. Người phân tích (hoặc agent) ghi fact `observe` (câu hỏi) và `env` (môi trường mẫu cần), rồi đưa qua cổng phản biện.
 2. `flow.py vmspec CASE` sinh `work/vm/rN/vmspec.json` và `vm_task.md`. File sau là bản để người vận hành đọc.
 3. `flow.py vm-run CASE --dry-run` in guest, mức mạng, thời gian, hash từng file và các câu hỏi. Lệnh này không gọi cầu nối và không mở kết nối mạng.
-4. Gọi cầu nối (bản sau): do người dùng chạy từ shell của mình.
+4. `flow.py vm-run CASE` giao đặc tả cho cầu nối và kiểm bản kê. Sandbox bash của agent thường không tới được mạng lab; khi đó người dùng chạy lệnh này từ shell của mình.
 
 ## 7. Ghi vào báo cáo
 

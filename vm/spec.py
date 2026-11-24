@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Tầng T5 (VM): đặc tả môi trường chạy mẫu, sinh TẤT ĐỊNH từ fact (kind env/observe) và triage. Skill không chứa mã gửi hay chạy mẫu:
 # file này không mở kết nối mạng nào, không ghi bản chép nào của mẫu, không biết địa chỉ hay API của sandbox. Gửi mẫu là việc của cầu nối
-# do người dùng tự cài ngoài skill (VM_BRIDGE_CMD); bản này chưa gọi cầu nối.
+# do người dùng tự cài ngoài skill (VM_BRIDGE_CMD); skill chỉ gọi lệnh đó và kiểm bản kê kết quả.
 #   build(case)            work/vm/rN/vmspec.json + vm_task.md (cần cổng phản biện PASS khớp facts.jsonl hiện tại)
-#   run(case, dry=True)    dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu); in yêu cầu sẽ giao cho cầu nối
+#   run(case, dry=True)    dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu); in yêu cầu; dry=False thì gọi cầu nối và kiểm bản kê trả về
 #   next_hint(case)        dòng dẫn đường cho `flow.py next` khi case có câu hỏi cần VM trả lời
-import os, re, sys, json, glob, shlex, hashlib
+import os, re, sys, json, glob, shlex, hashlib, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -149,7 +149,7 @@ def latest(c):
     return json.load(open(p, encoding='utf-8')), p
 
 def run(c, dry=True):
-    """Kiểm mọi điều kiện rồi in yêu cầu sẽ giao cho cầu nối. Bản này chưa gọi cầu nối: không có --dry-run thì từ chối."""
+    """Kiểm mọi điều kiện rồi in yêu cầu; không --dry-run thì giao cho cầu nối (bridge)."""
     if os.environ.get('REA_WATCH'): die('đang trong phiên watch không người trực: watcher không được gửi mẫu sang VM, để người dùng chạy')
     s, p = latest(c)
     import review
@@ -163,7 +163,66 @@ def run(c, dry=True):
     for i, x in enumerate(s['launches'], 1): print(f"  task {i}: {x['mode']}" + (f" (fact {x['id']})" if x['id'] else ' (mặc định)'))
     print(f"  câu hỏi: {', '.join(x['q'] for x in s['observe'])}")
     if dry: print('OK dry-run: không gọi cầu nối, không gửi gì, không mở kết nối mạng'); return 0
-    die('bản này chưa gọi cầu nối: chỉ chạy được --dry-run' if CFG.VM_BRIDGE_CMD else 'tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai; agent không tự khai): chỉ chạy được --dry-run')
+    if not CFG.VM_BRIDGE_CMD: die('tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai; agent không tự khai): chỉ chạy được --dry-run')
+    return bridge(c, s, p)
+
+RESULT_MAX = 1 << 30   # trần mỗi file kết quả cầu nối trả về
+NAME_OK = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}')
+def log_run(c, **kw):
+    with open(os.path.join(VMDIR(c), 'runs.jsonl'), 'a', encoding='utf-8') as f: f.write(json.dumps(dict(ts=datetime.datetime.now().isoformat(timespec='seconds'), **kw), ensure_ascii=False) + '\n')
+
+def check_result(s, raw):
+    """Kiểm bản kê result.json của cầu nối so với đặc tả. Trả (lỗi, danh sách file đã kiểm). Mọi thứ trong raw/ là dữ liệu không tin cậy:
+    tên file phải là tên trần, không symlink, đúng sha256; mức mạng, route và thời gian phải được cầu nối xác nhận đúng đặc tả."""
+    try: r = json.load(open(os.path.join(raw, 'result.json'), encoding='utf-8'))
+    except (OSError, ValueError) as x: return f'không đọc được result.json ({type(x).__name__})', []
+    if not isinstance(r, dict) or not isinstance(r.get('tasks'), list): return 'result.json sai dạng (cần đối tượng có danh sách tasks)', []
+    if r.get('net_mode') != s['net']['mode']: return f"cầu nối báo mức mạng {safe(r.get('net_mode'))!r}, đặc tả yêu cầu {s['net']['mode']!r}", []
+    if len(r['tasks']) != len(s['launches']): return f"cầu nối báo {len(r['tasks'])} task, đặc tả có {len(s['launches'])}", []
+    files = []
+    for i, t in enumerate(r['tasks'], 1):
+        if not isinstance(t, dict): return f'task {i}: sai dạng', []
+        if t.get('route_verified') is not True: return f'task {i}: cầu nối không xác nhận được route sandbox đã dùng', []
+        te = t.get('timeout_effective')
+        if not isinstance(te, int) or isinstance(te, bool) or te > s['time']['timeout']: return f"task {i}: thời gian chạy {safe(te)!r} không khớp trần {s['time']['timeout']} giây của đặc tả", []
+        if t.get('status') != 'reported' or not isinstance(t.get('files'), list) or not t['files']: return f"task {i}: trạng thái {safe(t.get('status'))!r}, không có báo cáo", []
+        for x in t['files']:
+            n = x.get('name') if isinstance(x, dict) else None
+            if not isinstance(n, str) or not NAME_OK.fullmatch(n) or n == 'result.json': return f'task {i}: tên file kết quả không hợp lệ ({safe(n)})', []
+            fp = os.path.join(raw, n)
+            if os.path.islink(fp) or not os.path.isfile(fp): return f'task {i}: thiếu file {n} hoặc là symlink', []
+            if os.path.getsize(fp) > RESULT_MAX: return f'task {i}: file {n} vượt trần kích thước', []
+            if sha(fp) != x.get('sha256'): return f'task {i}: file {n} không khớp sha256 trong bản kê', []
+            files.append(dict(task=i, name=n, sha256=x['sha256'], size=os.path.getsize(fp)))
+    return '', files
+
+def bridge(c, s, p):
+    """Giao đặc tả cho cầu nối (lệnh ngoài skill, không qua shell), rồi kiểm bản kê trả về. Vòng được tính là đã gửi NGAY TRƯỚC khi gọi:
+    cầu nối lỗi giữa chừng thì mẫu có thể đã chạy, không được gọi lại cùng vòng. Không in stdout của cầu nối nguyên văn."""
+    d = os.path.dirname(p); raw = os.path.join(d, 'raw'); n = s['round']
+    if os.path.exists(raw): die(f'{raw} đã tồn tại: vòng {n} có dấu vết lần gọi trước, không gọi lại')
+    json.dump(dict(round=n, started=datetime.datetime.now().isoformat(timespec='seconds'), vmspec_sha256=sha(p), facts_sha256=s['facts_sha256']), open(os.path.join(d, 'task.json'), 'w'))
+    os.makedirs(raw); log_run(c, round=n, event='start', net=s['net']['mode'], tasks=len(s['launches']), timeout=s['time']['timeout'], files=[x['sha256'] for x in s['files']])
+    print(f"GỬI vòng {n}: giao cho cầu nối {len(s['launches'])} task, mạng {s['net']['mode']}, {s['time']['timeout']} giây mỗi task; chờ cầu nối trả kết quả…", flush=True)
+    try:
+        r = subprocess.run(shlex.split(CFG.VM_BRIDGE_CMD) + [os.path.abspath(p), os.path.abspath(c), os.path.abspath(raw)], capture_output=True, text=True, errors='replace',
+                           timeout=len(s['launches']) * (s['time']['timeout'] + 3600) + 600, stdin=subprocess.DEVNULL)
+        rc, tail = r.returncode, [safe(x) for x in (r.stdout or '').strip().splitlines()[-3:]]
+    except subprocess.TimeoutExpired: rc, tail = -1, ['cầu nối không trả lời trong thời hạn']
+    except (OSError, ValueError) as x: rc, tail = -2, [f'không chạy được VM_BRIDGE_CMD ({type(x).__name__})']
+    err, files = ('', []) if rc else check_result(s, raw)
+    if rc: err = f'cầu nối kết thúc với mã {rc}'
+    for x in files: os.chmod(os.path.join(raw, x['name']), 0o400)
+    json.dump(dict(round=n, ok=not err, error=err, files=files, ended=datetime.datetime.now().isoformat(timespec='seconds')), open(os.path.join(d, 'run.json'), 'w'), ensure_ascii=False, indent=1)
+    log_run(c, round=n, event='end', ok=not err, error=err, files=[x['sha256'] for x in files])
+    if err:
+        print(f'LỖI vòng {n}: {err}')
+        for x in tail: print(f'  cầu nối: `{x}`')
+        print(f'Vòng {n} đã tính là đã gửi (mẫu có thể đã chạy trên sandbox). Báo người dùng; không gọi lại cùng vòng.')
+        return 1
+    print(f'OK vòng {n}: {len(files)} file kết quả đã kiểm sha256 -> {raw} (0400). Đây là dữ liệu do mẫu chi phối: không cat, không chạy.')
+    for x in files: print(f"  task {x['task']}: {x['name']} {x['size']} B {x['sha256']}")
+    return 0
 
 def signs(c):
     """Dấu hiệu tất định cho thấy tầng tĩnh/giả lập có thể không đủ. Chỉ là gợi ý; quyết định dùng VM là fact observe do người phân tích ghi."""
@@ -186,7 +245,12 @@ def next_hint(c, gate_ok, bg=False, fix=''):
     if bg: return head + f'đang có review chạy nền: gọi lại `flow.py review {q} --llm --detach` để lấy kết quả, không ghi fact trong lúc chờ', True
     if fix: return head + f'review gần nhất FAIL và facts chưa đổi: sửa từng mục theo where/redo trong {fix} (fact mới có supersedes), rồi `flow.py review {q} --llm --detach`', True
     if not gate_ok: return head + f'ghi đủ fact env rồi `flow.py review {q} --llm --detach` tới PASS (tham số VM lấy từ fact đã qua phản biện), sau đó `flow.py vmspec {q}`', True
+    sent, _ = rounds(c)
+    if sent:   # đã có vòng gửi đi: bản này chưa đọc báo cáo sandbox thành fact, nên dừng ở đây cho người dùng quyết (không tự gửi vòng mới)
+        try: ok_ = json.load(open(os.path.join(VMDIR(c), f'r{sent}', 'run.json'), encoding='utf-8')).get('ok')
+        except (OSError, ValueError): ok_ = None
+        return head + (f'vòng {sent} đã có kết quả ở {VMDIR(c)}/r{sent}/raw (đã kiểm sha256)' if ok_ else f'vòng {sent} đã gửi nhưng không có kết quả hợp lệ (xem {VMDIR(c)}/r{sent}/run.json)') + ': báo người dùng. Bản này chưa đọc báo cáo sandbox thành fact; không tự gửi vòng mới', True
     try: s, _ = latest(c); fresh = s.get('facts_sha256') == __import__('review').facts_sha(c)
     except SystemExit: fresh = False
     if not fresh: return head + f'`flow.py vmspec {q}`', True
-    return head + f'`flow.py vm-run {q} --dry-run`, đưa kết quả cho người dùng (bản này chưa gọi cầu nối)', True
+    return head + f'`flow.py vm-run {q} --dry-run` để xem yêu cầu, rồi `flow.py vm-run {q}` (giao cho cầu nối; sandbox của agent thường không tới được mạng lab: khi lệnh báo không gọi được thì nhờ người dùng chạy)', True

@@ -11,8 +11,8 @@ import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
-GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation'}   # fact sai ở đây làm sai IOC/kết luận -> high
-HARD_CHECKS = {'verdict_value', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
+GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation', 'verdict'}   # fact sai ở đây làm sai IOC/kết luận -> high
+HARD_CHECKS = {'verdict_value', 'lookup_content', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -96,16 +96,28 @@ def severity(kind, v, check):
 
 def verdict(items): return 'FAIL' if any(i['verdict'] == 'fail' and i['severity'] == 'high' for i in items) else 'PASS'
 
+def attempt(rounds):
+    """Số vòng đã tính kể từ lượt PASS gần nhất mà cổng chấp nhận (có lớp 2; state cũ thiếu `reviewer` coi như có). Giới hạn MAX_ROUNDS áp cho con số này,
+    không cho tổng số vòng của case: case đã PASS rồi thêm fact được sửa một lượt như case mới. PASS chỉ-lớp-máy không đặt lại (không thì né được giới hạn miễn phí)."""
+    n = 0
+    for r in reversed(rounds or []):
+        if r.get('verdict') == 'PASS' and '+' in (r.get('reviewer') or '+'): break
+        n += 1
+    return n
+
 def stop_report(c, s):
-    r1, r2 = (json.load(open(os.path.join(DIR(c), f'r{n}', 'review.json'))) for n in (1, 2))
+    ns = [r['n'] for r in s.get('rounds') or []][-2:] or [1, 2]   # hai vòng cuối thực tế (số vòng tăng dần suốt đời case, không nhất thiết là 1 và 2)
+    rj = lambda n: json.load(open(os.path.join(DIR(c), f'r{n}', 'review.json')))
+    r2 = rj(ns[-1]); r1 = rj(ns[-2]) if len(ns) > 1 else {'items': []}
+    n1, n2 = (ns[-2] if len(ns) > 1 else '-'), ns[-1]
     f1 = {i['id']: i for i in r1['items'] if i['verdict'] == 'fail'}
-    L = [f'# Phản biện không đạt: {c}', '', f'Dừng sau {MAX_ROUNDS} lần review ({now()}). `report --final` bị chặn.', '',
-         '## Fact còn fail sau review 2', '', '| id | Mức | Lỗi | Vị trí | Cách kiểm lại |', '|---|---|---|---|---|']
+    L = [f'# Phản biện không đạt: {c}', '', f'Dừng sau {MAX_ROUNDS} lần review FAIL liên tiếp ({now()}). `report --final` bị chặn.', '',
+         f'## Fact còn fail sau review {n2}', '', '| id | Mức | Lỗi | Vị trí | Cách kiểm lại |', '|---|---|---|---|---|']
     fl = [i for i in r2['items'] if i['verdict'] == 'fail']
     L += [f"| {i['id']} | {i['severity']} | {i['problem']} | `{i['where']}` | {i['redo']} |" for i in fl]
     L += ['', '## Diễn biến từng fact', '']
     for i in fl:
-        L.append(f"- **{i['id']}**: review 1: {f1[i['id']]['problem'] if i['id'] in f1 else '(chưa bị chỉ ra, lỗi mới do lượt sửa)'} → review 2: {i['problem']}")
+        L.append(f"- **{i['id']}**: review {n1}: {f1[i['id']]['problem'] if i['id'] in f1 else '(chưa bị chỉ ra, lỗi mới do lượt sửa)'} → review {n2}: {i['problem']}")
     new = [i['id'] for i in fl if i['id'] not in f1]
     L += ['', f"Fact lỗi mới phát sinh sau lượt sửa: {', '.join(new) or 'không'}", '', '## Tác động', '']
     cur = C.load(c)
@@ -134,7 +146,7 @@ def rescore(c, s, h):
         if r.get('reviewer'): rd['reviewer'] = r['reviewer']   # giữ lớp reviewer để gate biết vòng có lớp LLM (review.json cũ không có -> để trống = tương thích ngược)
     last = rs[-1]
     s = dict(s, rounds=rs, stopped=False)
-    if last['verdict'] == 'FAIL' and last['n'] >= MAX_ROUNDS and len(R) >= MAX_ROUNDS: s.update(stopped=True, reset_for=h)
+    if last['verdict'] == 'FAIL' and attempt(rs) >= MAX_ROUNDS: s.update(stopped=True, reset_for=h)
     print(f"re-score theo luật v{C.REVIEW_RULE_VERSION}: review {last['n']} {last['verdict']} (không gọi LLM)")
     return s
 
@@ -199,7 +211,8 @@ def review(c, llm=False, force=False, hint=True, preview=None):
         print(f'xem trước lớp máy (KHÔNG tính vào {MAX_ROUNDS} lần, cổng không chấp nhận): {v}  (fail {len(fl)}, weak {weak})')
         for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
         print(f'BƯỚC KẾ: chạy có lớp 2 để tính vòng và mở cổng: `flow.py review {shlex.quote(c)} --llm --detach`'); return 0 if v == 'PASS' else 1
-    k = len(s['rounds']) + 1
+    k = (s['rounds'][-1]['n'] if s['rounds'] else 0) + 1   # số vòng (tên thư mục r<k>) tăng dần suốt đời case
+    a = attempt(s['rounds']) + 1                            # lượt thứ mấy kể từ lần PASS gần nhất: giới hạn MAX_ROUNDS tính theo số này
     miss, iso = [], None
     if llm:
         ids = [i for i, f in C.load(c).items() if f['status'] != 'retracted']
@@ -215,14 +228,14 @@ def review(c, llm=False, force=False, hint=True, preview=None):
     weak = sum(1 for i in items if i['verdict'] == 'weak')
     s['rounds'].append(dict(n=k, facts_sha256=h, verdict=v, weak=weak, reviewer='mech' + ('+' + iso['backend'] if llm else '')))
     fl = [i for i in items if i['verdict'] == 'fail']
-    print(f'review {k}/{MAX_ROUNDS}: {v}  (fail {len(fl)}, weak {weak}' + (f", lớp 2 {iso['backend']}: {iso['turns']} lượt, {iso['requests']} thao tác, " + ('cô lập OK' if iso['valid'] else 'KHÔNG HỢP LỆ: ' + '; '.join(iso['invalid_reasons'])) if iso else '') + ')')
+    print((f'review {k}/{MAX_ROUNDS}' if a == k else f'review {k} (lượt {a}/{MAX_ROUNDS} kể từ lần PASS gần nhất)') + f': {v}  (fail {len(fl)}, weak {weak}' + (f", lớp 2 {iso['backend']}: {iso['turns']} lượt, {iso['requests']} thao tác, " + ('cô lập OK' if iso['valid'] else 'KHÔNG HỢP LỆ: ' + '; '.join(iso['invalid_reasons'])) if iso else '') + ')')
     for i in fl[:15]: print(f"  FAIL {i['id']} [{i['severity']}] {i['problem']} @ {i['where']} -> {i['redo']}")
-    if hint and v == 'FAIL' and k < MAX_ROUNDS: print(f'BƯỚC KẾ: sửa từng mục fail/weak theo where/redo (ghi fact mới có supersedes, cập nhật báo cáo), rồi chạy lại `flow.py review {shlex.quote(c)} --llm --detach`')
+    if hint and v == 'FAIL' and a < MAX_ROUNDS: print(f'BƯỚC KẾ: sửa từng mục fail/weak theo where/redo (ghi fact mới có supersedes, cập nhật báo cáo), rồi chạy lại `flow.py review {shlex.quote(c)} --llm --detach`')
     if hint and v == 'PASS': print(f'BƯỚC KẾ: flow.py next {shlex.quote(c)}')
-    if v == 'FAIL' and k >= MAX_ROUNDS:
+    if v == 'FAIL' and a >= MAX_ROUNDS:
         s['stopped'], s['reset_for'] = True, h; save_state(c, s); stop_report(c, s)
         hi = sum(1 for i in fl if i['severity'] == 'high')
-        print('\n' + '=' * 60 + f"\nSTOPPED {c}: phản biện không đạt sau {MAX_ROUNDS} lần review\nfail mức high: {hi}, low: {len(fl) - hi}\nbáo cáo: {DIR(c)}/STOP_REPORT.md\n" + '=' * 60)
+        print('\n' + '=' * 60 + f"\nSTOPPED {c}: phản biện không đạt sau {MAX_ROUNDS} lần review FAIL liên tiếp\nfail mức high: {hi}, low: {len(fl) - hi}\nbáo cáo: {DIR(c)}/STOP_REPORT.md\n" + '=' * 60)
         return 2
     save_state(c, s)
     return 0 if v == 'PASS' else 1
@@ -327,7 +340,7 @@ def loop(c, llm=True):
     """review -> (FAIL) phân tích lại đúng các fact lỗi -> review lần 2 -> (FAIL) dừng + STOP_REPORT. Không cần người xác nhận giữa chừng."""
     code = review(c, llm, hint=False, preview=False)   # loop tự sửa và review lại: không in BƯỚC KẾ thủ công; vòng chỉ-máy vẫn tạo review.json cho analyst (cổng vẫn chặn)
     while code == 1:
-        k = len(state(c)['rounds'])
+        k = state(c)['rounds'][-1]['n']
         if CFG.review_backend() not in ('claude', *NO_TOOL) and not CFG.ANALYST_LLM_CMD:   # không có phiên analyst riêng: agent đang chạy flow tự sửa (SKILL.md, vòng phản biện bước 2)
             print(f'HANDOFF: agent hiện tại sửa các mục fail/weak ở trên theo where/redo, rồi chạy lại `flow.py review {c} --llm`'); return 3
         print(f'-- phân tích lại sau review {k}...')
@@ -413,7 +426,7 @@ def next_step(c, accept=''):
         if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích; xét TRƯỚC lời đòi verdict để không mất lời nhắc sửa
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"
                   + (f'. Cùng đợt sửa này: {vmsg}' if vmsg else '')); return 1
-        if vmsg: print(f'NEED_MORE: {vmsg}; ghi trước khi review để không tốn thêm lượt'); return 1
+        if vmsg and not bg_pid(c): print(f'NEED_MORE: {vmsg}; ghi trước khi review để không tốn thêm lượt'); return 1   # đang có review nền: không dẫn đi ghi fact (đổi facts làm lượt đang chạy vô hiệu), để NEED_REVIEW lấy kết quả
         print(f'NEED_REVIEW: {why} -> trước hết ghi đủ fact và chạy `flow.py review {shlex.quote(c)}` (xem trước lớp máy, không tốn lượt) cho tới khi sạch; rồi MỘT lần `flow.py review {shlex.quote(c)} --llm --detach` (mỗi lượt lớp 2 ~3-5 phút, ~0,5-1 USD; thêm fact giữa các lượt làm tốn thêm lượt)'); return 1
     if vmsg: print(f'  lưu ý (không chặn): {vmsg}')   # case đã qua cổng từ trước khi có yêu cầu này: chỉ nhắc
     rb = report_blank(c)

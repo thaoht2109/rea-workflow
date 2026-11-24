@@ -46,9 +46,15 @@ def main():
     # 1b. vòng cuối FAIL -> STOPPED + STOP_REPORT
     c = mkcase()
     try:
-        old_state(c, 2, [[weak], [low_fail]])
+        old_state(c, 2, [[low_fail], [low_fail]])
         assert R.review(c) == 2 and st(c)['stopped'] and os.path.exists(os.path.join(R.DIR(c), 'STOP_REPORT.md'))
         assert not R.gate(c)[0]
+    finally: shutil.rmtree(c, ignore_errors=True)
+    # 1c. tính lại ra PASS rồi FAIL (nhiều hơn hai vòng): mới một lần FAIL kể từ lần PASS gần nhất -> chưa STOPPED
+    c = mkcase()
+    try:
+        old_state(c, 3, [[low_fail], [weak], [low_fail]])
+        assert R.review(c) == 1 and not st(c)['stopped'] and [r['verdict'] for r in st(c)['rounds']] == ['FAIL', 'PASS', 'FAIL']
     finally: shutil.rmtree(c, ignore_errors=True)
     # 2. chỉ weak -> vẫn PASS, gate qua
     c = mkcase()

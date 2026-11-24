@@ -89,6 +89,20 @@ try:
     r = run('status', c); assert 'partial' in [l for l in r.stdout.splitlines() if l.startswith('C13')][0], r.stdout   # còn o.memdump chưa trả lời
     r = run('next', c); assert 'NEED_VM' in r.stdout and 'o.memdump' in r.stdout and '--accept C13=' in r.stdout and 'vm-run' not in r.stdout.split('NEED_VM')[1], r.stdout
     for cmd in ('resume', 'checkpoint', 'report', 'audit'): r = run(cmd, c); assert 'Traceback' not in out(r), (cmd, out(r))
+    # ---- hai vòng: câu ghi SAU vòng 1 không bị vòng 1 trả lời; vòng 2 báo cáo hỏng không kéo câu đã 'answered' về 'unanswered' ----
+    C.add(c, id='o.late', kind='observe', value=json.dumps(dict(q='mutex')), src='S', evidence='report/evidence/static.txt#L2')
+    r = run('next', c); assert 'NEED_VM' in r.stdout and 'o.late' in r.stdout and f'flow.py review {c} --llm --detach' in r.stdout and 'vmspec' in r.stdout, r.stdout
+    assert run('review', c, '--llm').returncode == 0 and run('vmspec', c).returncode == 0
+    r = run('next', c); assert f'`flow.py vm-run {c} --dry-run`' in r.stdout, r.stdout   # đã có đặc tả vòng 2: dẫn tới vm-run, không lặp vmspec
+    open(os.path.join(W, 'REPORT.json'), 'w').write('hỏng {{{'); assert run('vm-run', c).returncode == 0
+    r = run('next', c); assert 'vòng 2 đã có kết quả chưa đọc' in r.stdout and f'`flow.py vm-ingest {c}`' in r.stdout, r.stdout
+    r = run('vm-ingest', c); assert r.returncode == 1 and 'Không báo cáo nào đọc được' in r.stdout, out(r)
+    a2 = json.load(open(os.path.join(c, 'work', 'vm', 'answers.json')))
+    assert a2['o.mutex']['status'] == 'answered' and a2['o.mutex']['round'] == 1 and a2['o.dns']['status'] == 'answered' and a2['o.late']['status'] == 'unanswered' and a2['o.late']['round'] == 2, a2
+    r = run('status', c); assert 'partial' in [l for l in r.stdout.splitlines() if l.startswith('C13')][0], r.stdout
+    # câu ghi sau lần chạy không có trong vmspec của vòng: ingest không trả lời thay
+    C.add(c, id='o.after', kind='observe', value=json.dumps(dict(q='process_tree')), src='S', evidence='report/evidence/static.txt#L2')
+    r = run('next', c); assert 'o.after' in r.stdout and 'o.after' not in json.load(open(os.path.join(c, 'work', 'vm', 'answers.json'))), r.stdout
     # ---- mọi câu hỏi đã trả lời: C13 ok, next không còn NEED_VM ----
     c = mkcase('ALLANS', report(), obs=('process_tree', 'dns')); r = run('vm-ingest', c); assert r.returncode == 0, out(r)
     r = run('status', c); assert [l for l in r.stdout.splitlines() if l.startswith('C13')][0].split()[5] == 'ok', r.stdout

@@ -267,27 +267,29 @@ def next_hint(c, gate_ok, bg=False, fix=''):
     except (OSError, ValueError): ans = {}
     ans = ans if isinstance(ans, dict) else {}
     obs = [i for i in obs if not (isinstance(ans.get(i), dict) and ans[i].get('status') == 'answered')]   # câu đã có trả lời từ VM thì không còn là lý do gọi VM
+    sent, _ = rounds(c); d = os.path.join(VMDIR(c), f'r{sent}'); ok_ = None
+    if sent:
+        try: ok_ = json.load(open(os.path.join(d, 'run.json'), encoding='utf-8')).get('ok')
+        except (OSError, ValueError): ok_ = None
+        if ok_ and not os.path.exists(os.path.join(d, 'ingest.json')):   # vòng mới nhất có kết quả mà chưa đọc: nhắc dù mọi câu cũ đã trả lời hay tầng VM đã tắt
+            return f'NEED_VM: vòng {sent} đã có kết quả chưa đọc -> `flow.py vm-ingest {q}`', True
     if not CFG.VM_BRIDGE_CMD:
         return (f"  lưu ý (không chặn): có {len(obs)} fact observe nhưng tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai): báo người dùng, hoặc ghi phần này vào mục hạn chế", False) if obs else ('', False)
     if not obs:
         sg = signs(c)
-        return (f"  lưu ý (không chặn): tầng VM đã bật; dấu hiệu: {'; '.join(sg)}. Khi T2/T3 không lấy được mục còn thiếu: ghi fact observe (câu hỏi VM phải trả lời) và env (FLOW.md mục 2, T5)", False) if sg else ('', False)
+        return (f"  lưu ý (không chặn): tầng VM đã bật; dấu hiệu: {'; '.join(sg)}. Khi T2/T3 không lấy được mục còn thiếu: ghi fact observe (câu hỏi VM phải trả lời) và env (FLOW.md mục 2, T5)", False) if sg and not sent else ('', False)
     head = f"NEED_VM: {len(obs)} câu hỏi cần VM trả lời ({', '.join(obs[:6])}) -> "
     if bg: return head + f'đang có review chạy nền: gọi lại `flow.py review {q} --llm --detach` để lấy kết quả, không ghi fact trong lúc chờ', True
     if fix: return head + f'review gần nhất FAIL và facts chưa đổi: sửa từng mục theo where/redo trong {fix} (fact mới có supersedes), rồi `flow.py review {q} --llm --detach`', True
-    if not gate_ok: return head + f'ghi đủ fact env rồi `flow.py review {q} --llm --detach` tới PASS (tham số VM lấy từ fact đã qua phản biện), sau đó `flow.py vmspec {q}`', True
-    sent, _ = rounds(c)
+    if sent and not ok_: return head + f'vòng {sent} đã gửi nhưng không có kết quả hợp lệ (xem {d}/run.json): báo người dùng, không tự gửi vòng mới', True
+    try: s, _ = latest(c); fresh = s.get('facts_sha256') == __import__('review').facts_sha(c)
+    except SystemExit: fresh = False
+    if fresh and gate_ok:   # đã có đặc tả cho vòng kế, khớp facts hiện tại
+        return head + f'`flow.py vm-run {q} --dry-run` để xem yêu cầu, rồi `flow.py vm-run {q}` (giao cho cầu nối; sandbox của agent thường không tới được mạng lab: khi lệnh báo không gọi được thì nhờ người dùng chạy)', True
     if sent:
-        d = os.path.join(VMDIR(c), f'r{sent}')
-        try: ok_ = json.load(open(os.path.join(d, 'run.json'), encoding='utf-8')).get('ok')
-        except (OSError, ValueError): ok_ = None
-        if not ok_: return head + f'vòng {sent} đã gửi nhưng không có kết quả hợp lệ (xem {d}/run.json): báo người dùng, không tự gửi vòng mới', True
-        if not os.path.exists(os.path.join(d, 'ingest.json')): return head + f'vòng {sent} đã có kết quả: `flow.py vm-ingest {q}`', True
         why = '; '.join(f"{i}: {safe(ans[i].get('why'))[:80]}" for i in obs[:4] if isinstance(ans.get(i), dict))
         left = CFG.VM_MAX_ROUNDS - sent
         return head + f'vòng {sent} chưa trả lời được ({why or "câu hỏi mới ghi sau vòng này"}). ' + (f'Còn {left} vòng: nếu sửa được môi trường (fact env/observe mới, supersedes) thì `flow.py review {q} --llm --detach` rồi `flow.py vmspec {q}`; '
                if left > 0 else 'Đã hết số vòng (VM_MAX_ROUNDS). ') + f'không thì ghi vào mục hạn chế: `flow.py next {q} --accept C13=lý do`', True
-    try: s, _ = latest(c); fresh = s.get('facts_sha256') == __import__('review').facts_sha(c)
-    except SystemExit: fresh = False
-    if not fresh: return head + f'`flow.py vmspec {q}`', True
-    return head + f'`flow.py vm-run {q} --dry-run` để xem yêu cầu, rồi `flow.py vm-run {q}` (giao cho cầu nối; sandbox của agent thường không tới được mạng lab: khi lệnh báo không gọi được thì nhờ người dùng chạy)', True
+    if not gate_ok: return head + f'ghi đủ fact env rồi `flow.py review {q} --llm --detach` tới PASS (tham số VM lấy từ fact đã qua phản biện), sau đó `flow.py vmspec {q}`', True
+    return head + f'`flow.py vmspec {q}`', True

@@ -138,7 +138,8 @@ def ingest(c, rnd=None):
     try: res = json.load(open(os.path.join(raw, 'result.json'), encoding='utf-8'))
     except (OSError, ValueError): res = {}
     cur = C.load(c); F = [f for f in cur.values() if f['status'] != 'retracted']
-    obs = [(f, json.loads(f['value'])) for f in sorted(F, key=lambda f: f['id']) if f['kind'] == 'observe' and f['status'] == 'active' and not C.env_issue(f)]
+    asked = {x.get('id') for x in L_(spec.get('observe')) if isinstance(x, dict)}   # chỉ trả lời câu hỏi mà vòng này được chạy để trả lời (có trong vmspec); câu ghi sau lần chạy chờ vòng sau
+    obs = [(f, json.loads(f['value'])) for f in sorted(F, key=lambda f: f['id']) if f['kind'] == 'observe' and f['status'] == 'active' and f['id'] in asked and not C.env_issue(f)]
     evd = os.path.join(c, 'report', 'evidence'); os.makedirs(evd, exist_ok=True); answers = {}; made = []; tasks = []
     for x in run.get('files', []):
         if not re.fullmatch(r'report_t\d+\.json', x.get('name', '')): continue
@@ -171,7 +172,10 @@ def ingest(c, rnd=None):
     allans = {}
     try: allans = json.load(open(os.path.join(VS.VMDIR(c), 'answers.json'), encoding='utf-8'))
     except (OSError, ValueError): pass
-    allans.update(answers); json.dump(allans, open(os.path.join(VS.VMDIR(c), 'answers.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1, sort_keys=True)
+    allans = allans if isinstance(allans, dict) else {}
+    for k, v in answers.items():   # câu đã 'answered' ở vòng trước không bị một vòng sau (báo cáo hỏng, route lệch, thiếu mục) kéo về 'unanswered'
+        if v['status'] == 'answered' or D_(allans.get(k)).get('status') != 'answered': allans[k] = v
+    json.dump(allans, open(os.path.join(VS.VMDIR(c), 'answers.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1, sort_keys=True)
     json.dump(dict(round=n_, tasks=tasks, facts=[m[0] for m in made], answers=answers), open(os.path.join(d, 'ingest.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     VS.log_run(c, round=n_, event='ingest', tasks=len(tasks), facts=len(made), answered=sum(a['status'] == 'answered' for a in answers.values()), unanswered=sum(a['status'] != 'answered' for a in answers.values()))
     print(f'vm-ingest vòng {n_}: {len(tasks)} báo cáo -> evidence ' + ', '.join(t.get('evidence', '(lỗi)') for t in tasks))

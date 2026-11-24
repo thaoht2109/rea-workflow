@@ -13,7 +13,71 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import adhoc   #
 
 KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 'str_key', 'string', 'config',
          'url', 'ua', 'c2', 'inject', 'persistence', 'mutex', 'file', 'registry', 'process',
-         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage', 'verdict', 'relation'}
+         'payload_fmt', 'payload_key', 'payload_hash', 'family', 'exit_reason', 'api_unused', 'dec_coverage', 'coverage', 'verdict', 'relation', 'env', 'observe'}
+# Tầng T5 (VM): fact `env` = đặc tả môi trường mẫu cần để chạy, `observe` = câu hỏi VM phải trả lời. value là JSON một dòng, vẫn cần src S/E và evidence.
+# env: khóa `t` chọn loại, kèm các khóa bắt buộc dưới đây. observe: khóa `q`. vm/spec.py gộp chúng thành vmspec.json.
+ENV_T = {'guest': ('os', 'arch'), 'layout': ('dir', 'files', 'main'), 'launch': ('mode',), 'precond': ('type',), 'net': ('mode',), 'time': ('max_s',)}
+NET_MODES = ('none', 'sink', 'internet')   # tăng dần: không mạng < DNS giả + bộ hứng chỉ ghi < ra Internet qua đường riêng của sandbox
+GUEST_OS, GUEST_ARCH = ('windows', 'linux'), ('x86', 'x64', 'mips', 'mipsel', 'arm', 'aarch64')
+OBSERVE_Q = ('process_tree', 'child', 'dns', 'tls_sni', 'http', 'file', 'registry', 'mutex', 'memdump', 'payload')
+ENV_EX = """ví dụ value='{"t":"layout","dir":"C:\\\\Users\\\\Public","files":["a.exe","b.dll"],"main":"a.exe"}' | '{"t":"launch","mode":"default","args":""}' | '{"t":"net","mode":"sink","dns":["host"]}' | '{"t":"time","max_s":600}'; observe: '{"q":"process_tree"}' (FLOW.md mục 2, T5)"""
+def env_leaves(v):
+    """Mọi chuỗi lá của value JSON (kể cả trong danh sách/đối tượng lồng), theo thứ tự khóa."""
+    if isinstance(v, str): return [v]
+    if isinstance(v, dict): return [x for k in sorted(v) for x in env_leaves(v[k])]
+    if isinstance(v, list): return [x for i in v for x in env_leaves(i)]
+    return []
+def env_strings(v):
+    """Mọi chuỗi trong value JSON, cả khóa lẫn giá trị ở mọi cấp: thứ sẽ được in ra hoặc chép vào vmspec."""
+    if isinstance(v, str): return [v]
+    if isinstance(v, dict): return [x for k in sorted(v) for x in [k] + env_strings(v[k])]
+    if isinstance(v, list): return [x for i in v for x in env_strings(i)]
+    return []
+def env_value(f):
+    """value JSON của fact env/observe đã qua kiểm, hoặc None nếu sai dạng (env_issue nói vì sao)."""
+    return None if env_issue(f) else json.loads(f['value'])
+def env_issue(f):
+    """Fact env/observe: value phải là đối tượng JSON đúng lược đồ. Trả (vấn đề, cách sửa) hoặc None. Dùng chung cho lint khi ghi, lớp 1 của cổng và vm/spec.py.
+    Chuỗi trong value đi thẳng vào vmspec và vào dòng dẫn đường của agent: cấm ký tự điều khiển, giới hạn độ dài."""
+    k = f['kind']
+    if k not in ('env', 'observe'): return None
+    try: v = json.loads(f['value'])
+    except ValueError: return f'value của fact {k} không phải JSON', ENV_EX
+    if not isinstance(v, dict): return f'value của fact {k} phải là một đối tượng JSON', ENV_EX
+    L = env_strings(v)
+    if any(len(x) > 300 or re.search(r'[\x00-\x1f\x7f`]', x) for x in L): return 'chuỗi trong value dài quá 300 ký tự hoặc có ký tự điều khiển/dấu `', 'rút gọn, bỏ ký tự điều khiển'
+    if k == 'observe':
+        return None if v.get('q') in OBSERVE_Q else (f"observe cần khóa q thuộc: {', '.join(OBSERVE_Q)}", ENV_EX)
+    t = v.get('t')
+    if t not in ENV_T: return f"env cần khóa t thuộc: {', '.join(ENV_T)}", ENV_EX
+    miss = [x for x in ENV_T[t] if x not in v]
+    if miss: return f"env t={t} thiếu khóa: {', '.join(miss)}", ENV_EX
+    S = lambda x: isinstance(x, str) and bool(x.strip())
+    if t == 'guest' and (v['os'] not in GUEST_OS or v['arch'] not in GUEST_ARCH): return f"guest: os thuộc {'|'.join(GUEST_OS)}, arch thuộc {'|'.join(GUEST_ARCH)}", ENV_EX
+    if t == 'net':
+        if v['mode'] not in NET_MODES: return f"net.mode chỉ nhận {'|'.join(NET_MODES)}", ENV_EX
+        if not all(S(x) for x in v.get('dns', [])) or not isinstance(v.get('dns', []), list): return 'net.dns phải là danh sách tên miền', ENV_EX
+        if not isinstance(v.get('tcp', []), list) or not all(isinstance(x, int) and not isinstance(x, bool) and 0 < x < 65536 for x in v.get('tcp', [])): return 'net.tcp phải là danh sách cổng (số nguyên 1-65535)', ENV_EX
+    if t == 'time' and (not isinstance(v['max_s'], int) or isinstance(v['max_s'], bool) or v['max_s'] <= 0): return 'time.max_s phải là số nguyên dương (giây)', ENV_EX
+    if t == 'launch' and (not S(v['mode']) or not isinstance(v.get('args', ''), str)): return 'launch.mode phải là chuỗi không rỗng, launch.args (nếu có) là chuỗi', ENV_EX
+    if t == 'precond' and not S(v['type']): return 'precond.type phải là chuỗi không rỗng', ENV_EX
+    if t == 'layout':
+        fs = v['files']
+        if not S(v['dir']) or not isinstance(fs, list) or not fs or not all(S(x) for x in fs): return 'layout cần dir và danh sách files không rỗng', ENV_EX
+        if any(x.startswith(('/', '\\')) or re.match(r'[A-Za-z]:', x) or '..' in re.split(r'[\\/]', x) for x in fs): return 'layout.files là tên tương đối trong dir (không tuyệt đối, không ..)', ENV_EX
+        if len(set(fs)) != len(fs) or v['main'] not in fs: return 'layout.main phải là một mục của files, files không lặp', ENV_EX
+ENV_CTRL = ('t', 'mode', 'type', 'os', 'arch', 'q')   # khóa điều khiển: giá trị thuộc bảng cố định của skill, không lấy từ mẫu
+def env_data(f):
+    """Chuỗi dữ liệu của fact env lấy từ mẫu (tên file, thư mục, tham số, khóa registry, tên miền): mọi chuỗi lá trừ giá trị của khóa điều khiển ở cấp đầu, bỏ chuỗi rỗng."""
+    try: v = json.loads(f['value'])
+    except ValueError: return []
+    return [x for x in env_leaves({k: x for k, x in v.items() if k not in ENV_CTRL}) if x.strip()] if f['kind'] == 'env' and isinstance(v, dict) else []
+def env_missing(f, scope):
+    """Chuỗi dữ liệu của fact env KHÔNG có nguyên văn trong scope (văn bản evidence đã chuẩn hóa như ev_scope). Fact env quyết định tham số chạy mẫu,
+    nên kiểm chặt hơn kind chữ thường: TỪNG chuỗi phải có trong evidence, không chỉ một token (một tên file thật không đỡ được cho tham số bịa)."""
+    n = lambda x: x.replace('\\\\', '\\').lower()
+    return [x for x in env_data(f) if n(x) not in scope and _normnum(n(x)) not in scope]
+
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 # Phân loại cả mẫu (kind=verdict): value = '<khóa>: lý do'. Nhãn đặt trên đầu báo cáo HTML, GENERATED.md và bản export.
 VERDICT = {'malicious': ('MÃ ĐỘC / CÔNG CỤ TẤN CÔNG', '#cf222e'), 'suspicious': ('NGHI VẤN / CHƯA KẾT LUẬN ĐƯỢC', '#bc4c00'),
@@ -155,6 +219,8 @@ def lint_fact(case, f):
     if f['kind'] == 'verdict' and not VERDICT_RX.match(f['value'].strip()):
         bad('fail', 'verdict_value', f"verdict phải là '{'|'.join(k for k in VERDICT if k != 'unknown')}: lý do', có: {f['value'][:60]}",
             "ghi lại value='malicious: <lý do>' (hoặc suspicious/nofind/benign)")
+    ei = env_issue(f)
+    if ei: bad('fail', 'env_value', *ei)
     if f['kind'] == 'relation' and f['value'].startswith('n/a') and not re.match(r'n/a:\s*\S', f['value']):
         bad('warn', 'relation_na', "fact relation 'n/a' phải kèm lý do: 'n/a: lý do'", "ghi value='n/a: <vì sao không thấy liên hệ>'")
     if f['kind'] == 'relation' and not f['value'].startswith('n/a') and not RELATION_RX.match(f['value']):
@@ -204,6 +270,9 @@ def lint_fact(case, f):
     else:
         vi = literal_issue(f, full, scope, anchor)
         if vi: bad(vi[0], 'value_in_evidence', *vi[1:])
+        em = env_missing(f, scope)
+        if em: bad('fail', 'value_in_evidence', f"fact env: {len(em)} chuỗi không có nguyên văn trong {f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'}: " + ', '.join(repr(x)[:40] for x in em[:4]),
+                   'tham số chạy mẫu phải có căn cứ: chép đoạn chứa đúng từng giá trị vào evidence (cùng đoạn với #L), hoặc bỏ giá trị không có căn cứ')
     for p, r in recompute(case, f): bad('fail', 'recompute', p, r)
     miss = [n for n in NUMTOK.findall(_normnum(DATE.sub(' ', f['value']))) if n.lower() not in scope]
     if miss:

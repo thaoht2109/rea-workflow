@@ -25,7 +25,7 @@ rea-workflow là một *skill* biến coding agent (Claude Code, Codex, GitHub C
 
 | | |
 |---|---|
-| **Không bao giờ thực thi mẫu** | Chỉ phân tích tĩnh và giả lập CPU. Mọi lời gọi mạng của mẫu chỉ được ghi lại, không gửi đi. Mẫu luôn ở chế độ chỉ đọc. |
+| **Không bao giờ thực thi mẫu trên máy phân tích** | Chỉ phân tích tĩnh và giả lập CPU. Mọi lời gọi mạng của mẫu chỉ được ghi lại, không gửi đi. Mẫu luôn ở chế độ chỉ đọc. Tầng VM tùy chọn (mặc định tắt) gửi mẫu sang sandbox tự dựng do bạn khai. |
 | **Kết luận có bằng chứng** | Mỗi kết luận là một *fact* ghi rõ nguồn (tĩnh, giả lập hay VM) và trỏ tới đoạn bằng chứng cụ thể. Ngay khi ghi, máy kiểm bằng chứng có tồn tại không, giá trị có nằm trong bằng chứng không, hash và con số có tính lại khớp không. |
 | **Phản biện độc lập** | Trước báo cáo cuối, một phiên LLM mới, không thấy ngữ cảnh phân tích, soát lại toàn bộ fact. Cổng chạy tối đa hai lần. Lần hai vẫn không đạt thì dừng lại, chờ người quyết. |
 | **Tiết kiệm token** | Script làm phần việc lặp, agent chỉ đọc tóm tắt. Skill dẫn đường từng bước, tách phiên theo mốc và làm tiếp được sau khi xóa ngữ cảnh. |
@@ -219,7 +219,8 @@ File cấu hình nằm ngoài thư mục skill nên không mất khi cập nhậ
 
 ## Bảo mật
 
-- **Không thực thi mẫu, không chạm hạ tầng của kẻ tấn công, không đưa mẫu/IOC lên dịch vụ chia sẻ mẫu.** Ngoại lệ hẹp: tra thụ động dữ liệu công khai (RDAP/WHOIS, DoH, metadata GitHub, nội dung dead-drop do người dùng duyệt đúng URL), chỉ khi người dùng đồng ý riêng cho case và đi qua đường mạng riêng. Quy tắc chi tiết ở [`SKILL.md`](SKILL.md) và `FLOW.md` mục 0. Chỉ tải payload thật khi người dùng cho phép.
+- **Không thực thi mẫu trên máy phân tích, không chạm hạ tầng của kẻ tấn công, không đưa mẫu/IOC lên dịch vụ chia sẻ mẫu.** Ngoại lệ hẹp: tra thụ động dữ liệu công khai (RDAP/WHOIS, DoH, metadata GitHub, nội dung dead-drop do người dùng duyệt đúng URL), chỉ khi người dùng đồng ý riêng cho case và đi qua đường mạng riêng. Quy tắc chi tiết ở [`SKILL.md`](SKILL.md) và `FLOW.md` mục 0. Chỉ tải payload thật khi người dùng cho phép.
+- Tầng VM (mặc định tắt): chỉ bật khi bạn khai `VM_BACKEND` trong `rea.env` cho một sandbox tự dựng. Bật là cho phép flow gửi mẫu sang đó cho mọi case; trần mạng của guest do `VM_NET_MAX` quyết định. Yêu cầu với lab ở [`VM_HANDOFF.md`](VM_HANDOFF.md). Các khóa `VM_*` chỉ là lớp chặn nhầm, không phải ranh giới bảo mật: cô lập thật nằm ở mạng của lab.
 - Phản biện gửi fact, bằng chứng và chuỗi trích từ mẫu tới nhà cung cấp LLM bạn chọn. Dữ liệu nhạy cảm thì dùng LLM local.
 - Kho tra chéo và file `kb export` chứa hash và IOC. File chỉ chủ máy đọc được (quyền 0600). Chỉ chép qua kênh tin cậy (SSH, ổ mã hoá); không gửi qua email hay chat, không đưa lên repo công khai.
 - Với agent khác Claude Code, quy tắc không thực thi mẫu chỉ là hướng dẫn bằng chữ. Hãy bật chế độ xác nhận lệnh hoặc sandbox của agent.

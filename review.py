@@ -11,8 +11,8 @@ import case as C, reacfg as CFG
 
 MAX_ROUNDS = 2
 NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua reviewer.analyst (không shell, không ghi file)
-GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation', 'verdict'}   # fact sai ở đây làm sai IOC/kết luận -> high
-HARD_CHECKS = {'verdict_value', 'lookup_content', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
+GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation', 'verdict', 'env'}   # fact sai ở đây làm sai IOC/kết luận/tham số VM -> high
+HARD_CHECKS = {'verdict_value', 'env_value', 'lookup_content', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIR = lambda c: os.path.join(c, 'work', 'review')
@@ -59,6 +59,8 @@ def mech(c):
         for ck, pb, rd in C.adhoc.notes(c, f, rel, txt): bad('weak', ck, pb, rd)    # công cụ chạy ngoài vỏ không mạng: nhắc, không chặn
         if k == 'verdict' and not C.VERDICT_RX.match(f['value'].strip()):   # cùng luật với lint khi ghi
             bad('fail', 'verdict_value', 'verdict phải là malicious|suspicious|nofind|benign: lý do', "ghi fact mới value='<khóa>: lý do' (supersedes)")
+        ei = C.env_issue(f)   # cùng luật với lint khi ghi
+        if ei: bad('fail', 'env_value', *ei)
         n = txt.replace('\\\\', '\\').lower()
         if k in ('hash', 'payload_hash'):
             hx = re.findall(r'\b[0-9a-f]{64}\b', f['value'])
@@ -71,6 +73,11 @@ def mech(c):
             if vi and vi[0] == 'fail' and an and not C.literal_issue(f, full, C.ev_scope(L, dict(f, evidence=rel))[0], None):
                 vi = ('warn', f'giá trị có trong file evidence nhưng không nằm trong ±{C.WINDOW} dòng quanh #L{an}', 'ghi fact mới (supersedes) trỏ #L đúng dòng chứa giá trị')   # trỏ lệch dòng: nhắc, không chặn; không có ở đâu trong file mới là mâu thuẫn bằng chứng
             if vi: bad('weak' if vi[0] == 'warn' else 'fail', 'value_in_evidence', *vi[1:])
+            em = C.env_missing(f, sc)   # fact env: TỪNG chuỗi lấy từ mẫu phải có nguyên văn; có trong file nhưng lệch #L thì nhắc, không có ở đâu thì chặn
+            if em:
+                em2 = C.env_missing(f, C.ev_scope(L, dict(f, evidence=rel))[0]) if an else em
+                if em2: bad('fail', 'value_in_evidence', f'fact env: {len(em2)} chuỗi không có nguyên văn trong file evidence: ' + ', '.join(repr(x)[:40] for x in em2[:4]), 'chép đoạn chứa đúng từng giá trị vào evidence, hoặc bỏ giá trị không có căn cứ (fact mới có supersedes)')
+                else: bad('weak', 'value_in_evidence', f'fact env: {len(em)} chuỗi có trong file evidence nhưng không nằm trong ±{C.WINDOW} dòng quanh #L{an}', 'ghi fact mới (supersedes) trỏ #L đúng đoạn chứa các giá trị')
         if f['status'] == 'active' and re.search(r'\b(chưa|có thể|nghi)\b', f['note'], re.I):
             bad('weak', 'status_vs_note', 'status active nhưng note còn nghi ngờ', 'hạ xuống hypothesis hoặc bổ sung bằng chứng')
         if k == 'persistence' and f['src'] == 'E' and any(a in unused for a in re.findall(r'Reg\w+|CopyFile\w*|MoveFile\w*', f['value'])):
@@ -414,6 +421,13 @@ def next_step(c, accept=''):
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo and C.mode(c) == 'light': print('NEED_MORE (light): làm tiếp bằng tầng tĩnh (flow.py dec, rea inspect-*). Mục còn thiếu cần giả lập hoặc công cụ ad-hoc thì nâng chế độ: flow.py mode ' + shlex.quote(c) + ' full, hoặc chấp nhận hạn chế: next --accept Cx=lý do'); return 1
+    if todo:   # tầng T5: có fact observe và VM đã bật thì dẫn sang vmspec/vm-run; lời nhắc không bao giờ được làm next thất bại
+        try:
+            from vm import spec as VS; lr = (state(c).get('rounds') or [{}])[-1]
+            vh, stop_ = VS.next_hint(c, ok, bool(bg_pid(c)), f"{DIR(c)}/r{lr['n']}/" if lr.get('verdict') == 'FAIL' and lr.get('facts_sha256') == facts_sha(c) else '')
+        except Exception: vh, stop_ = '', False
+        if vh: print(vh)
+        if stop_: return 1
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
     v = C.verdict(c); vmsg = ''
     if v['inferred'] or v['key'] == 'unknown':   # chưa có fact verdict hiệu lực đúng dạng: nhãn đầu báo cáo đang là suy tạm hoặc chưa xác định

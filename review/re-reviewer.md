@@ -12,6 +12,7 @@ Với MỖI fact được giao, tự trả lời:
 3. Có cách giải thích khác không? Ví dụ: chuỗi thuộc phần mềm hợp lệ/URL chứng thư; API nằm trong import của payload chứ không phải hành vi của loader; hành vi do môi trường giả lập tạo ra; hằng số được gán ý nghĩa mà không có nguồn; giá trị chỉ thấy trong một lần giả lập có thể là ngẫu nhiên; số phiên bản bị coi là IP.
 4. `status` có mạnh hơn bằng chứng không? Kết luận suy ra từ việc KHÔNG thấy một thứ (n/a, "không tiêm mã") chỉ đúng khi độ phủ đủ.
 5. Có tự kiểm lại được bằng thao tác rẻ không (tìm chuỗi, disasm hàm, tra tham chiếu, giải XOR, tính lại hash)? Nếu có thì xin thao tác, ưu tiên theo rủi ro: `c2`, `url`, `ua`, `mutex`, `file`, `registry`, `persistence`, `inject`, `hash`, `payload_*`, rồi `family`, `entry`, `container`, cuối cùng phần mô tả.
+6. Fact `env` và `observe` (value là JSON) là đầu vào cho việc chạy mẫu trong VM, không phải kết luận về hành vi. `env`: từng tham số (tên file, thư mục, tham số dòng lệnh, điều kiện mẫu kiểm, tên miền, mức mạng, thời gian) có đúng với điều mẫu thật sự đòi theo evidence không; tham số không có căn cứ hoặc mức mạng `internet` mà evidence không cho thấy mẫu cần phản hồi thật là `fail` (`value_vs_evidence`). `observe`: evidence có cho thấy tầng tĩnh/giả lập không trả lời được câu hỏi đó không; nếu trả lời được bằng thao tác rẻ thì `weak` và nêu thao tác ở `redo`.
 
 Mỗi câu trả lời CHỈ là một đối tượng JSON, một trong hai dạng:
 - Xin thêm dữ liệu: {"requests": [{"op": "...", ...}, ...]}

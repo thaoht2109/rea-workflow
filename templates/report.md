@@ -34,7 +34,7 @@ Bảng hash đầy đủ nằm trong [`GENERATED.md`](GENERATED.md) (sinh từ `
 
 ## 4. Phân tích chi tiết
 
-_(mỗi mục ghi nguồn S/E/V và trỏ tới file evidence + dòng)_
+_(mỗi mẫu một mục con, đi từ tổng quan tới chi tiết; chỉ viết phần có fact làm căn cứ, bỏ phần không áp dụng: a. bản chất và các bên tham gia - ai điều khiển, ai hưởng lợi, chiều kết nối; b. khởi động - tham số, cấu hình, điều kiện chạy; c. tìm máy chủ - miền hay dead-drop, cách chọn, cách ghép tên, cổng; d. xác thực và giao thức - dữ liệu gửi và nhận, mã hóa, khóa; e. nhận lệnh và hành vi; f. ý nghĩa của cách thiết kế - với nạn nhân và với việc phát hiện, trỏ sang mục khuyến nghị; g. những gì không thấy. Mỗi ý ghi nguồn S/E/V, id fact và file evidence + dòng; suy luận chưa chứng minh thì ghi rõ là giả thuyết)_
 
 ## 5. Bảng rà soát và đính chính
 

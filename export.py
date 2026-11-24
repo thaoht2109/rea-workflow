@@ -65,6 +65,39 @@ def is_text(p):
         dec.decode(b'', final=True); return True
     except (OSError, UnicodeDecodeError): return False
 
+def _note_text(p):
+    try:
+        if os.path.getsize(p) > NOTE_MAX: return None
+        b = open(p, 'rb').read()
+    except OSError: return None
+    if b'\0' in b[:8192]: return None
+    try: return b.decode('utf-8')
+    except UnicodeDecodeError: return None
+
+def note_of(p):
+    """(Dùng chung cho flow.py scan và watch; nằm ở đây để scan không kéo theo watch và bộ eval.) Lý do (chuỗi khác rỗng) nếu p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
+    tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
+    phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
+    n, d = os.path.basename(p), os.path.dirname(p)
+    if SUMS.search(n):   # tên dạng SHA256SUMS: chỉ là ghi chú khi nội dung đúng là danh sách `<sha256>  tên`
+        t = _note_text(p)
+        return 'danh sách sha256' if t is not None and re.search(r'(?m)^[0-9a-fA-F]{64}[ \t]+\*?\S', t) else ''
+    if not n.lower().endswith(NOTE_EXT): return ''
+    t = _note_text(p)
+    if t is None or SCRIPT.search(t): return ''   # nội dung trông như script (shebang, | sh, curl, base64 -d...): coi là mẫu
+    sib = [os.path.join(d, x) for x in os.listdir(d) if x != n and not x.startswith('.') and not x.lower().endswith(NOTE_EXT)
+           and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
+    for q in sib:
+        if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
+    for g in cmd_targets(t):   # cùng hàm với export.collect: file ngắn, mở đầu bằng dòng lệnh/tiêu đề `#`
+        if any(os.path.basename(g) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(g)}'
+    if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
+    for q in sib:
+        try:
+            if sha(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
+        except OSError: pass
+    return ''
+
 def packed(rel, p):
     """File này phải nằm trong 7z, không chép dạng rõ: theo vị trí (PACK_DIRS, OUT_DIR của công cụ T1b work/runs/tool/<TÊN>/),
     file không phải văn bản, và file văn bản ngoài report/ và facts.jsonl có nội dung giống script (payload text bóc ra)."""

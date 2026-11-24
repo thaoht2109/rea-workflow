@@ -11,8 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOTS = ('facts.jsonl', 'report/evidence', 'work/sample', 'work/extract', 'work/scripts')   # phạm vi thao tác được đọc
 OUT_MAX, TURN_MAX, REQ_MAX = 2500, 16000, 8   # ký tự mỗi kết quả, mỗi lượt, số thao tác mỗi lượt: kết quả thao tác là phần làm hội thoại phình nhanh nhất
 LOW_RISK = {'hash', 'filetype'}   # lớp 1 đã tính lại; không gửi cho LLM nếu lớp 1 không báo gì
-TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')
-LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
+TOKEN, LITERAL = C.TOKEN, C.LITERAL_KINDS   # một định nghĩa ở case.py
 
 class Pending(Exception):
     """Chế độ manual: đang chờ người dùng dán câu trả lời của LLM vào file."""

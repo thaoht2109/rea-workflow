@@ -21,13 +21,14 @@ def main():
         A(id='none', kind='c2', value='other.example.net', evidence='report/evidence/e.txt#L3')       # không có ở đâu trong file: chặn
         A(id='whole', kind='c2', value='other.example.net', evidence='report/evidence/e.txt')
         A(id='num', kind='string', value='ban ghi: 1234 dong', evidence='report/evidence/e.txt#L40')   # số có dấu ngăn nghìn trong evidence (_normnum)
-        A(id='bin0', kind='payload_key', value='khoa giai ma payload', evidence='report/evidence/k.bin')
+        A(id='bin0', kind='string', value='khoa giai ma payload', evidence='report/evidence/k.bin')
+        A(id='binc2', kind='c2', value='other.example.net', evidence='report/evidence/k.bin')   # nhóm chặn dẫn evidence nhị phân không chứa giá trị, không sha256: vẫn chặn
         A(id='bin1', kind='payload_key', value='khoa sha256 ' + hashlib.sha256(blob).hexdigest(), evidence='report/evidence/k.bin')
         got = {i['id']: (i['verdict'], i['severity']) for i in R.mech(c) if i['check'] == 'value_in_evidence'}
-        assert got == {'far': ('weak', 'low'), 'none': ('fail', 'high'), 'whole': ('fail', 'high'), 'bin0': ('weak', 'low')}, got
+        assert got == {'far': ('weak', 'low'), 'none': ('fail', 'high'), 'whole': ('fail', 'high'), 'bin0': ('weak', 'low'), 'binc2': ('fail', 'high')}, got
         cur = C.load(c)
         lint = {i: [x['level'] for x in C.lint_fact(c, cur[i]) if x['check'] == 'value_in_evidence'] for i in cur}
-        assert lint == {'near': [], 'far': ['fail'], 'none': ['fail'], 'whole': ['fail'], 'num': [], 'bin0': ['warn'], 'bin1': []}, lint   # lint giữ mức chặt hơn cho trỏ lệch dòng (chỉ in cảnh báo khi ghi)
+        assert lint == {'near': [], 'far': ['fail'], 'none': ['fail'], 'whole': ['fail'], 'num': [], 'bin0': ['warn'], 'binc2': ['warn'], 'bin1': []}, lint   # lint giữ mức chặt hơn cho trỏ lệch dòng (chỉ in cảnh báo khi ghi)
         # C11: exit_reason chỉ đạt khi value mở đầu bằng natural (có thể sau tên tiến trình)
         ok = lambda v: bool(C.NATURAL_RX.match(v))
         assert all(map(ok, ('natural: ExitProcess', 'parent: natural: TerminateProcess', ' natural')))

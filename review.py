@@ -67,6 +67,7 @@ def mech(c):
                 if h not in n and h not in hs: bad('fail', 'hash_recompute', f'sha256 {h[:12]}… không có trong evidence và không khớp file nào trong work/sample|extract', 'tính lại sha256 từ file gốc')
         else:   # cùng hàm với lint khi ghi (case.literal_issue): token, _normnum, evidence nhị phân chỉ nhắc
             L = txt.splitlines(); sc, an = C.ev_scope(L, f); vi = C.literal_issue(f, full, sc, an)
+            if vi and vi[0] == 'warn' and k in GATING: vi = ('fail',) + vi[1:]   # evidence nhị phân không ghi sha256: với nhóm IOC/kết luận vẫn chặn như trước, kind khác chỉ nhắc
             if vi and vi[0] == 'fail' and an and not C.literal_issue(f, full, C.ev_scope(L, dict(f, evidence=rel))[0], None):
                 vi = ('warn', f'giá trị có trong file evidence nhưng không nằm trong ±{C.WINDOW} dòng quanh #L{an}', 'ghi fact mới (supersedes) trỏ #L đúng dòng chứa giá trị')   # trỏ lệch dòng: nhắc, không chặn; không có ở đâu trong file mới là mâu thuẫn bằng chứng
             if vi: bad('weak' if vi[0] == 'warn' else 'fail', 'value_in_evidence', *vi[1:])

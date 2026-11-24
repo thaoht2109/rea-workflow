@@ -5,7 +5,7 @@
 #   review.py gate CASE               mã thoát 0 khi review PASS khớp hash facts.jsonl hiện tại (hoặc có OVERRIDE khớp)
 #   review.py next CASE [--accept C4=lý do]...     DONE khi checklist đủ và cổng đạt: có thể báo cáo và đóng, không cần VM
 #   review.py --selftest
-import sys, os, re, json, glob, shlex, hashlib, tempfile, subprocess, datetime, urllib.parse
+import sys, os, re, json, shlex, hashlib, tempfile, subprocess, datetime, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import case as C, reacfg as CFG
 
@@ -245,16 +245,25 @@ def blank_lines():
 
 DEADDROP = ('raw.githubusercontent.com', 'gist.githubusercontent.com', 'gist.github.com', 'pastebin.com', 'paste.ee', 'telegra.ph', 't.me', 'docs.google.com', 'drive.google.com')
 def lookup_hint(c):
-    """Mẫu lấy địa chỉ máy chủ từ nơi chứa nội dung công cộng (fact url còn hiệu lực có host trong DEADDROP) mà case chưa có evidence lookup_*:
+    """Mẫu lấy địa chỉ máy chủ từ nơi chứa nội dung công cộng (fact url còn hiệu lực có host trong DEADDROP) mà chưa evidence lookup_* nào ghi URL đó:
     địa chỉ C2 thật chưa có trong báo cáo. Trả MỘT câu nhắc hỏi người dùng (FLOW.md mục 0), không có lệnh nào để chạy; '' nếu không áp dụng.
     Chỉ là lời nhắc: không chặn DONE, không đổi trạng thái của next. Danh sách host là gợi ý, không đầy đủ."""
-    def host(v):   # value là văn bản tự do lấy từ mẫu/giả lập: urlsplit ném ValueError với ngoặc vuông lệch hoặc host dạng defang
+    def norm(v):   # token đầu của value, bỏ defang thường gặp (hxxp, [.]); value là văn bản tự do lấy từ mẫu/giả lập
         t = str(v or '').split()
-        try: return (urllib.parse.urlsplit(t[0]).hostname or '').lower() if t else ''
+        return re.sub(r'^hxxp', 'http', t[0].replace('[.]', '.'), flags=re.I) if t else ''
+    def host(u):   # thiếu scheme thì coi phần đầu là host; urlsplit ném ValueError với ngoặc vuông lệch
+        try: return (urllib.parse.urlsplit(u if '://' in u else '//' + u).hostname or '').lower()
         except ValueError: return ''
-    ids = sorted(i for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active' and host(f.get('value')) in DEADDROP)
-    if not ids or glob.glob(os.path.join(glob.escape(os.path.join(c, 'report', 'evidence')), 'lookup_*')): return ''
-    return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, case chưa có evidence lookup_*: địa chỉ C2 thật chưa có. "
+    urls = {i: norm(f.get('value')) for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active'}
+    urls = {i: u for i, u in urls.items() if host(u) in DEADDROP}
+    if not urls: return ''
+    E = os.path.join(c, 'report', 'evidence'); seen = ''
+    for n in sorted(os.listdir(E)) if os.path.isdir(E) else ():   # như lint (case.lookup_issue): tên lookup_* không phân biệt hoa thường
+        if n.lower().startswith('lookup_') and os.path.isfile(os.path.join(E, n)): seen += open(os.path.join(E, n), encoding='utf-8', errors='replace').read(65536).replace('[.]', '.') + '\n'
+    strip = lambda u: re.sub(r'^[a-z]+://', '', u, flags=re.I).rstrip('/')
+    ids = sorted(i for i, u in urls.items() if strip(u) not in seen)   # chỉ thôi nhắc URL nào đã có trong một evidence lookup_* (tra RDAP hay URL khác không tính)
+    if not ids: return ''
+    return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, chưa evidence lookup_* nào ghi URL này: địa chỉ C2 thật chưa có. "
             'KHÔNG tự tra. Hỏi người dùng theo FLOW.md mục 0 (đồng ý riêng cho case này, đường mạng riêng, duyệt đúng URL); '
             'chưa được đồng ý hoặc phiên không có người trực thì chỉ ghi điều này vào mục hạn chế của báo cáo.')
 

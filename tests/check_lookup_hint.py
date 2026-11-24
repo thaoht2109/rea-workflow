@@ -23,14 +23,21 @@ try:
     assert not re.search(r'curl|wget|https?://|flow\.py|python3|`', h), h             # không có lệnh hay URL nào để chạy theo
     assert not any(re.match(STATES, l) for l in h.splitlines()), h                   # không bị watch đọc thành trạng thái
     st = [l.split()[0] for l in base.stdout.splitlines() if re.match(STATES, l)]
-    open(os.path.join(c, 'report', 'evidence', 'lookup_dd.txt'), 'w').write('example.org\n')   # đã tra: hết nhắc, trạng thái và mã thoát không đổi
+    open(os.path.join(c, 'report', 'evidence', 'lookup_rdap.txt'), 'w').write('rdap example.org\n')   # tra thứ khác (RDAP một tên miền): URL dead-drop vẫn chưa tra, vẫn nhắc
+    assert R.lookup_hint(c) == h
+    os.remove(os.path.join(c, 'report', 'evidence', 'lookup_rdap.txt'))
+    open(os.path.join(c, 'report', 'evidence', 'Lookup_dd.txt'), 'w').write('GET https://raw.githubusercontent.com/user-x/repo-y/main/cfg\n--- body ---\nexample.org\n')   # đã tra: hết nhắc, trạng thái và mã thoát không đổi
     after = nxt(c)
     assert R.lookup_hint(c) == '' and 'lưu ý (không chặn)' not in after.stdout, after.stdout
     assert after.returncode == base.returncode and [l.split()[0] for l in after.stdout.splitlines() if re.match(STATES, l)] == st, (base.stdout, after.stdout)
-    os.remove(os.path.join(c, 'report', 'evidence', 'lookup_dd.txt'))
+    os.remove(os.path.join(c, 'report', 'evidence', 'Lookup_dd.txt'))
     C.add(c, id='u2', kind='url', value='https://raw.githubusercontent.com/user-x/repo-y/main/cfg', src='S', evidence='report/evidence/s.txt#L1', supersedes='u1', status='hypothesis')
     assert R.lookup_hint(c) == ''                                                    # fact đã bị thay và bản mới chỉ là giả thuyết: không nhắc
 finally: shutil.rmtree(c, ignore_errors=True)
+for url in ('raw.githubusercontent.com/user-x/repo-y/main/cfg', 'hxxps://raw[.]githubusercontent[.]com/user-x/repo-y/main/cfg'):   # thiếu scheme hoặc đã defang: vẫn nhận ra
+    c = mk(url)
+    try: assert 'u1' in R.lookup_hint(c) and 'Traceback' not in nxt(c).stderr, url
+    finally: shutil.rmtree(c, ignore_errors=True)
 for url in ('https://updates.example.com/raw.githubusercontent.com/x', 'https://github.com/user-x/repo-y', 'không phải url',   # host khác, kể cả khi tên host nằm trong đường dẫn
             'http://host[abc/x', 'http://a]b/', 'http://evil[.]example/', 'http://x[1]/'):                                       # giá trị làm urlsplit ném ValueError: next không được sập
     c = mk(url)

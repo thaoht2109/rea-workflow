@@ -51,7 +51,10 @@ jobs:
         Bối cảnh và quy tắc riêng của repo:
         Repo công khai: skill dịch ngược mã độc (rea-workflow), Python thuần, mã viết nén.
         - Không đưa tên case, mẫu, IOC hay đường dẫn máy cá nhân vào mã, test, commit hay PR.
-        - Không bao giờ thêm đường thực thi mẫu (wine, qemu, chạy script mẫu); chỉ phân tích tĩnh và giả lập CPU.
+        - Repo không chứa mã thực thi hay gửi mẫu (wine, qemu, chạy script mẫu, gọi API sandbox); phân tích trong repo chỉ là tĩnh và giả lập CPU.
+          Ngoại lệ duy nhất đã được chủ repo duyệt (tầng VM, mặc định tắt): skill được sinh đặc tả chạy mẫu từ fact, gọi một cầu nối
+          do người dùng tự cài ngoài repo qua lệnh khai ở VM_BRIDGE_CMD trong rea.env, và đọc kết quả cầu nối trả về như dữ liệu không tin cậy.
+          Mã gửi mẫu, địa chỉ hay token của sandbox không được nằm trong repo; phiên không người trực (watch) không được gọi cầu nối.
         - Test trong tests/ phải dùng dữ liệu tổng hợp, không cần mẫu thật.
 
         Code của PR (đã áp thay đổi) nằm ở thư mục `pr-head/`. Thay đổi so với nhánh base:
@@ -90,7 +93,10 @@ jobs:
         Bối cảnh và quy tắc riêng của repo:
         Repo công khai: skill dịch ngược mã độc (rea-workflow), Python thuần, mã viết nén.
         - Không đưa tên case, mẫu, IOC hay đường dẫn máy cá nhân vào mã, test, commit hay PR.
-        - Không bao giờ thêm đường thực thi mẫu (wine, qemu, chạy script mẫu); chỉ phân tích tĩnh và giả lập CPU.
+        - Repo không chứa mã thực thi hay gửi mẫu (wine, qemu, chạy script mẫu, gọi API sandbox); phân tích trong repo chỉ là tĩnh và giả lập CPU.
+          Ngoại lệ duy nhất đã được chủ repo duyệt (tầng VM, mặc định tắt): skill được sinh đặc tả chạy mẫu từ fact, gọi một cầu nối
+          do người dùng tự cài ngoài repo qua lệnh khai ở VM_BRIDGE_CMD trong rea.env, và đọc kết quả cầu nối trả về như dữ liệu không tin cậy.
+          Mã gửi mẫu, địa chỉ hay token của sandbox không được nằm trong repo; phiên không người trực (watch) không được gọi cầu nối.
         - Test trong tests/ phải dùng dữ liệu tổng hợp, không cần mẫu thật.
 
         Input:

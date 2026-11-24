@@ -173,5 +173,15 @@ SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "fail", "ch
              '{"items": [], "pass": ["good", "g2"]}']
 rc = review.review(c9, llm=True); r = json.load(open(c9 + '/work/review/r1/review.json'))
 assert rc == 1 and r['isolation']['valid'] and [(i['id'], i['verdict'], i['severity']) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'fail', 'high')], r
+# câu bổ sung chỉ nêu id trong `flagged` (không có mục fail/weak): chưa phủ -> lượt không hợp lệ, không thành PASS im lặng
+c10 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "flagged": ["good"]}']
+rc = review.review(c10, llm=True); r = json.load(open(c10 + '/work/review/r1/review.json'))
+assert rc == 1 and r['verdict'] == 'FAIL' and r['isolation']['invalid_reasons'] == ['lô 1: fact được giao không có kết luận: good'], r['isolation']
+# câu bổ sung nêu lại id đã có mục: một mục cho mỗi id, giữ mục nặng nhất
+c11 = one(); C.add(c11, id='g2', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "fail", "check": "value_vs_evidence", "problem": "sai", "where": "report/evidence/e.txt#L2", "redo": "đọc lại"}]}',
+             '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại"}], "pass": ["g2"]}']
+rc = review.review(c11, llm=True); r = json.load(open(c11 + '/work/review/r1/review.json'))
+assert rc == 1 and [(i['id'], i['verdict']) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'fail')], r['items']
 CFG.REVIEW_MAX_TURNS = keep
 srv.shutdown(); print('OK test_local_llm')

@@ -371,11 +371,15 @@ def one_each(items):
         if i['id'] not in best or key(i) >= key(best[i['id']]): best[i['id']] = i
     return [i for i in best.values() if i.get('verdict') in ('fail', 'weak') or i.get('check')]
 
+RANK = {'pass': 0, 'weak': 1, 'fail': 2}
 def uncovered(data, todo):
-    """Id được giao mà kết luận dạng đầy đủ không nhắc tới: không có mục trong `items`, không nằm trong sổ `pass` (hay `flagged`)."""
+    """Id được giao mà kết luận dạng đầy đủ chưa phủ: không có mục trong `items` và không nằm trong sổ `pass`; hoặc nằm trong sổ `flagged`
+    mà `items` không có mục fail/weak cho nó (bị nêu có vấn đề nhưng không có nội dung: không được thành pass im lặng, kể cả khi cũng nằm trong `pass`)."""
     ids = lambda v: {str(x.get('id') if isinstance(x, dict) else x) for x in v} if isinstance(v, list) else set()
-    seen = ids(data.get('items')) | ids(data.get('pass')) | ids(data.get('flagged'))
-    return [i for i in todo if i not in seen]
+    its = [x for x in data.get('items') or [] if isinstance(x, dict)] if isinstance(data.get('items'), list) else []
+    bad = {str(x.get('id')) for x in its if x.get('verdict') in ('fail', 'weak')}
+    seen, owed = ids(its) | ids(data.get('pass')), ids(data.get('flagged')) - bad
+    return [i for i in todo if i not in seen or i in owed]
 
 def settle(data, part, bad, todo):
     """Kết luận của phiên có công cụ, trả (items, lý do không hợp lệ).
@@ -707,12 +711,16 @@ def _run(c, k, ids, mech_items):
             msgs.append({'role': 'user', 'content': 'Kết luận chưa phủ hết lô. Thiếu: ' + ', '.join(left) + '. Trả MỘT đối tượng JSON: {"items": [...], "pass": ["id của fact không có vấn đề", ...], "missing": [...]}; '
                          'mỗi fact còn thiếu nằm trong `items` (có vấn đề hoặc đã tự kiểm) hoặc `pass`.'})
             ans = ask(be, msgs, cache); turns += 1; msgs.append({'role': 'assistant', 'content': ans})
-            d = parse(ans, ('items', 'pass', 'flagged')) or {}   # nhận cả câu trả lời chỉ có phần bổ sung; GỘP vào kết luận trước, không thay: mục fail đã nêu không bị bỏ đi
+            d = parse(ans, ('items', 'pass')) or {}   # nhận cả câu trả lời chỉ có phần bổ sung; GỘP vào kết luận trước, không thay: mục fail đã nêu không bị bỏ đi
             final = dict(final, items=lst(final.get('items')) + lst(d.get('items')), missing=lst(final.get('missing')) + lst(d.get('missing')),
                          **{'pass': lst(final.get('pass')) + lst(d.get('pass')), 'flagged': lst(final.get('flagged')) + lst(d.get('flagged'))})
             left = uncovered(final, lot)
         if left: why.append(f'lô {b}: fact được giao không có kết luận: ' + ', '.join(left))
-        items += [dict(i, layer='llm') for i in lst(final.get('items')) if isinstance(i, dict) and i.get('id') in lot]
+        mine = [i for i in lst(final.get('items')) if isinstance(i, dict) and i.get('id') in lot]
+        best = {}   # phần bổ sung có thể nêu lại id đã có mục: mỗi id một mục, giữ mục nặng nhất (cùng mức thì mục nêu trước)
+        for i in mine:
+            if i['id'] not in best or RANK.get(i.get('verdict'), 0) > RANK.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
+        items += [dict(i, layer='llm') for i in best.values()]
         missing += lst(final.get('missing'))
     for i in items:
         if i.get('verdict') == 'fail' and not (i.get('where') and i.get('redo')): i['problem'] = (i.get('problem') or '') + ' [thiếu where/redo]'
@@ -838,7 +846,9 @@ def selftest():
     assert S(T(fI), {})[1] == ['không đọc được JSON kết luận (xem stream.jsonl)'] and S(T(fI), dict(flagged=['c2']))[1]   # thiếu sổ
     assert S(T(fI[:40]), dict(items=[dict(id='m', verdict='weak'), dict(id='zz', verdict='fail')], **{'pass': ['c2']})) == ([dict(id='m', verdict='weak')], [])   # dạng đầy đủ: JSON cuối là nguồn
     assert S(T(fI[:40]), dict(items=[dict(id='m', verdict='weak')])) == ([dict(id='m', verdict='weak')], ['fact được giao không có kết luận: c2'])   # dạng đầy đủ cũng phải phủ hết: thiếu id không thành pass im lặng
-    assert uncovered(dict(items=[], **{'pass': 'c2'}), ['c2', 'm']) == ['c2', 'm'] and uncovered(dict(items=[dict(id='m')], flagged=['m'], **{'pass': ['c2']}), ['c2', 'm']) == []
+    assert uncovered(dict(items=[], **{'pass': 'c2'}), ['c2', 'm']) == ['c2', 'm'] and uncovered(dict(items=[dict(id='m', verdict='weak')], flagged=['m'], **{'pass': ['c2']}), ['c2', 'm']) == []
+    assert uncovered(dict(items=[], flagged=['c2'], **{'pass': ['m']}), ['c2', 'm']) == ['c2'] and uncovered(dict(items=[dict(id='c2', verdict='pass')], flagged=['c2'], **{'pass': ['c2', 'm']}), ['c2', 'm']) == ['c2']   # bị nêu trong flagged mà không có mục fail/weak: chưa phủ
+    assert S(T(fI[:40]), dict(items=[], flagged=['c2'], **{'pass': ['m']}))[1] == ['fact được giao không có kết luận: c2']
     os.environ['STUB_COMPACT'] = 'ok'   # qua cả đường chạy: phiên in ITEM rồi sổ
     its, miss, iso = run(c, 2, ['c2', 'h', 'm'], [])
     assert iso['valid'] and sorted((i['id'], i['verdict'], i['severity']) for i in its) == [('m', 'fail', 'high')], (its, iso)

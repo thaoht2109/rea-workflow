@@ -59,7 +59,7 @@ def verdict_line(v):
 
 PERSIST_API = re.compile(r'Reg(Set|Create)|CopyFile|MoveFile|CreateService|SchTask|Startup', re.I)
 EV = 'report/evidence/'
-REVIEW_RULE_VERSION = 2   # 2: fail ở check bằng chứng cứng luôn high; state.json cũ hết hiệu lực
+REVIEW_RULE_VERSION = 3   # 2: fail ở check bằng chứng cứng luôn high. 3: fact verdict thuộc nhóm chặn, lookup_content là check cứng. Đổi số: state.json cũ hết hiệu lực
 # lint khi ghi fact (xem lint_fact)
 LITERAL_KINDS = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence',
                  'str_key', 'payload_key', 'config', 'string'}

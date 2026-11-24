@@ -23,6 +23,28 @@ try:
                    ('không có packer dropper tải payload', 'malicious'))):   # từ khóa mã độc xét trước; lành tính chỉ khi đứng đầu
         c = mk_case(T, f'F{i}', [('s.fam', 'family', val)])
         v = C.verdict(c); assert v['key'] == k and v['inferred'] and v['id'] == 's.fam', (val, v)
+    # nhiều mẫu, mỗi mẫu một fact family: suy tạm theo mẫu nặng nhất, không theo fact ghi sau cùng
+    c = mk_case(T, 'M1', [('s.a.fam', 'family', 'backdoor chạy lệnh từ máy chủ'), ('s.b.fam', 'family', 'client proxy thương mại chia sẻ băng thông')])
+    v = C.verdict(c); assert v['key'] == 'malicious' and v['inferred'] and v['id'] == 's.a.fam', v
+    c = mk_case(T, 'M2', [('s.a.fam', 'family', 'không phải mã độc: thư viện nén'), ('s.b.fam', 'family', 'client proxy thương mại chia sẻ băng thông')])
+    v = C.verdict(c); assert v['key'] == 'suspicious' and v['id'] == 's.b.fam', v
+    # next: chưa có fact verdict thì đòi ghi TRƯỚC lượt review (NEED_MORE, mã 1); có rồi thì không nhắc
+    import io, contextlib, review as RV  # noqa: E402
+    def nxt(c_):
+        b = io.StringIO()
+        with contextlib.redirect_stdout(b): rc = RV.next_step(c_)
+        return rc, b.getvalue()
+    c = mk_case(T, 'N1', [('s.fam', 'family', 'backdoor dạng reverse shell')])
+    json_acc = os.path.join(c, 'work'); os.makedirs(json_acc, exist_ok=True)
+    open(os.path.join(json_acc, 'accepted.json'), 'w').write('{' + ', '.join(f'"C{i}": "thử"' for i in range(1, 13)) + '}')   # bỏ qua checklist để tới đúng bước này
+    rc, out = nxt(c); assert rc == 1 and 'NEED_MORE: chưa có fact phân loại' in out and 'HÀNH VI' in out, out
+    RV.save_state(c, {'rounds': [{'n': 1, 'verdict': 'FAIL', 'facts_sha256': RV.facts_sha(c)}], 'stopped': False})   # vừa FAIL, facts chưa đổi: lời nhắc sửa đi trước, kèm lời đòi verdict
+    rc, out = nxt(c); assert rc == 1 and out.count('NEED_') == 1 and 'NEED_FIX: review 1 FAIL' in out and 'chưa có fact phân loại' in out, out
+    os.remove(os.path.join(RV.DIR(c), 'state.json'))
+    C.add(c, id='s.vbad', kind='verdict', value='Malicious - backdoor', src='S', evidence='report/evidence/strings.txt#L1')   # có fact nhưng sai dạng: nói rõ là sai dạng
+    rc, out = nxt(c); assert rc == 1 and 'NEED_MORE: fact phân loại `s.vbad` có value sai dạng' in out, out
+    C.add(c, id='s.v', kind='verdict', value='malicious: reverse shell', src='S', evidence='report/evidence/strings.txt#L1', supersedes='s.vbad')
+    rc, out = nxt(c); assert 'fact phân loại' not in out and 'NEED_REVIEW' in out, out
     # có fact verdict: dùng nó, không suy từ family; fact bị supersedes và hypothesis không tính
     c = mk_case(T, 'V2', [('s.fam', 'family', 'trojan loader'), ('s.v1', 'verdict', 'suspicious: chưa thấy C2')])
     v = C.verdict(c); assert v['key'] == 'suspicious' and not v['inferred'] and v['id'] == 's.v1' and v['why'] == 'chưa thấy C2', v

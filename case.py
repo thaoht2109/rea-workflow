@@ -44,10 +44,12 @@ def verdict(case, cur=None):
         return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=(m.group(2) or '') if m else f['value'], inferred=False)
     fam = act('family')
     if not fam: return dict(key='unknown', label=VERDICT['unknown'][0], color=VERDICT['unknown'][1], id='', why='chưa có fact verdict hay family hiệu lực', inferred=False)
-    f = fam[-1]; t = f['value']
-    mal, ben, nof = _mal(t), _BENIGN.search(t), _NOFIND.search(t)   # từ khóa mã độc (không bị phủ định) xét trước; có cả hai chiều thì nghi vấn
-    k = ('suspicious' if ben or nof else 'malicious') if mal else 'benign' if ben else 'nofind' if nof else 'suspicious'
-    return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=t, inferred=True)
+    def one(t):
+        mal, ben, nof = _mal(t), _BENIGN.search(t), _NOFIND.search(t)   # từ khóa mã độc (không bị phủ định) xét trước; có cả hai chiều thì nghi vấn
+        return ('suspicious' if ben or nof else 'malicious') if mal else 'benign' if ben else 'nofind' if nof else 'suspicious'
+    rank = ('benign', 'nofind', 'suspicious', 'malicious')   # case nhiều mẫu: mỗi mẫu một fact family, nhãn suy tạm theo mẫu NẶNG NHẤT (cùng mức thì fact mới nhất)
+    k, f = max(((one(x['value']), x) for x in fam), key=lambda p: (rank.index(p[0]), p[1].get('ts', '')))
+    return dict(key=k, label=VERDICT[k][0], color=VERDICT[k][1], id=f['id'], why=f['value'], inferred=True)
 
 def verdict_line(v):
     """Một dòng Markdown cho nhãn phân loại (GENERATED.md, bản export)."""

@@ -17,6 +17,7 @@
 
 | Mục | Kết quả | Nguồn |
 |---|---|---|
+| Phân loại và căn cứ hành vi | | |
 | Loại / họ mã độc | | |
 | Cơ chế chính | | |
 | IOC mạng | | |

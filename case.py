@@ -19,8 +19,10 @@ KINDS = {'hash', 'filetype', 'container', 'entry', 'anti_analysis', 'str_algo', 
 ENV_T = {'guest': ('os', 'arch'), 'layout': ('dir', 'files', 'main'), 'launch': ('mode',), 'precond': ('type',), 'net': ('mode',), 'time': ('max_s',)}
 NET_MODES = ('none', 'sink', 'internet')   # tăng dần: không mạng < DNS giả + bộ hứng chỉ ghi < ra Internet qua đường riêng của sandbox
 GUEST_OS, GUEST_ARCH = ('windows', 'linux'), ('x86', 'x64', 'mips', 'mipsel', 'arm', 'aarch64')
+LAUNCH_MODES = ('default', 'dll', 'service', 'script')   # cách khởi chạy: bảng cố định (chuỗi tự do sẽ đi thẳng vào đặc tả mà không có gì kiểm)
+PRECOND_TYPES = ('reg', 'file', 'dir', 'env', 'priv', 'process', 'time')
 OBSERVE_Q = ('process_tree', 'child', 'dns', 'tls_sni', 'http', 'file', 'registry', 'mutex', 'memdump', 'payload')
-ENV_EX = """ví dụ value='{"t":"layout","dir":"C:\\\\Users\\\\Public","files":["a.exe","b.dll"],"main":"a.exe"}' | '{"t":"launch","mode":"default","args":""}' | '{"t":"net","mode":"sink","dns":["host"]}' | '{"t":"time","max_s":600}'; observe: '{"q":"process_tree"}' (FLOW.md mục 2, T5)"""
+ENV_EX = """ví dụ value='{"t":"layout","dir":"C:\\\\Users\\\\Public","files":["a.exe","b.dll"],"main":"a.exe"}' | '{"t":"launch","mode":"default","args":""}' | '{"t":"net","mode":"sink","dns":["host"]}' | '{"t":"time","max_s":600}' (launch.mode: default|dll|service|script; precond.type: reg|file|dir|env|priv|process|time); observe: '{"q":"process_tree"}' (FLOW.md mục 2, T5)"""
 def env_leaves(v):
     """Mọi chuỗi lá của value JSON (kể cả trong danh sách/đối tượng lồng), theo thứ tự khóa."""
     if isinstance(v, str): return [v]
@@ -60,24 +62,31 @@ def env_issue(f):
         if not isinstance(d, list) or not all(S(x) for x in d): return 'net.dns phải là danh sách tên miền', ENV_EX
         if not isinstance(v.get('tcp', []), list) or not all(isinstance(x, int) and not isinstance(x, bool) and 0 < x < 65536 for x in v.get('tcp', [])): return 'net.tcp phải là danh sách cổng (số nguyên 1-65535)', ENV_EX
     if t == 'time' and (not isinstance(v['max_s'], int) or isinstance(v['max_s'], bool) or v['max_s'] <= 0): return 'time.max_s phải là số nguyên dương (giây)', ENV_EX
-    if t == 'launch' and (not S(v['mode']) or not isinstance(v.get('args', ''), str)): return 'launch.mode phải là chuỗi không rỗng, launch.args (nếu có) là chuỗi', ENV_EX
-    if t == 'precond' and not S(v['type']): return 'precond.type phải là chuỗi không rỗng', ENV_EX
+    if t == 'launch' and (v['mode'] not in LAUNCH_MODES or not isinstance(v.get('args', ''), str)): return f"launch.mode thuộc {'|'.join(LAUNCH_MODES)}, launch.args (nếu có) là chuỗi", ENV_EX
+    if t == 'precond' and v['type'] not in PRECOND_TYPES: return f"precond.type thuộc {'|'.join(PRECOND_TYPES)}", ENV_EX
     if t == 'layout':
         fs = v['files']
         if not S(v['dir']) or not isinstance(fs, list) or not fs or not all(S(x) for x in fs): return 'layout cần dir và danh sách files không rỗng', ENV_EX
         if any(x.startswith(('/', '\\')) or re.match(r'[A-Za-z]:', x) or '..' in re.split(r'[\\/]', x) for x in fs): return 'layout.files là tên tương đối trong dir (không tuyệt đối, không ..)', ENV_EX
         if len(set(fs)) != len(fs) or v['main'] not in fs: return 'layout.main phải là một mục của files, files không lặp', ENV_EX
-ENV_CTRL = ('t', 'mode', 'type', 'os', 'arch', 'q')   # khóa điều khiển: giá trị thuộc bảng cố định của skill, không lấy từ mẫu
+ENV_CTRL = ('t', 'mode', 'type', 'os', 'arch', 'q')   # khóa điều khiển ở cấp đầu: giá trị thuộc bảng cố định của skill (env_issue kiểm), không lấy từ mẫu
 def env_data(f):
-    """Chuỗi dữ liệu của fact env lấy từ mẫu (tên file, thư mục, tham số, khóa registry, tên miền): mọi chuỗi lá trừ giá trị của khóa điều khiển ở cấp đầu, bỏ chuỗi rỗng."""
+    """Dữ liệu của fact env lấy từ mẫu, dạng chuỗi: mọi chuỗi lá (tên file, thư mục, tham số, khóa registry, tên miền) trừ giá trị của khóa điều khiển,
+    bỏ chuỗi rỗng; cộng các SỐ của net.tcp và time.max_s (cổng, thời gian cũng là tham số chạy mẫu, phải có căn cứ)."""
     try: v = json.loads(f['value'])
     except ValueError: return []
-    return [x for x in env_leaves({k: x for k, x in v.items() if k not in ENV_CTRL}) if x.strip()] if f['kind'] == 'env' and isinstance(v, dict) else []
+    if f['kind'] != 'env' or not isinstance(v, dict): return []
+    nums = [x for x in (v.get('tcp') if isinstance(v.get('tcp'), list) else []) + [v.get('max_s')] if isinstance(x, int) and not isinstance(x, bool)]
+    return [x for x in env_leaves({k: x for k, x in v.items() if k not in ENV_CTRL}) if x.strip()] + [str(x) for x in nums]
 def env_missing(f, scope):
-    """Chuỗi dữ liệu của fact env KHÔNG có nguyên văn trong scope (văn bản evidence đã chuẩn hóa như ev_scope). Fact env quyết định tham số chạy mẫu,
-    nên kiểm chặt hơn kind chữ thường: TỪNG chuỗi phải có trong evidence, không chỉ một token (một tên file thật không đỡ được cho tham số bịa)."""
+    """Dữ liệu của fact env KHÔNG có nguyên văn trong scope (văn bản evidence đã chuẩn hóa như ev_scope). Fact env quyết định tham số chạy mẫu,
+    nên kiểm chặt hơn kind chữ thường: TỪNG chuỗi phải có trong evidence, không chỉ một token (một tên file thật không đỡ được cho tham số bịa).
+    Số (cổng, thời gian) phải đứng RIÊNG, dạng thập phân hoặc 0x…: '443' nằm trong một hash hay offset không tính."""
     n = lambda x: x.replace('\\\\', '\\').lower()
-    return [x for x in env_data(f) if n(x) not in scope and _normnum(n(x)) not in scope]
+    def has(x):
+        if not x.isdigit(): return n(x) in scope or _normnum(n(x)) in scope
+        return bool(re.search(r'(?<![0-9a-z_.])(?:' + x + '|0x0*' + format(int(x), 'x') + r')(?![0-9a-z_])', scope))
+    return [x for x in env_data(f) if not has(x)]
 
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 # Phân loại cả mẫu (kind=verdict): value = '<khóa>: lý do'. Nhãn đặt trên đầu báo cáo HTML, GENERATED.md và bản export.

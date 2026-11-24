@@ -102,7 +102,7 @@ def packed(rel, p):
     """File này phải nằm trong 7z, không chép dạng rõ: theo vị trí (PACK_DIRS, OUT_DIR của công cụ T1b work/runs/tool/<TÊN>/),
     file không phải văn bản, và file văn bản ngoài report/ và facts.jsonl có nội dung giống script (payload text bóc ra)."""
     r = rel.replace(os.sep, '/'); parts = r.split('/')
-    if any(r == d or r.startswith(d) for d in PACK_DIRS) or (len(parts) >= 5 and parts[:3] == ['work', 'runs', 'tool']): return True
+    if any(r == d or r.startswith(d) for d in PACK_DIRS) or (len(parts) >= 5 and parts[:3] == ['work', 'runs', 'tool']) or re.match(r'work/vm/r\d+/raw/', r): return True   # raw/: báo cáo, pcap, file sandbox trả về (do mẫu chi phối)
     if not is_text(p): return True
     if parts[0] in ('report', 'facts.jsonl') or PROCESS.fullmatch(r): return False
     t = text_of(p, 0)

@@ -237,6 +237,7 @@ def report_todo(c):
 
 def _norm(ln): return re.sub(r'\s+', ' ', ln.strip().lstrip('>').strip())
 
+BLANK_OLD = ('_(mỗi mục ghi nguồn S/E/V và trỏ tới file evidence + dòng)_',)   # dòng giữ chỗ của template bản trước: báo cáo tạo từ khung cũ vẫn phải bị bắt
 def blank_lines():
     """Dòng giữ chỗ của templates/report.md, suy từ chính template (đổi template không phải sửa ở đây): hàng bảng chỉ có nhãn
     (`| Mục | | |`), gợi ý `_(…)_`, dòng `(…)` đứng riêng. Bỏ dòng có {CASE}/{DATE} (đã điền khi tạo case)."""
@@ -282,7 +283,7 @@ def report_blank(c):
     So nguyên dòng (bỏ khoảng trắng thừa và dấu > của blockquote): dòng đã viết lại, dù chỉ một phần, không bị tính."""
     r = C.report_md(c)
     L = {_norm(x) for x in open(r, encoding='utf-8', errors='replace')} if os.path.isfile(r) else set()
-    return [b for b in blank_lines() if b in L]
+    return [b for b in blank_lines() + list(BLANK_OLD) if b in L]
 
 def analyst(c, k):
     """Phiên phân tích sửa lại đúng các fact fail/weak của review k. Kiểm tra facts.jsonl chỉ được nối thêm, mẫu không đổi."""

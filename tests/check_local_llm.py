@@ -126,6 +126,7 @@ open(rp, 'w', encoding='utf-8').write(good + '| IOC mạng | không còn (đã r
 B = review.blank_lines(); tpl = open(os.path.join(SKILL, 'templates', 'report.md'), encoding='utf-8').read().replace('{CASE}', 'X').replace('{DATE}', '2026-01-01')
 assert len(B) >= 6 and any(b.startswith('| IOC mạng |') for b in B) and any(b.startswith('_(') for b in B), B   # suy từ template, không ghi cứng
 os.rename(rp, rp + '.bak'); open(rp, 'w', encoding='utf-8').write(tpl); assert review.report_blank(c2) == B, 'báo cáo mới tạo từ template: mọi dòng giữ chỗ đều bị nhận ra'
+open(rp, 'w', encoding='utf-8').write(good + '\n' + review.BLANK_OLD[0] + '\n'); assert review.report_blank(c2) == list(review.BLANK_OLD), 'báo cáo tạo từ khung bản trước: dòng giữ chỗ cũ vẫn bị bắt'
 os.replace(rp + '.bak', rp)
 assert not review.report_todo(c2) and review.next_step(c2) == 0
 r = final(); assert r.returncode == 0, r.stdout + r.stderr

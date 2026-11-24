@@ -148,4 +148,40 @@ assert 'analyst lỗi: KeyError' in open(c4 + '/work/review/usage.jsonl').read()
 assert not review.report_todo(c4), 'phiên hỏng không tạo việc cập nhật báo cáo'
 json.dump(['f1 -> retracted: bad.example.com'], open(c4 + '/work/review/report_todo.json', 'w'))
 assert review.report_todo(c4) == [dict(id='f1', line='f1 -> retracted: bad.example.com')], 'định dạng cũ vẫn chặn, không văng lỗi'
+# lớp 2 không có công cụ (api): kết luận phải phủ hết lô (items hoặc sổ pass). Trả rỗng -> hỏi lại MỘT lần; vẫn thiếu -> lượt không hợp lệ, không thành PASS im lặng
+def one():
+    d = tempfile.mkdtemp(); os.makedirs(d + '/report/evidence')
+    open(d + '/report/evidence/e.txt', 'w').write('a\nhost good.example.com\n')
+    C.add(d, id='good', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+    return d
+c5 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "pass": ["good"], "missing": []}']; del SEEN[:]
+rc = review.review(c5, llm=True); iso = json.load(open(c5 + '/work/review/r1/review.json'))['isolation']
+assert rc == 0 and iso['valid'] and not SCRIPT and any('Kết luận chưa phủ hết lô. Thiếu: good' in m for m in SEEN if isinstance(m, str)) and review.gate(c5)[0], (rc, iso, SCRIPT)
+c6 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "pass": ["khac"], "missing": []}']
+rc = review.review(c6, llm=True); r = json.load(open(c6 + '/work/review/r1/review.json'))
+assert rc == 1 and r['verdict'] == 'FAIL' and r['isolation']['invalid_reasons'] == ['lô 1: fact được giao không có kết luận: good'] and not review.gate(c6)[0], (rc, r['isolation'])
+c7 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại dòng 2"}], "missing": []}']   # có mục trong items là đủ, không cần sổ
+assert review.review(c7, llm=True) == 0 and not SCRIPT
+# kết luận thiếu sổ tới đúng lượt cuối: vẫn được hỏi lại (lượt riêng ngoài REVIEW_MAX_TURNS); câu trả lời chỉ có phần bổ sung {"pass": [...]} được gộp
+keep = CFG.REVIEW_MAX_TURNS; CFG.REVIEW_MAX_TURNS = 2
+c8 = one(); SCRIPT[:] = ['{"canary": []}', '{"requests": [{"op": "read", "file": "report/evidence/e.txt"}]}', '{"items": [], "missing": []}', '{"pass": ["good"]}']; del SEEN[:]
+rc = review.review(c8, llm=True); iso = json.load(open(c8 + '/work/review/r1/review.json'))['isolation']
+assert rc == 0 and iso['valid'] and not SCRIPT and any('Đây là lượt cuối' in m and '"pass": [...]' in m for m in SEEN if isinstance(m, str)), (rc, iso, SCRIPT)
+# gộp, không thay: mục fail nêu ở kết luận đầu không mất khi câu bổ sung xếp chính id đó vào pass
+c9 = one(); C.add(c9, id='g2', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "fail", "check": "value_vs_evidence", "problem": "sai", "where": "report/evidence/e.txt#L2", "redo": "đọc lại"}], "missing": []}',
+             '{"items": [], "pass": ["good", "g2"]}']
+rc = review.review(c9, llm=True); r = json.load(open(c9 + '/work/review/r1/review.json'))
+assert rc == 1 and r['isolation']['valid'] and [(i['id'], i['verdict'], i['severity']) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'fail', 'high')], r
+# câu bổ sung chỉ nêu id trong `flagged` (không có mục fail/weak): chưa phủ -> lượt không hợp lệ, không thành PASS im lặng
+c10 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "flagged": ["good"]}']
+rc = review.review(c10, llm=True); r = json.load(open(c10 + '/work/review/r1/review.json'))
+assert rc == 1 and r['verdict'] == 'FAIL' and r['isolation']['invalid_reasons'] == ['lô 1: fact được giao không có kết luận: good'], r['isolation']
+# câu bổ sung nêu lại id đã có mục: một mục cho mỗi id, giữ mục nặng nhất
+c11 = one(); C.add(c11, id='g2', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "fail", "check": "value_vs_evidence", "problem": "sai", "where": "report/evidence/e.txt#L2", "redo": "đọc lại"}]}',
+             '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại"}], "pass": ["g2"]}']
+rc = review.review(c11, llm=True); r = json.load(open(c11 + '/work/review/r1/review.json'))
+assert rc == 1 and [(i['id'], i['verdict']) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'fail')], r['items']
+CFG.REVIEW_MAX_TURNS = keep
 srv.shutdown(); print('OK test_local_llm')

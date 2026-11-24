@@ -257,11 +257,14 @@ def lookup_hint(c):
     urls = {i: norm(f.get('value')) for i, f in C.load(c).items() if f.get('kind') == 'url' and f.get('status', 'active') == 'active'}
     urls = {i: u for i, u in urls.items() if host(u) in DEADDROP}
     if not urls: return ''
-    E = os.path.join(c, 'report', 'evidence'); seen = ''
+    def key(u):   # để so bằng nhau: bỏ defang và scheme, host về chữ thường, path giữ nguyên, bỏ '/' cuối
+        h, sep, rest = re.sub(r'^[a-z]+://', '', re.sub(r'^hxxp', 'http', u.replace('[.]', '.'), flags=re.I), flags=re.I).partition('/')
+        return (h.lower() + sep + rest).rstrip('/')
+    E = os.path.join(c, 'report', 'evidence'); seen = set()
     for n in sorted(os.listdir(E)) if os.path.isdir(E) else ():   # như lint (case.lookup_issue): tên lookup_* không phân biệt hoa thường
-        if n.lower().startswith('lookup_') and os.path.isfile(os.path.join(E, n)): seen += open(os.path.join(E, n), encoding='utf-8', errors='replace').read(65536).replace('[.]', '.') + '\n'
-    strip = lambda u: re.sub(r'^[a-z]+://', '', u, flags=re.I).rstrip('/')
-    ids = sorted(i for i, u in urls.items() if strip(u) not in seen)   # chỉ thôi nhắc URL nào đã có trong một evidence lookup_* (tra RDAP hay URL khác không tính)
+        if n.lower().startswith('lookup_') and os.path.isfile(os.path.join(E, n)):
+            seen |= {key(t.strip('"\'<>(),;')) for t in open(os.path.join(E, n), encoding='utf-8', errors='replace').read(65536).split()}
+    ids = sorted(i for i, u in urls.items() if key(u) not in seen)   # chỉ thôi nhắc URL nào có ĐÚNG trong một evidence lookup_* (URL dài hơn, RDAP, URL khác không tính)
     if not ids: return ''
     return (f"  lưu ý (không chặn): fact {', '.join(ids)} là URL nơi mẫu lấy địa chỉ máy chủ lúc chạy, chưa evidence lookup_* nào ghi URL này: địa chỉ C2 thật chưa có. "
             'KHÔNG tự tra. Hỏi người dùng theo FLOW.md mục 0 (đồng ý riêng cho case này, đường mạng riêng, duyệt đúng URL); '

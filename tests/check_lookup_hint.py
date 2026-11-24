@@ -23,10 +23,10 @@ try:
     assert not re.search(r'curl|wget|https?://|flow\.py|python3|`', h), h             # không có lệnh hay URL nào để chạy theo
     assert not any(re.match(STATES, l) for l in h.splitlines()), h                   # không bị watch đọc thành trạng thái
     st = [l.split()[0] for l in base.stdout.splitlines() if re.match(STATES, l)]
-    open(os.path.join(c, 'report', 'evidence', 'lookup_rdap.txt'), 'w').write('rdap example.org\n')   # tra thứ khác (RDAP một tên miền): URL dead-drop vẫn chưa tra, vẫn nhắc
+    open(os.path.join(c, 'report', 'evidence', 'lookup_rdap.txt'), 'w').write('rdap example.org raw.githubusercontent.com\nGET https://raw.githubusercontent.com/user-x/repo-y/main/cfg2\n')   # tra thứ khác (RDAP, chỉ nhắc tên host, hoặc một URL dài hơn): URL dead-drop vẫn chưa tra, vẫn nhắc
     assert R.lookup_hint(c) == h
     os.remove(os.path.join(c, 'report', 'evidence', 'lookup_rdap.txt'))
-    open(os.path.join(c, 'report', 'evidence', 'Lookup_dd.txt'), 'w').write('GET https://raw.githubusercontent.com/user-x/repo-y/main/cfg\n--- body ---\nexample.org\n')   # đã tra: hết nhắc, trạng thái và mã thoát không đổi
+    open(os.path.join(c, 'report', 'evidence', 'Lookup_dd.txt'), 'w').write('GET https://RAW.githubusercontent.com/user-x/repo-y/main/cfg/\n--- body ---\nexample.org\n')   # đã tra: hết nhắc, trạng thái và mã thoát không đổi
     after = nxt(c)
     assert R.lookup_hint(c) == '' and 'lưu ý (không chặn)' not in after.stdout, after.stdout
     assert after.returncode == base.returncode and [l.split()[0] for l in after.stdout.splitlines() if re.match(STATES, l)] == st, (base.stdout, after.stdout)

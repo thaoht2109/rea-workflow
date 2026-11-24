@@ -183,5 +183,11 @@ SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "fail", "ch
              '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại"}], "pass": ["g2"]}']
 rc = review.review(c11, llm=True); r = json.load(open(c11 + '/work/review/r1/review.json'))
 assert rc == 1 and [(i['id'], i['verdict']) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'fail')], r['items']
+assert [(x['turns'], x.get('reask')) for x in json.load(open(c11 + '/work/review/r1/llm_lots.json'))] == [(2, True)], 'lượt hỏi lại được đếm theo lô'
+# cùng mức: mục có phần tự kiểm (check) thắng mục pass trống nêu trước
+c12 = one(); C.add(c12, id='g2', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "pass"}]}', '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại dòng 2"}], "pass": ["g2"]}']
+rc = review.review(c12, llm=True); r = json.load(open(c12 + '/work/review/r1/review.json'))
+assert rc == 0 and [(i['id'], i.get('check')) for i in r['items'] if i.get('layer') == 'llm'] == [('good', 'value_vs_evidence')], r['items']
 CFG.REVIEW_MAX_TURNS = keep
 srv.shutdown(); print('OK test_local_llm')

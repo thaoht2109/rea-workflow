@@ -710,16 +710,16 @@ def _run(c, k, ids, mech_items):
         if left:   # sổ phủ: mỗi fact của lô phải nằm trong items hoặc pass. Thiếu thì hỏi lại MỘT lần, là lượt riêng NGOÀI REVIEW_MAX_TURNS (kết luận tới ở lượt cuối vẫn được hỏi lại)
             msgs.append({'role': 'user', 'content': 'Kết luận chưa phủ hết lô. Thiếu: ' + ', '.join(left) + '. Trả MỘT đối tượng JSON: {"items": [...], "pass": ["id của fact không có vấn đề", ...], "missing": [...]}; '
                          'mỗi fact còn thiếu nằm trong `items` (có vấn đề hoặc đã tự kiểm) hoặc `pass`.'})
-            ans = ask(be, msgs, cache); turns += 1; msgs.append({'role': 'assistant', 'content': ans})
+            ans = ask(be, msgs, cache); turns += 1; msgs.append({'role': 'assistant', 'content': ans}); log[-1].update(turns=log[-1]['turns'] + 1, reask=True)   # lượt hỏi lại cũng vào llm_lots.json
             d = parse(ans, ('items', 'pass')) or {}   # nhận cả câu trả lời chỉ có phần bổ sung; GỘP vào kết luận trước, không thay: mục fail đã nêu không bị bỏ đi
             final = dict(final, items=lst(final.get('items')) + lst(d.get('items')), missing=lst(final.get('missing')) + lst(d.get('missing')),
                          **{'pass': lst(final.get('pass')) + lst(d.get('pass')), 'flagged': lst(final.get('flagged')) + lst(d.get('flagged'))})
             left = uncovered(final, lot)
         if left: why.append(f'lô {b}: fact được giao không có kết luận: ' + ', '.join(left))
         mine = [i for i in lst(final.get('items')) if isinstance(i, dict) and i.get('id') in lot]
-        best = {}   # phần bổ sung có thể nêu lại id đã có mục: mỗi id một mục, giữ mục nặng nhất (cùng mức thì mục nêu trước)
+        best, key = {}, lambda i: (RANK.get(i.get('verdict'), 0), bool(i.get('check')))   # phần bổ sung có thể nêu lại id đã có mục: mỗi id một mục, cùng khóa với one_each (nặng nhất, rồi mục có `check`, rồi mục nêu sau)
         for i in mine:
-            if i['id'] not in best or RANK.get(i.get('verdict'), 0) > RANK.get(best[i['id']].get('verdict'), 0): best[i['id']] = i
+            if i['id'] not in best or key(i) >= key(best[i['id']]): best[i['id']] = i
         items += [dict(i, layer='llm') for i in best.values()]
         missing += lst(final.get('missing'))
     for i in items:

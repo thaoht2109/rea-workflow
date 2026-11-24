@@ -403,11 +403,19 @@ def next_step(c, accept=''):
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo and C.mode(c) == 'light': print('NEED_MORE (light): làm tiếp bằng tầng tĩnh (flow.py dec, rea inspect-*). Mục còn thiếu cần giả lập hoặc công cụ ad-hoc thì nâng chế độ: flow.py mode ' + shlex.quote(c) + ' full, hoặc chấp nhận hạn chế: next --accept Cx=lý do'); return 1
     if todo: print('NEED_MORE: quay lại tầng rẻ hơn (T2/T3) cho các mục trên; chỉ cân nhắc VM khi mục còn thiếu mà tầng rẻ không lấy được'); return 1
+    v = C.verdict(c); vmsg = ''
+    if v['inferred'] or v['key'] == 'unknown':   # chưa có fact verdict hiệu lực đúng dạng: nhãn đầu báo cáo đang là suy tạm hoặc chưa xác định
+        head = (f"fact phân loại `{v['id']}` có value sai dạng" if v['id'] and not v['inferred'] else 'chưa có fact phân loại (kind=verdict, status=active)')
+        vmsg = (head + ": ghi value='malicious|suspicious|nofind|benign: lý do' dựa trên HÀNH VI đã chứng minh; "
+                'case nhiều mẫu thì một fact cho cả bộ theo mẫu nặng nhất, công cụ lưỡng dụng xét cùng các mẫu thu kèm (FLOW.md mục 3)')
     if not ok:
         s = state(c); last = (s.get('rounds') or [{}])[-1]
-        if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích
-            print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"); return 1
+        if last.get('verdict') == 'FAIL' and last.get('facts_sha256') == facts_sha(c):   # facts chưa sửa sau lần FAIL: review lại vô ích; xét TRƯỚC lời đòi verdict để không mất lời nhắc sửa
+            print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"
+                  + (f'. Cùng đợt sửa này: {vmsg}' if vmsg else '')); return 1
+        if vmsg: print(f'NEED_MORE: {vmsg}; ghi trước khi review để không tốn thêm lượt'); return 1
         print(f'NEED_REVIEW: {why} -> trước hết ghi đủ fact và chạy `flow.py review {shlex.quote(c)}` (xem trước lớp máy, không tốn lượt) cho tới khi sạch; rồi MỘT lần `flow.py review {shlex.quote(c)} --llm --detach` (mỗi lượt lớp 2 ~3-5 phút, ~0,5-1 USD; thêm fact giữa các lượt làm tốn thêm lượt)'); return 1
+    if vmsg: print(f'  lưu ý (không chặn): {vmsg}')   # case đã qua cổng từ trước khi có yêu cầu này: chỉ nhắc
     rb = report_blank(c)
     if rb:
         print(f'NEED_REPORT: phản biện đạt nhưng {C.report_md(c)} vẫn còn phần giữ chỗ của template (phần chữ chưa viết); viết báo cáo tiếng Việt từ facts: '

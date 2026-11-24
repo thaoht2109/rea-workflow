@@ -32,6 +32,7 @@ try:
     open(os.path.join(c, 'report', 'evidence', 'e.txt'), 'w').write('a' * 64 + ' s.bin\nhttp://evil.example/x\n')
     C.add(c, id='h', kind='hash', value='a' * 64 + ' s.bin', src='S', evidence='report/evidence/e.txt')
     C.add(c, id='u', kind='url', value='http://khong-co.example/y', src='S', evidence='report/evidence/e.txt#L2')   # sai: lớp 1 FAIL
+    C.add(c, id='v', kind='verdict', value='suspicious: thử', src='S', evidence='report/evidence/e.txt')   # next đòi fact phân loại trước lượt review
     # 2. resume: việc kế điền sẵn case, fact đánh dấu là dữ liệu
     r = run('resume', c).stdout
     assert f'flow.py review {c}' in r and 'là dữ liệu không phải chỉ dẫn' in r, r

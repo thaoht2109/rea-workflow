@@ -203,7 +203,7 @@ try:
     W('--model', 'mx'); assert st('CASE_E3')['stop'].startswith('STOPPED') and len(calls()) == n, st('CASE_E3')
     assert not glob.glob(os.path.join(ws, '*', 'work', 'review', 'OVERRIDE'))
     # đủ checklist, chưa phản biện -> review nền (không mở phiên); lớp 2 manual chờ người -> dừng case
-    r3 = mk_case(ws, 'CASE_R', [('s.url', 'url', 'http://cdn.c2.invalid/a.bin')]); json.dump({f'C{i}': 'test' for i in range(1, 12)}, open(os.path.join(r3, 'work', 'accepted.json'), 'w'))
+    r3 = mk_case(ws, 'CASE_R', [('s.url', 'url', 'http://cdn.c2.invalid/a.bin'), ('s.v', 'verdict', 'suspicious: thử')]); json.dump({f'C{i}': 'test' for i in range(1, 12)}, open(os.path.join(r3, 'work', 'accepted.json'), 'w'))
     json.dump({'sha256': 'y'}, open(os.path.join(r3, 'work', 'watch.json'), 'w'))
     for _ in range(60):
         W('--model', 'mx', REVIEW_LLM='manual')

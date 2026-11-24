@@ -238,7 +238,7 @@ def step(c, model, report=None):
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-from export import note_of   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
+import export   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -274,6 +274,8 @@ def samples(inbox, skip=()):
         for n in sorted(fs):
             p = os.path.join(d, n)
             if not n.startswith('.') and os.path.isfile(p) and not os.path.islink(p): yield p
+
+def note_of(p): return export.note_of(p, sha)   # băm có cache: watch quét lại INBOX mỗi vòng
 
 _REPORTED = {}
 def reported(root):

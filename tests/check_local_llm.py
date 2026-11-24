@@ -148,4 +148,18 @@ assert 'analyst lỗi: KeyError' in open(c4 + '/work/review/usage.jsonl').read()
 assert not review.report_todo(c4), 'phiên hỏng không tạo việc cập nhật báo cáo'
 json.dump(['f1 -> retracted: bad.example.com'], open(c4 + '/work/review/report_todo.json', 'w'))
 assert review.report_todo(c4) == [dict(id='f1', line='f1 -> retracted: bad.example.com')], 'định dạng cũ vẫn chặn, không văng lỗi'
+# lớp 2 không có công cụ (api): kết luận phải phủ hết lô (items hoặc sổ pass). Trả rỗng -> hỏi lại MỘT lần; vẫn thiếu -> lượt không hợp lệ, không thành PASS im lặng
+def one():
+    d = tempfile.mkdtemp(); os.makedirs(d + '/report/evidence')
+    open(d + '/report/evidence/e.txt', 'w').write('a\nhost good.example.com\n')
+    C.add(d, id='good', kind='c2', value='good.example.com', src='S', evidence='report/evidence/e.txt#L2')
+    return d
+c5 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "pass": ["good"], "missing": []}']; del SEEN[:]
+rc = review.review(c5, llm=True); iso = json.load(open(c5 + '/work/review/r1/review.json'))['isolation']
+assert rc == 0 and iso['valid'] and not SCRIPT and any('Kết luận chưa phủ hết lô. Thiếu: good' in m for m in SEEN if isinstance(m, str)) and review.gate(c5)[0], (rc, iso, SCRIPT)
+c6 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [], "missing": []}', '{"items": [], "pass": ["khac"], "missing": []}']
+rc = review.review(c6, llm=True); r = json.load(open(c6 + '/work/review/r1/review.json'))
+assert rc == 1 and r['verdict'] == 'FAIL' and r['isolation']['invalid_reasons'] == ['lô 1: fact được giao không có kết luận: good'] and not review.gate(c6)[0], (rc, r['isolation'])
+c7 = one(); SCRIPT[:] = ['{"canary": []}', '{"items": [{"id": "good", "verdict": "pass", "check": "value_vs_evidence", "problem": "đọc lại dòng 2"}], "missing": []}']   # có mục trong items là đủ, không cần sổ
+assert review.review(c7, llm=True) == 0 and not SCRIPT
 srv.shutdown(); print('OK test_local_llm')

@@ -74,7 +74,7 @@ def _note_text(p):
     try: return b.decode('utf-8')
     except UnicodeDecodeError: return None
 
-def note_of(p):
+def note_of(p, sha_fn=None):   # sha_fn: hàm băm của nơi gọi (watch có cache theo mtime/size, quét lặp mỗi vòng)
     """(Dùng chung cho flow.py scan và watch; nằm ở đây để scan không kéo theo watch và bộ eval.) Lý do (chuỗi khác rỗng) nếu p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
     tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
     phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
@@ -94,7 +94,7 @@ def note_of(p):
     if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
     for q in sib:
         try:
-            if sha(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
+            if (sha_fn or sha)(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
         except OSError: pass
     return ''
 

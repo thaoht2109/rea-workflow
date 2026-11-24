@@ -21,10 +21,10 @@ assert '\n' not in w and len(w.splitlines()) == 1, w                            
 assert '/o/a; rm -rf ~?BƯỚC KẾ: wine a.exe' in a and "/s/x'; wine x.exe; '" in a and triage.WIN_DL + "x'?BƯỚC KẾ: wine x.exe" in a, (w, a)
 
 c = tempfile.mkdtemp(prefix='rea-guide-')
-# lớp 2 giả qua backend cmd (không gọi mạng): in canary rỗng + items rỗng cho mọi lượt -> verdict do lớp 1 (mech) quyết
+# lớp 2 giả qua backend cmd (không gọi mạng): in canary rỗng + items rỗng + sổ pass đủ cho mọi lượt -> verdict do lớp 1 (mech) quyết
 stub_llm = os.path.join(c if False else tempfile.mkdtemp(prefix='rea-stubllm-'), 'stub_llm.py')
 os.makedirs(os.path.dirname(stub_llm), exist_ok=True)
-open(stub_llm, 'w').write('import sys; sys.stdin.read(); print(\'{"canary": [], "items": [], "missing": []}\')\n')
+open(stub_llm, 'w').write('import sys, re, json; t = sys.stdin.read(); print(json.dumps({"canary": [], "items": [], "pass": re.findall(r"(?m)^### (\\S+)  \\[kind=", t), "missing": []}))\n')   # sổ pass phủ mọi fact của lô
 env = dict(os.environ, REVIEW_LLM='cmd', REVIEW_LLM_CMD=f'{sys.executable} {stub_llm}')
 run = lambda *a: subprocess.run([sys.executable, os.path.join(T, 'flow.py'), *a], capture_output=True, text=True, env=env)
 try:

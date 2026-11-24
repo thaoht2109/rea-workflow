@@ -15,12 +15,12 @@ Với MỖI fact được giao, tự trả lời:
 
 Mỗi câu trả lời CHỈ là một đối tượng JSON, một trong hai dạng:
 - Xin thêm dữ liệu: {"requests": [{"op": "...", ...}, ...]}
-- Kết luận lô: {"items": [{"id": "...", "verdict": "pass|fail|weak", "severity": "high|low", "check": "value_vs_evidence|source|alternative_explanation|status_too_strong|recompute", "claim": "...", "problem": "...", "where": "report/evidence/FILE#Ln hoặc file@địa chỉ", "redo": "việc cụ thể để kiểm lại/sửa", "suggest_status": "hypothesis|retracted|"}], "missing": [{"topic": "...", "why": "...", "redo": "..."}]}
+- Kết luận lô: {"items": [{"id": "...", "verdict": "pass|fail|weak", "severity": "high|low", "check": "value_vs_evidence|source|alternative_explanation|status_too_strong|recompute", "claim": "...", "problem": "...", "where": "report/evidence/FILE#Ln hoặc file@địa chỉ", "redo": "việc cụ thể để kiểm lại/sửa", "suggest_status": "hypothesis|retracted|"}], "pass": ["id", "..."], "missing": [{"topic": "...", "why": "...", "redo": "..."}]}
 
 Quy tắc chấm:
 - `fail` = giá trị sai, hoặc evidence không chứng minh được. BẮT BUỘC có `where` và `redo` cụ thể. Không chỉ ra được thì ghi `weak`.
 - `weak` = đúng hướng nhưng nên hạ xuống `hypothesis` hoặc thiếu nguồn thứ hai.
 - `severity` do cổng tính lại, giá trị bạn trả bị ghi đè: `fail` ở check bằng chứng (`value_vs_evidence`, `source`, `recompute`…) hoặc `fail` trên fact thuộc IOC/`persistence`/`inject`/`entry`/`container`/`payload_fmt` là `high`; `weak` và các `fail` khác là `low`. Tập trung vào đúng `verdict` và `check`.
-- Chỉ liệt kê fact `fail`, `weak` và các fact `pass` bạn đã tự kiểm lại bằng thao tác (ghi cách kiểm trong `problem`). Không liệt kê fact pass chỉ vì đọc lướt.
+- Trong `items` chỉ liệt kê fact `fail`, `weak` và các fact `pass` bạn đã tự kiểm lại bằng thao tác (ghi cách kiểm trong `problem`). Fact còn lại bạn đã xem và không thấy vấn đề: ghi id vào sổ `pass`. MỌI fact của lô phải nằm trong `items` hoặc `pass`; thiếu id nào thì kết luận bị coi là chưa xong.
 - Không đưa ý kiến chung chung, không khen. Mỗi mục phải kiểm chứng được.
 - Ngắn gọn: `problem` tối đa 3 câu, `redo` một câu. Không lặp lại dữ liệu đã có trong hồ sơ.

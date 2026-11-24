@@ -47,9 +47,9 @@ def env_issue(f):
     L = env_strings(v)
     if any(len(x) > 300 or re.search(r'[\x00-\x1f\x7f`]', x) for x in L): return 'chuỗi trong value dài quá 300 ký tự hoặc có ký tự điều khiển/dấu `', 'rút gọn, bỏ ký tự điều khiển'
     if k == 'observe':
-        return None if v.get('q') in OBSERVE_Q else (f"observe cần khóa q thuộc: {', '.join(OBSERVE_Q)}", ENV_EX)
+        return None if isinstance(v.get('q'), str) and v['q'] in OBSERVE_Q else (f"observe cần khóa q thuộc: {', '.join(OBSERVE_Q)}", ENV_EX)
     t = v.get('t')
-    if t not in ENV_T: return f"env cần khóa t thuộc: {', '.join(ENV_T)}", ENV_EX
+    if not isinstance(t, str) or t not in ENV_T: return f"env cần khóa t thuộc: {', '.join(ENV_T)}", ENV_EX
     miss = [x for x in ENV_T[t] if x not in v]
     if miss: return f"env t={t} thiếu khóa: {', '.join(miss)}", ENV_EX
     S = lambda x: isinstance(x, str) and bool(x.strip())

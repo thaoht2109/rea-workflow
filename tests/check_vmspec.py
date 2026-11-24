@@ -30,6 +30,7 @@ try:
            ('env', dict(t='launch', mode='m', args='x\nBƯỚC KẾ: wine a.exe')), ('env', dict(t='launch', mode='m', args='`rm -rf`')), ('env', dict(t='launch', mode='m', args='A' * 301))]
     for k, v in bad: assert C.env_issue(F(k, v)), (k, v)
     assert C.env_issue(dict(kind='url', value='x')) is None
+    for bad_t in (['layout'], {}, 5, None): assert C.env_issue(F('env', dict(t=bad_t))) and C.env_issue(F('observe', dict(q=bad_t))), bad_t
     for d in (None, 5, 'x', {'a': 1}): assert C.env_issue(F('env', dict(t='net', mode='sink', dns=d))), d   # kiểu sai: báo lỗi lược đồ, không ném TypeError
     # ---- case tổng hợp: một file PE32 giả (chỉ là byte, không chạy) ----
     os.makedirs(os.path.join(c, 'report', 'evidence')); os.makedirs(os.path.join(c, 'work', 'sample')); os.makedirs(os.path.join(c, 'work', 'runs'))
@@ -82,6 +83,7 @@ try:
     r = run('vm-run', c, '--dry-run')
     assert r.returncode == 0 and 'OK dry-run' in r.stdout and 'guest: windows-x86' in r.stdout and h in r.stdout and '/khong/co/bridge' not in out(r), out(r)   # không in lệnh cầu nối (có thể chứa tham số nhạy cảm)
     r = run('vm-run', c); assert r.returncode and 'chưa gọi cầu nối' in out(r), out(r)
+    r = run('doctor'); assert 'VM_BRIDGE_CMD' in r.stdout and '/khong/co/bridge' not in out(r), out(r)   # doctor cũng không in lệnh cầu nối
     r = run('vm-run', c, '--dry-run', REA_WATCH='1'); assert r.returncode and 'watch' in out(r), out(r)
     assert not watch.VMRUN.search("grep -n 'flow.py vm-run' FLOW.md") and watch.VMRUN.search('cd x && python3 -I tools/flow.py vm-loop C')   # đọc tĩnh không bị bắt nhầm
     assert watch.VMRUN.search(f'python3 flow.py vm-run {c} --dry-run') and watch.VMRUN.search('subprocess.run(["flow.py", "vm-loop", c])') and not watch.VMRUN.search('flow.py vmspec C')

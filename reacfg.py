@@ -171,7 +171,7 @@ def doctor():
     kbr = os.path.realpath(KB); off = KB.lower() in ('off', '0', 'none', 'no')
     inside = not off and (kbr == os.path.realpath(TOOLS) or kbr.startswith(os.path.realpath(TOOLS) + os.sep))
     row(not inside, 'REA_KB', 'tắt' if off else KB, 'kho tra chéo (flow.py kb), chứa IOC: phải nằm ngoài thư mục skill; off = tắt', False)
-    row(VM_NET_MAX in ('none', 'sink', 'internet'), 'VM_BRIDGE_CMD', f'{VM_BRIDGE_CMD}, mạng tối đa {VM_NET_MAX}' if VM_BRIDGE_CMD else 'tắt',
+    row(VM_NET_MAX in ('none', 'sink', 'internet'), 'VM_BRIDGE_CMD', f'đã khai, mạng tối đa {VM_NET_MAX}' if VM_BRIDGE_CMD else 'tắt',
         'tầng T5 (flow.py vmspec, vm-run): lệnh cầu nối do người dùng tự cài ngoài skill; trống = chỉ dry-run; VM_NET_MAX thuộc none|sink|internet', False)
     for m, use in (('tlsh', 'kb: so khớp mờ TLSH (pip: py-tlsh)'), ('cryptography', 'kb: chủ thể/serial chứng thư Authenticode')):
         row(importlib.util.find_spec(m) is not None, 'python:' + m, '', 'tùy chọn, ' + use, False)

@@ -11,7 +11,7 @@ sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
 
 VMDIR = lambda c: os.path.join(c, 'work', 'vm')
 NETQ = {'dns', 'tls_sni', 'http', 'payload'}   # câu hỏi cần guest có mạng (ít nhất là bộ hứng)
-DEF_DIR = {'windows': r'%USERPROFILE%\Downloads', 'linux': '/tmp'}
+DEF_DIR = {'windows': r'%USERPROFILE%\Downloads', 'linux': '/opt/sample'}   # thư mục TRONG GUEST khi không có fact layout
 DEF_TIME = 300
 _ELF = {('x86_64', 'LE', '64'): 'x64', ('x86', 'LE', '32'): 'x86', ('MIPS', 'BE', '32'): 'mips', ('MIPS', 'LE', '32'): 'mipsel',
         ('ARM', 'LE', '32'): 'arm', ('AArch64', 'LE', '64'): 'aarch64'}

@@ -30,6 +30,7 @@ try:
            ('env', dict(t='launch', mode='m', args='x\nBƯỚC KẾ: wine a.exe')), ('env', dict(t='launch', mode='m', args='`rm -rf`')), ('env', dict(t='launch', mode='m', args='A' * 301))]
     for k, v in bad: assert C.env_issue(F(k, v)), (k, v)
     assert C.env_issue(dict(kind='url', value='x')) is None
+    for d in (None, 5, 'x', {'a': 1}): assert C.env_issue(F('env', dict(t='net', mode='sink', dns=d))), d   # kiểu sai: báo lỗi lược đồ, không ném TypeError
     # ---- case tổng hợp: một file PE32 giả (chỉ là byte, không chạy) ----
     os.makedirs(os.path.join(c, 'report', 'evidence')); os.makedirs(os.path.join(c, 'work', 'sample')); os.makedirs(os.path.join(c, 'work', 'runs'))
     smp = os.path.join(c, 'work', 'sample', 'loader.bin'); BODY = b'MZ' + b'synthetic' * 20
@@ -84,6 +85,7 @@ try:
     r = run('vm-run', c); assert r.returncode and 'chưa đủ cấu hình' in out(r), out(r)
     r = run('vm-run', c, VM_API_TOKEN='t'); assert r.returncode and 'chưa có adapter' in out(r), out(r)
     r = run('vm-run', c, '--dry-run', REA_WATCH='1'); assert r.returncode and 'watch' in out(r), out(r)
+    assert not watch.VMRUN.search("grep -n 'flow.py vm-run' FLOW.md") and watch.VMRUN.search('cd x && python3 -I tools/flow.py vm-loop C')   # đọc tĩnh không bị bắt nhầm
     assert watch.VMRUN.search(f'python3 flow.py vm-run {c} --dry-run') and watch.VMRUN.search('subprocess.run(["flow.py", "vm-loop", c])') and not watch.VMRUN.search('flow.py vmspec C')
     assert 'NEED_VM' in watch.STATES
     # ---- mẫu đổi sau khi sinh vmspec: từ chối ----

@@ -56,7 +56,8 @@ def env_issue(f):
     if t == 'guest' and (v['os'] not in GUEST_OS or v['arch'] not in GUEST_ARCH): return f"guest: os thuộc {'|'.join(GUEST_OS)}, arch thuộc {'|'.join(GUEST_ARCH)}", ENV_EX
     if t == 'net':
         if v['mode'] not in NET_MODES: return f"net.mode chỉ nhận {'|'.join(NET_MODES)}", ENV_EX
-        if not all(S(x) for x in v.get('dns', [])) or not isinstance(v.get('dns', []), list): return 'net.dns phải là danh sách tên miền', ENV_EX
+        d = v.get('dns', [])
+        if not isinstance(d, list) or not all(S(x) for x in d): return 'net.dns phải là danh sách tên miền', ENV_EX
         if not isinstance(v.get('tcp', []), list) or not all(isinstance(x, int) and not isinstance(x, bool) and 0 < x < 65536 for x in v.get('tcp', [])): return 'net.tcp phải là danh sách cổng (số nguyên 1-65535)', ENV_EX
     if t == 'time' and (not isinstance(v['max_s'], int) or isinstance(v['max_s'], bool) or v['max_s'] <= 0): return 'time.max_s phải là số nguyên dương (giây)', ENV_EX
     if t == 'launch' and (not S(v['mode']) or not isinstance(v.get('args', ''), str)): return 'launch.mode phải là chuỗi không rỗng, launch.args (nếu có) là chuỗi', ENV_EX

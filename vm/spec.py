@@ -5,7 +5,7 @@
 #   build(case)            work/vm/rN/vmspec.json + vm_task.md (cần cổng phản biện PASS khớp facts.jsonl hiện tại)
 #   run(case, dry=True)    dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu); in yêu cầu; dry=False thì gọi cầu nối và kiểm bản kê trả về
 #   next_hint(case)        dòng dẫn đường cho `flow.py next` khi case có câu hỏi cần VM trả lời
-import os, re, sys, json, glob, shlex, hashlib, datetime, subprocess
+import os, re, sys, json, glob, fcntl, shlex, shutil, hashlib, datetime, subprocess
 
 TOOLS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, TOOLS); import case as C, reacfg as CFG   # noqa: E402
@@ -196,33 +196,52 @@ def check_result(s, raw):
             files.append(dict(task=i, name=n, sha256=x['sha256'], size=os.path.getsize(fp)))
     return '', files
 
+def sweep(raw, keep):
+    """Dọn thư mục kết quả sau khi cầu nối trả về: bỏ symlink và thư mục con (không theo link), bỏ file không có trong `keep` (None = giữ mọi file thường),
+    đặt 0400 cho mọi file còn lại kể cả result.json. Áp cho cả nhánh lỗi: raw/ là dữ liệu do mẫu chi phối, không để lại bit thực thi."""
+    for n in os.listdir(raw):
+        fp = os.path.join(raw, n)
+        if os.path.islink(fp): os.unlink(fp)
+        elif os.path.isdir(fp): shutil.rmtree(fp, ignore_errors=True)
+        elif keep is not None and n not in keep: os.remove(fp)
+        else: os.chmod(fp, 0o400)
+
 def bridge(c, s, p):
     """Giao đặc tả cho cầu nối (lệnh ngoài skill, không qua shell), rồi kiểm bản kê trả về. Vòng được tính là đã gửi NGAY TRƯỚC khi gọi:
-    cầu nối lỗi giữa chừng thì mẫu có thể đã chạy, không được gọi lại cùng vòng. Không in stdout của cầu nối nguyên văn."""
+    cầu nối lỗi giữa chừng thì mẫu có thể đã chạy, không được gọi lại cùng vòng. Không in stdout của cầu nối nguyên văn.
+    Chốt watch không dựa vào biến môi trường (phiên con tự xóa được): watcher giữ flock trên work/.watch.lock suốt phiên của case, ở đây thử lấy đúng khóa đó."""
     d = os.path.dirname(p); raw = os.path.join(d, 'raw'); n = s['round']
-    if os.path.exists(raw): die(f'{raw} đã tồn tại: vòng {n} có dấu vết lần gọi trước, không gọi lại')
-    json.dump(dict(round=n, started=datetime.datetime.now().isoformat(timespec='seconds'), vmspec_sha256=sha(p), facts_sha256=s['facts_sha256']), open(os.path.join(d, 'task.json'), 'w'))
-    os.makedirs(raw); log_run(c, round=n, event='start', net=s['net']['mode'], tasks=len(s['launches']), timeout=s['time']['timeout'], files=[x['sha256'] for x in s['files']])
-    print(f"GỬI vòng {n}: giao cho cầu nối {len(s['launches'])} task, mạng {s['net']['mode']}, {s['time']['timeout']} giây mỗi task; chờ cầu nối trả kết quả…", flush=True)
-    try:
-        r = subprocess.run(shlex.split(CFG.VM_BRIDGE_CMD) + [os.path.abspath(p), os.path.abspath(c), os.path.abspath(raw)], capture_output=True, text=True, errors='replace',
-                           timeout=len(s['launches']) * (s['time']['timeout'] + 3600) + 600, stdin=subprocess.DEVNULL)
-        rc, tail = r.returncode, [safe(x) for x in (r.stdout or '').strip().splitlines()[-3:]]
-    except subprocess.TimeoutExpired: rc, tail = -1, ['cầu nối không trả lời trong thời hạn']
-    except (OSError, ValueError) as x: rc, tail = -2, [f'không chạy được VM_BRIDGE_CMD ({type(x).__name__})']
-    err, files = ('', []) if rc else check_result(s, raw)
-    if rc: err = f'cầu nối kết thúc với mã {rc}'
-    for x in files: os.chmod(os.path.join(raw, x['name']), 0o400)
-    json.dump(dict(round=n, ok=not err, error=err, files=files, ended=datetime.datetime.now().isoformat(timespec='seconds')), open(os.path.join(d, 'run.json'), 'w'), ensure_ascii=False, indent=1)
-    log_run(c, round=n, event='end', ok=not err, error=err, files=[x['sha256'] for x in files])
-    if err:
-        print(f'LỖI vòng {n}: {err}')
-        for x in tail: print(f'  cầu nối: `{x}`')
-        print(f'Vòng {n} đã tính là đã gửi (mẫu có thể đã chạy trên sandbox). Báo người dùng; không gọi lại cùng vòng.')
-        return 1
-    print(f'OK vòng {n}: {len(files)} file kết quả đã kiểm sha256 -> {raw} (0400). Đây là dữ liệu do mẫu chi phối: không cat, không chạy.')
-    for x in files: print(f"  task {x['task']}: {x['name']} {x['size']} B {x['sha256']}")
-    return 0
+    lk = open(os.path.join(c, 'work', '.watch.lock'), 'a')
+    try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError: lk.close(); die('case đang do watch (phiên không người trực) xử lý: watcher không được gọi cầu nối, để người dùng chạy sau khi watcher dừng')
+    try:   # giữ khóa suốt lúc gọi cầu nối: watcher không chen vào case giữa chừng
+        if os.path.exists(raw): die(f'{raw} đã tồn tại: vòng {n} có dấu vết lần gọi trước, không gọi lại')
+        tj = os.path.join(d, 'task.json')
+        json.dump(dict(round=n, started=datetime.datetime.now().isoformat(timespec='seconds'), vmspec_sha256=sha(p), facts_sha256=s['facts_sha256']), open(tj, 'w'))
+        os.makedirs(raw); log_run(c, round=n, event='start', net=s['net']['mode'], tasks=len(s['launches']), timeout=s['time']['timeout'], files=[x['sha256'] for x in s['files']])
+        print(f"GỬI vòng {n}: giao cho cầu nối {len(s['launches'])} task, mạng {s['net']['mode']}, {s['time']['timeout']} giây mỗi task; chờ cầu nối trả kết quả…", flush=True)
+        try:
+            r = subprocess.run(shlex.split(CFG.VM_BRIDGE_CMD) + [os.path.abspath(p), os.path.abspath(c), os.path.abspath(raw)], capture_output=True, text=True, errors='replace',
+                               timeout=len(s['launches']) * (s['time']['timeout'] + 3600) + 600, stdin=subprocess.DEVNULL)
+            rc, tail = r.returncode, [safe(x) for x in (r.stdout or '').strip().splitlines()[-3:]]
+        except subprocess.TimeoutExpired: rc, tail = -1, ['cầu nối không trả lời trong thời hạn']
+        except (OSError, ValueError) as x:   # lệnh không khởi chạy được: cầu nối chưa từng chạy nên chắc chắn chưa gửi gì, vòng không bị tính
+            os.remove(tj); shutil.rmtree(raw, ignore_errors=True); log_run(c, round=n, event='not_started', error=type(x).__name__)
+            print(f'LỖI: không chạy được VM_BRIDGE_CMD ({type(x).__name__}); chưa gửi gì, vòng {n} không bị tính. Báo người dùng kiểm lệnh cầu nối trong rea.env.'); return 1
+        err, files = ('', []) if rc else check_result(s, raw)
+        if rc: err = f'cầu nối kết thúc với mã {rc}'
+        sweep(raw, None if err else {x['name'] for x in files} | {'result.json'})
+        json.dump(dict(round=n, ok=not err, error=err, files=files, ended=datetime.datetime.now().isoformat(timespec='seconds')), open(os.path.join(d, 'run.json'), 'w'), ensure_ascii=False, indent=1)
+        log_run(c, round=n, event='end', ok=not err, error=err, files=[x['sha256'] for x in files])
+        if err:
+            print(f'LỖI vòng {n}: {err}')
+            for x in tail: print(f'  cầu nối: `{x}`')
+            print(f'Vòng {n} đã tính là đã gửi (mẫu có thể đã chạy trên sandbox). Báo người dùng; không gọi lại cùng vòng.')
+            return 1
+        print(f'OK vòng {n}: {len(files)} file kết quả đã kiểm sha256 -> {raw} (0400). Đây là dữ liệu do mẫu chi phối: không cat, không chạy.')
+        for x in files: print(f"  task {x['task']}: {x['name']} {x['size']} B {x['sha256']}")
+        return 0
+    finally: lk.close()
 
 def signs(c):
     """Dấu hiệu tất định cho thấy tầng tĩnh/giả lập có thể không đủ. Chỉ là gợi ý; quyết định dùng VM là fact observe do người phân tích ghi."""

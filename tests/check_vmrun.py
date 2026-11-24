@@ -25,6 +25,8 @@ for i, _ in enumerate(s['launches'], 1):
     tasks.append({'status': 'failed_analysis' if mode == 'failed' else 'reported', 'route_verified': mode != 'noroute', 'timeout_effective': s['time']['timeout'] + (60 if mode == 'long' else 0),
                   'files': [{'name': n, 'sha256': '0' * 64 if mode == 'badsha' else hashlib.sha256(body).hexdigest()}]})
 if mode == 'fewer': tasks = tasks[:-1]
+if mode == 'ok':
+    open(os.path.join(out, 'thua.bin'), 'wb').write(b'x'); os.chmod(os.path.join(out, 'thua.bin'), 0o755); os.makedirs(os.path.join(out, 'sub')); open(os.path.join(out, 'sub', 'y'), 'w').write('y'); os.symlink(spec, os.path.join(out, 'lnk'))
 if mode != 'nomanifest': json.dump({'net_mode': 'internet' if mode == 'netup' else s['net']['mode'], 'tasks': tasks}, open(os.path.join(out, 'result.json'), 'w'))
 ''')
 def cfg(**kw): open(envf, 'w').write(''.join(f'{k}={v}\n' for k, v in dict(dict(VM_BRIDGE_CMD=f'{sys.executable} -I {br}', VM_NET_MAX='sink', VM_MAX_ROUNDS='9'), **kw).items()))
@@ -55,7 +57,8 @@ try:
     assert r.returncode == 0 and 'OK vòng 1: 2 file' in r.stdout, out(r)
     assert 'fake_bridge' not in out(r) and 'wine' not in out(r) and '\x1b' not in out(r), out(r)   # không in lệnh cầu nối, không in stdout của nó khi thành công
     L = open(calls).read().splitlines(); assert len(L) == 1 and L[0].split()[0].endswith('work/vm/r1/vmspec.json') and L[0].split()[2] == raw, L
-    for n in ('report_t1.json', 'report_t2.json'): assert oct(os.stat(os.path.join(raw, n)).st_mode & 0o777) == '0o400'
+    for n in ('report_t1.json', 'report_t2.json', 'result.json'): assert oct(os.stat(os.path.join(raw, n)).st_mode & 0o777) == '0o400'
+    assert sorted(os.listdir(raw)) == ['report_t1.json', 'report_t2.json', 'result.json'], os.listdir(raw)   # file thừa, thư mục con, symlink cầu nối để lại đã bị dọn
     rj = json.load(open(os.path.join(c, 'work', 'vm', 'r1', 'run.json'))); assert rj['ok'] and len(rj['files']) == 2, rj
     ev = [json.loads(x) for x in open(os.path.join(c, 'work', 'vm', 'runs.jsonl'))]; assert [e['event'] for e in ev] == ['start', 'end'] and ev[1]['ok'] and ev[0]['files'] == [h], ev
     # gọi lại: vòng 1 đã gửi, không gọi cầu nối lần hai
@@ -75,13 +78,22 @@ try:
         c = mkcase('BAD_' + mode, mode); r = run('vm-run', c)
         assert r.returncode == 1 and 'LỖI vòng 1' in r.stdout and why in r.stdout, (mode, out(r))
         assert not json.load(open(os.path.join(c, 'work', 'vm', 'r1', 'run.json')))['ok'], mode
+        rw = os.path.join(c, 'work', 'vm', 'r1', 'raw'); assert all(not os.path.islink(os.path.join(rw, n)) and oct(os.stat(os.path.join(rw, n)).st_mode & 0o777) == '0o400' for n in os.listdir(rw)), (mode, os.listdir(rw))   # nhánh lỗi cũng 0400, không symlink
     # ---- không cấu hình cầu nối / lệnh không chạy được / trong watch ----
     c = mkcase('NOCFG', 'ok'); cfg(VM_BRIDGE_CMD=''); n0 = len(open(calls).read().splitlines())
     r = run('vm-run', c); assert r.returncode and 'tầng VM chưa bật' in out(r) and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'task.json')), out(r)
     cfg(); r = run('vm-run', c, VM_BRIDGE_CMD=''); assert r.returncode == 0, out(r)   # biến môi trường không tắt được: chỉ đọc file cấu hình
     c = mkcase('NOEXE', 'ok'); cfg(VM_BRIDGE_CMD='/khong/co/lenh-nay'); r = run('vm-run', c); assert r.returncode == 1 and 'không chạy được VM_BRIDGE_CMD' in r.stdout and '/khong/co' not in r.stdout, out(r)
+    assert 'không bị tính' in r.stdout and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'task.json')) and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'raw')), out(r)
+    cfg(); r = run('vm-run', c); assert r.returncode == 0 and 'OK vòng 1' in r.stdout, out(r)   # sửa lệnh xong chạy lại được CÙNG vòng
     cfg(); c = mkcase('WATCH', 'ok'); n0 = len(open(calls).read().splitlines())
     r = run('vm-run', c, REA_WATCH='1'); assert r.returncode and 'watch' in out(r) and len(open(calls).read().splitlines()) == n0, out(r)
+    # chốt watch không dựa vào biến môi trường: watcher giữ flock trên work/.watch.lock, vm-run không có REA_WATCH vẫn bị chặn
+    import fcntl
+    lk = open(os.path.join(c, 'work', '.watch.lock'), 'a'); fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    r = run('vm-run', c); assert r.returncode and 'watch' in out(r) and len(open(calls).read().splitlines()) == n0 and not os.path.exists(os.path.join(c, 'work', 'vm', 'r1', 'task.json')), out(r)
+    lk.close(); r = run('vm-run', c); assert r.returncode == 0, out(r)
+    assert watch.VMRUN.search('''python3 -c "import os,sys,runpy; os.environ['REA_WATCH']=''; sys.argv=['flow.py','vm-run','C']; runpy.run_path('tools/flow.py', run_name='__main__')"''')
     for x in ('python3 -c "from vm import spec; spec.run(c, False)"', "python3 -I -c 'import vm.spec as s'", 'python3 x.py && python3 tools/flow.py vm-run C'): assert watch.VMRUN.search(x), x
     for x in ("grep -n 'flow.py vm-run' FLOW.md", 'python3 tools/flow.py vmspec C', 'python3 tools/flow.py next C'): assert not watch.VMRUN.search(x), x
     print('OK check_vmrun')

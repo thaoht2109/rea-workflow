@@ -39,7 +39,7 @@ try:
     tj = os.path.join(c, 'report', 'evidence', 'triage_loader_bin.json')
     json.dump(dict(file='loader.bin', path=smp, sha256=h, type='PE32'), open(tj, 'w'))
     open(os.path.join(c, 'report', 'evidence', 'static.txt'), 'w').write(
-        f'{h} loader.bin\nCreateMutexA Global\\\\synth_mutex\nkiểm thư mục C:\\Users\\Public\\Synth rồi nạp loader.bin với tham số 12 34\nInternetOpenUrl hxxp://synth-c2.example/gate sau Sleep 5000 giây\n')
+        f'{h} loader.bin\nCreateMutexA Global\\\\synth_mutex\nkiểm thư mục C:\\Users\\Public\\Synth rồi nạp loader.bin với tham số 12 34\nInternetOpenUrl hxxp://synth-c2.example/gate sau Sleep 5000 giây\nblob 0x44300 id8080x a443b\n')
     A = lambda **f: C.add(c, lint=True, src='S', **f)
     A(id='h', kind='hash', value=h + ' loader.bin', evidence='report/evidence/static.txt#L1')
     A(id='v', kind='verdict', value='suspicious: thử', evidence='report/evidence/static.txt')
@@ -51,6 +51,9 @@ try:
     assert any(i['check'] == 'value_in_evidence' and i['level'] == 'fail' for i in X(dict(t='launch', mode='default', args='khong_co_trong_evidence')))
     assert any(i['check'] == 'value_in_evidence' and "'8443'" in i['problem'] for i in X(dict(t='net', mode='sink', tcp=[8443])))   # cổng bịa ra
     assert any(i['check'] == 'value_in_evidence' for i in X(dict(t='time', max_s=777)))
+    assert any(i['check'] == 'value_in_evidence' for i in X(dict(t='time', max_s=500)))   # '500' chỉ là một phần của '5000': không tính
+    assert all(any(i['check'] == 'value_in_evidence' for i in X(dict(t='net', mode='sink', tcp=[p]))) for p in (443, 8080))   # chữ số nằm trong offset/định danh khác: không tính
+    assert not [i for i in X(dict(t='time', max_s=5000)) if i['level'] == 'fail']
     assert any(i['check'] == 'value_in_evidence' and i['level'] == 'fail' for i in X(dict(t='launch', mode='default', args='9 9')))   # tham số ngắn bịa ra: vẫn phải có nguyên văn
     assert any(i['check'] == 'value_in_evidence' and "'bia.dll'" in i['problem'] for i in X(dict(t='layout', dir='C:\\Users\\Public\\Synth', files=['loader.bin', 'bia.dll'], main='loader.bin')))   # một tên thật không đỡ cho tên bịa
     assert not [i for i in X(dict(t='layout', dir='C:\\Users\\Public\\Synth', files=['loader.bin'], main='loader.bin')) if i['level'] == 'fail']

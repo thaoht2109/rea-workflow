@@ -79,10 +79,14 @@ def env_data(f):
     nums = [x for x in (v.get('tcp') if isinstance(v.get('tcp'), list) else []) + [v.get('max_s')] if isinstance(x, int) and not isinstance(x, bool)]
     return [x for x in env_leaves({k: x for k, x in v.items() if k not in ENV_CTRL}) if x.strip()] + [str(x) for x in nums]
 def env_missing(f, scope):
-    """Chuỗi dữ liệu của fact env KHÔNG có nguyên văn trong scope (văn bản evidence đã chuẩn hóa như ev_scope). Fact env quyết định tham số chạy mẫu,
-    nên kiểm chặt hơn kind chữ thường: TỪNG chuỗi phải có trong evidence, không chỉ một token (một tên file thật không đỡ được cho tham số bịa)."""
+    """Dữ liệu của fact env KHÔNG có nguyên văn trong scope (văn bản evidence đã chuẩn hóa như ev_scope). Fact env quyết định tham số chạy mẫu,
+    nên kiểm chặt hơn kind chữ thường: TỪNG chuỗi phải có trong evidence, không chỉ một token (một tên file thật không đỡ được cho tham số bịa).
+    Số (cổng, thời gian) phải đứng RIÊNG, dạng thập phân hoặc 0x…: '443' nằm trong một hash hay offset không tính."""
     n = lambda x: x.replace('\\\\', '\\').lower()
-    return [x for x in env_data(f) if n(x) not in scope and _normnum(n(x)) not in scope]
+    def has(x):
+        if not x.isdigit(): return n(x) in scope or _normnum(n(x)) in scope
+        return bool(re.search(r'(?<![0-9a-z_.])(?:' + x + '|0x0*' + format(int(x), 'x') + r')(?![0-9a-z_])', scope))
+    return [x for x in env_data(f) if not has(x)]
 
 IOC_KINDS = ['hash', 'url', 'ua', 'c2', 'mutex', 'file', 'registry', 'process', 'str_key', 'payload_key', 'payload_hash', 'family']
 # Phân loại cả mẫu (kind=verdict): value = '<khóa>: lý do'. Nhãn đặt trên đầu báo cáo HTML, GENERATED.md và bản export.

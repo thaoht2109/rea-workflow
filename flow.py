@@ -178,7 +178,7 @@ SCAN_MAX = 8   # số mẫu tối đa gom vào một case; nhiều hơn thì chi
 
 def scan_collect(d, workspace):
     """Mẫu ở CẤP MỘT của thư mục thu mẫu -> ([đường dẫn nhận], [(tên, lý do bỏ)]). Thư mục con là một mẫu dạng thư mục. Không đọc sâu, không chạy gì."""
-    import watch
+    import export   # không import watch ở đây: watch cần bộ eval (evals/), bản chép skill không có thư mục đó
     ok, skip = [], []
     for n in sorted(os.listdir(d)):
         p = os.path.join(d, n)
@@ -192,7 +192,7 @@ def scan_collect(d, workspace):
             ok.append(p); continue
         if not os.path.isfile(p): skip.append((n, 'không phải tệp thường')); continue
         if os.path.getsize(p) == 0: skip.append((n, 'tệp rỗng')); continue
-        why = watch.note_of(p)
+        why = export.note_of(p)
         if why: skip.append((n, 'ghi chú thu mẫu: ' + why)); continue
         ok.append(p)
     return ok, skip

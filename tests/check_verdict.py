@@ -39,7 +39,7 @@ try:
     open(os.path.join(json_acc, 'accepted.json'), 'w').write('{' + ', '.join(f'"C{i}": "thử"' for i in range(1, 13)) + '}')   # bỏ qua checklist để tới đúng bước này
     rc, out = nxt(c); assert rc == 1 and 'NEED_MORE: chưa có fact phân loại' in out and 'HÀNH VI' in out, out
     keep = RV.bg_pid; RV.bg_pid = lambda c_: 4242   # đang có review nền: không dẫn đi ghi fact (đổi facts làm lượt đang chạy vô hiệu)
-    try: rc, out = nxt(c); assert rc == 1 and 'NEED_MORE' not in out and 'NEED_REVIEW' in out, out
+    try: rc, out = nxt(c); assert rc == 1 and 'NEED_MORE' not in out and 'NEED_REVIEW: đang có review chạy nền' in out and 'ghi đủ fact' not in out, out
     finally: RV.bg_pid = keep
     RV.save_state(c, {'rounds': [{'n': 1, 'verdict': 'FAIL', 'facts_sha256': RV.facts_sha(c)}], 'stopped': False})   # vừa FAIL, facts chưa đổi: lời nhắc sửa đi trước, kèm lời đòi verdict
     rc, out = nxt(c); assert rc == 1 and out.count('NEED_') == 1 and 'NEED_FIX: review 1 FAIL' in out and 'chưa có fact phân loại' in out, out

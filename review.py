@@ -14,9 +14,7 @@ NO_TOOL = ('api', 'cmd')   # backend tự chạy được phiên sửa fact qua 
 GATING = set(C.IOC_KINDS) | {'persistence', 'inject', 'entry', 'container', 'payload_fmt', 'relation', 'verdict'}   # fact sai ở đây làm sai IOC/kết luận -> high
 HARD_CHECKS = {'verdict_value', 'lookup_content', 'evidence_exists', 'evidence_line', 'src_vs_evidence', 'hash_recompute',
                'value_in_evidence', 'value_vs_evidence', 'source', 'recompute', 'tool_selfcheck', 'tool_stale', 'tool_coverage', 'tool_mutation', 'tool_kat'}   # mâu thuẫn bằng chứng -> high, bất kể kind
-LITERAL = {'c2', 'url', 'ua', 'mutex', 'file', 'registry', 'process', 'persistence', 'str_key', 'payload_key', 'config', 'string'}
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOKEN = re.compile(r'[A-Za-z0-9_.\\/%:$-]{5,}')
 DIR = lambda c: os.path.join(c, 'work', 'review')
 
 def sha_file(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
@@ -67,11 +65,11 @@ def mech(c):
             hs = hs if hs is not None else work_hashes(c)
             for h in hx:
                 if h not in n and h not in hs: bad('fail', 'hash_recompute', f'sha256 {h[:12]}… không có trong evidence và không khớp file nào trong work/sample|extract', 'tính lại sha256 từ file gốc')
-        elif k in LITERAL and not f['value'].startswith('n/a'):
-            toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
-            toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
-            if toks and not any(t in n for t in toks):
-                bad('fail', 'value_in_evidence', 'không token nào của giá trị xuất hiện trong evidence', 'chép đoạn chứa giá trị vào evidence hoặc sửa giá trị', where=f['evidence'])
+        else:   # cùng hàm với lint khi ghi (case.literal_issue): token, _normnum, evidence nhị phân chỉ nhắc
+            L = txt.splitlines(); sc, an = C.ev_scope(L, f); vi = C.literal_issue(f, full, sc, an)
+            if vi and vi[0] == 'fail' and an and not C.literal_issue(f, full, C.ev_scope(L, dict(f, evidence=rel))[0], None):
+                vi = ('warn', f'giá trị có trong file evidence nhưng không nằm trong ±{C.WINDOW} dòng quanh #L{an}', 'ghi fact mới (supersedes) trỏ #L đúng dòng chứa giá trị')   # trỏ lệch dòng: nhắc, không chặn; không có ở đâu trong file mới là mâu thuẫn bằng chứng
+            if vi: bad('weak' if vi[0] == 'warn' else 'fail', 'value_in_evidence', *vi[1:])
         if f['status'] == 'active' and re.search(r'\b(chưa|có thể|nghi)\b', f['note'], re.I):
             bad('weak', 'status_vs_note', 'status active nhưng note còn nghi ngờ', 'hạ xuống hypothesis hoặc bổ sung bằng chứng')
         if k == 'persistence' and f['src'] == 'E' and any(a in unused for a in re.findall(r'Reg\w+|CopyFile\w*|MoveFile\w*', f['value'])):
@@ -427,6 +425,7 @@ def next_step(c, accept=''):
             print(f"NEED_FIX: review {last['n']} FAIL, facts chưa đổi -> sửa từng mục theo where/redo trong {DIR(c)}/r{last['n']}/ (fact mới có supersedes), rồi flow.py review {shlex.quote(c)} --llm --detach"
                   + (f'. Cùng đợt sửa này: {vmsg}' if vmsg else '')); return 1
         if vmsg and not bg_pid(c): print(f'NEED_MORE: {vmsg}; ghi trước khi review để không tốn thêm lượt'); return 1   # đang có review nền: không dẫn đi ghi fact (đổi facts làm lượt đang chạy vô hiệu), để NEED_REVIEW lấy kết quả
+        if bg_pid(c): print(f'NEED_REVIEW: đang có review chạy nền -> gọi lại `flow.py review {shlex.quote(c)} --llm --detach` để lấy kết quả; KHÔNG ghi hay sửa fact trong lúc chờ (đổi facts làm lượt đang chạy vô hiệu)'); return 1
         print(f'NEED_REVIEW: {why} -> trước hết ghi đủ fact và chạy `flow.py review {shlex.quote(c)}` (xem trước lớp máy, không tốn lượt) cho tới khi sạch; rồi MỘT lần `flow.py review {shlex.quote(c)} --llm --detach` (mỗi lượt lớp 2 ~3-5 phút, ~0,5-1 USD; thêm fact giữa các lượt làm tốn thêm lượt)'); return 1
     if vmsg: print(f'  lưu ý (không chặn): {vmsg}')   # case đã qua cổng từ trước khi có yêu cầu này: chỉ nhắc
     rb = report_blank(c)

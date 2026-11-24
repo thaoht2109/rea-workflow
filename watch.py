@@ -238,7 +238,7 @@ def step(c, model, report=None):
             session(c, st, model)
         else: stop(c, st, f'next không ra trạng thái: {(r.stdout + r.stderr).strip()[-300:]}')
 
-from export import NOTE_EXT, NOTE_MAX, SUMS, SCRIPT, cmd_targets   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
+from export import note_of   # noqa: E402  một tiêu chí ghi chú/script cho watch (nhận mẫu) và export (gom ghi chú)
 ARCH = re.compile(r'\.(?:tar\.gz|tar\.bz2|tar\.xz|tgz|tar|gz|bz2|xz|zip|7z|rar)$', re.I)
 NOTES_LOG = '.watch_notes.tsv'   # trong workspace: các file bị coi là ghi chú, không thành case (thời điểm, đường dẫn, lý do)
 _HASH, _NOTED = {}, set()   # _HASH: đường dẫn -> (mtime, size, sha256), không băm lại file không đổi mỗi vòng
@@ -274,39 +274,6 @@ def samples(inbox, skip=()):
         for n in sorted(fs):
             p = os.path.join(d, n)
             if not n.startswith('.') and os.path.isfile(p) and not os.path.islink(p): yield p
-
-def _text(p):
-    try:
-        if os.path.getsize(p) > NOTE_MAX: return None
-        b = open(p, 'rb').read()
-    except OSError: return None
-    if b'\0' in b[:8192]: return None
-    try: return b.decode('utf-8')
-    except UnicodeDecodeError: return None
-
-def note_of(p):
-    """Lý do (chuỗi khác rỗng) nếu p là ghi chú thu mẫu đi kèm, không phải mẫu: SHA256SUMS/*.sha256, hoặc file text đuôi .txt/.log/.md/.note(s) mà tên bắt đầu bằng
-    tên (bỏ đuôi) của một file cùng thư mục, hoặc nội dung nhắc sha256 của một file cùng thư mục. File cùng thư mục được dùng để đối chiếu
-    phải là file không mang đuôi ghi chú: hai ghi chú cạnh nhau (x.txt, x.log) không làm nhau thành ghi chú. Script thật (install.sh) vẫn là mẫu."""
-    n, d = os.path.basename(p), os.path.dirname(p)
-    if SUMS.search(n):   # tên dạng SHA256SUMS: chỉ là ghi chú khi nội dung đúng là danh sách `<sha256>  tên`
-        t = _text(p)
-        return 'danh sách sha256' if t is not None and re.search(r'(?m)^[0-9a-fA-F]{64}[ \t]+\*?\S', t) else ''
-    if not n.lower().endswith(NOTE_EXT): return ''
-    t = _text(p)
-    if t is None or SCRIPT.search(t): return ''   # nội dung trông như script (shebang, | sh, curl, base64 -d...): coi là mẫu
-    sib = [os.path.join(d, x) for x in os.listdir(d) if x != n and not x.startswith('.') and not x.lower().endswith(NOTE_EXT)
-           and not SUMS.search(x) and os.path.isfile(os.path.join(d, x))]
-    for q in sib:
-        if n.startswith(os.path.splitext(os.path.basename(q))[0] + '.'): return f'tên bắt đầu bằng tên của {os.path.basename(q)}'
-    for g in cmd_targets(t):   # cùng hàm với export.collect: file ngắn, mở đầu bằng dòng lệnh/tiêu đề `#`
-        if any(os.path.basename(g) == os.path.basename(q) for q in sib): return f'ghi lại lệnh thu mẫu trên {os.path.basename(g)}'
-    if not re.search(r'\b[0-9a-f]{64}\b', t): return ''
-    for q in sib:
-        try:
-            if sha(q) in t: return f'nhắc sha256 của {os.path.basename(q)}'
-        except OSError: pass
-    return ''
 
 _REPORTED = {}
 def reported(root):

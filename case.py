@@ -69,6 +69,7 @@ DATE = re.compile(r'\b\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+)?\b')
 LOG_LINES = 40   # evidence dài hơn mức này phải trỏ #L hoặc tách đoạn trích
 WINDOW = 5       # có #L: value phải xuất hiện trong ±WINDOW dòng quanh đó
 
+NATURAL_RX = re.compile(r'\s*(?:[^:\n]{1,60}:\s*)?natural\b')   # exit_reason đạt: '[tiến trình: ]natural…'; 'unnatural', 'chưa natural' không tính
 def _normnum(s): return re.sub(r'(?<=\d)[.,](?=\d{3}(?!\d))', '', s)
 def _line_id(t): return hashlib.sha256(t.strip().encode('utf-8', 'replace')).hexdigest()[:12]
 def _relocate(lines, ln, lid):
@@ -121,6 +122,31 @@ def work_files(case, dirs=('sample', 'extract'), limit=64 << 20):
 
 def _work_hashes(case): return {hashlib.sha256(open(p, 'rb').read()).hexdigest() for p in work_files(case)}
 
+def ev_scope(lines, f):
+    """(scope, anchor) để so value với evidence: có `#L` hợp lệ thì ±WINDOW dòng quanh dòng đó (theo vị trí mới nếu dòng đã dời), không thì cả file.
+    Văn bản đã qua _normnum, gộp `\\\\`, chữ thường. MỘT luật cho lint khi ghi (lint_fact) và lớp 1 của cổng (review.mech)."""
+    norm = lambda L: _normnum('\n'.join(L)).replace('\\\\', '\\').lower()
+    m = re.search(r'#L(\d+)$', f['evidence'])
+    if not m: return norm(lines), None
+    ln = int(m.group(1)); moved = _relocate(lines, ln, f.get('ev_line'))
+    if moved is None and not 1 <= ln <= len(lines): return norm(lines), None
+    ln = moved or ln
+    return norm(lines[max(0, ln - 1 - WINDOW): ln + WINDOW]), ln
+
+def literal_issue(f, full, scope, anchor):
+    """Fact kind chữ (LITERAL_KINDS): ít nhất một token của value phải có trong scope. Trả (level, problem, redo) hoặc None.
+    Evidence nhị phân (khóa, blob) không so được token: chỉ 'warn' khi value không ghi sha256 của file."""
+    if f['kind'] not in LITERAL_KINDS or f['value'].startswith('n/a'): return None
+    toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
+    toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
+    if not toks or any(t in scope or _normnum(t) in scope for t in toks): return None   # scope đã qua _normnum (bỏ dấu ngăn nghìn): IP như 10.20.300.4 bị đổi dạng
+    if b'\0' in open(full, 'rb').read(4096):
+        if hashlib.sha256(open(full, 'rb').read()).hexdigest() in f['value'].lower(): return None
+        return ('warn', 'evidence nhị phân: không so được token; value nên ghi sha256 của file evidence', 'ghi sha256 của file vào value hoặc dẫn evidence dạng text')
+    where = f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'
+    return ('fail', f'không token nào của value xuất hiện trong {where}',
+            'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else 'chép đoạn chứa giá trị vào evidence hoặc sửa giá trị')
+
 def lint_fact(case, f):
     """Kiểm tra lớp 1 ngay khi ghi fact. Trả list {level, check, problem, redo}.
     level 'fail' = mâu thuẫn rõ; 'warn' = nên sửa nhưng chưa chắc sai."""
@@ -154,7 +180,7 @@ def lint_fact(case, f):
     if li: bad('fail', 'lookup_content', *li)
     for ck, pb, rd in adhoc.issues(case, f, rel, '\n'.join(lines)): bad('fail', ck, pb, rd)   # evidence của công cụ tự viết: phải tự kiểm đạt, công cụ chưa đổi
     for ck, pb, rd in adhoc.notes(case, f, rel, '\n'.join(lines)): bad('warn', ck, pb, rd)    # chạy không trong vỏ không mạng: cảnh báo
-    scope, anchor = whole, None
+    scope, anchor = ev_scope(lines, f)   # cùng hàm với lớp 1 của cổng
     m = re.search(r'#L(\d+)$', f['evidence'])
     if m:
         ln = int(m.group(1)); moved = _relocate(lines, ln, f.get('ev_line')); inside = 1 <= ln <= len(lines)
@@ -164,9 +190,6 @@ def lint_fact(case, f):
             if moved is None: bad('warn', 'evidence_moved', f'nội dung dòng {ln} đã đổi so với lúc ghi fact và không tìm thấy dòng cũ trong file', 'kiểm lại bằng chứng, ghi fact mới (supersedes) trỏ đúng dòng')
             elif moved != ln:
                 bad('warn', 'evidence_moved', f'dòng bằng chứng đã dời từ #L{ln} sang #L{moved} (evidence bị sửa sau khi ghi fact); đang kiểm theo dòng mới', f'ghi fact mới (supersedes) trỏ #L{moved}, hoặc chỉ thêm vào CUỐI file evidence')
-                ln = moved
-            anchor = ln
-            scope = _normnum('\n'.join(lines[max(0, ln - 1 - WINDOW): ln + WINDOW])).replace('\\\\', '\\').lower()
     elif len(lines) > LOG_LINES and rel.lower().endswith(('.txt', '.log')):
         bad('warn', 'evidence_scope', f'evidence dài {len(lines)} dòng: dẫn cả file nên không neo được đoạn chứng minh',
             'thêm #L<dòng> hoặc tách đoạn trích vào file riêng')
@@ -178,17 +201,9 @@ def lint_fact(case, f):
             if h not in hs:
                 bad('fail', 'hash_recompute', f'sha256 {h[:12]}… không có trong evidence và không khớp file nào trong work/sample|extract',
                     'tính lại sha256 từ file gốc rồi chép vào evidence')
-    elif f['kind'] in LITERAL_KINDS and not f['value'].startswith('n/a'):
-        toks = [t.strip('.,;:)(\'"`').lower() for t in TOKEN.findall(f['value'].replace('\\\\', '\\'))]
-        toks = [t for t in toks if len(t) >= 5 and not t.isdigit()]
-        if toks and not any(t in scope or _normnum(t) in scope for t in toks) and b'\0' in open(full, 'rb').read(4096):   # evidence nhị phân (khóa, blob)
-            if hashlib.sha256(open(full, 'rb').read()).hexdigest() not in f['value'].lower():
-                bad('warn', 'value_in_evidence', 'evidence nhị phân: không so được token; value nên ghi sha256 của file evidence', 'ghi sha256 của file vào value hoặc dẫn evidence dạng text')
-        elif toks and not any(t in scope or _normnum(t) in scope for t in toks):   # scope đã qua _normnum (bỏ dấu ngăn nghìn): IP như 10.20.300.4 bị đổi dạng
-            where = f'±{WINDOW} dòng quanh #L{anchor}' if anchor else 'file evidence'
-            bad('fail', 'value_in_evidence', f'không token nào của value xuất hiện trong {where}',
-                'chép đoạn chứa giá trị vào evidence, hoặc chỉnh #L/nới WINDOW' if anchor else
-                'chép đoạn chứa giá trị vào evidence hoặc sửa giá trị')
+    else:
+        vi = literal_issue(f, full, scope, anchor)
+        if vi: bad(vi[0], 'value_in_evidence', *vi[1:])
     for p, r in recompute(case, f): bad('fail', 'recompute', p, r)
     miss = [n for n in NUMTOK.findall(_normnum(DATE.sub(' ', f['value']))) if n.lower() not in scope]
     if miss:
@@ -341,7 +356,7 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
     act = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'active']
     hyp = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'hypothesis']
     exits = act('exit_reason')   # mọi tiến trình phải thoát tự nhiên; 'stop_at'/lỗi giả lập nghĩa là còn phần chưa chạy tới
-    natural = exits and all('natural' in f['value'] for f in exits)
+    natural = exits and all(NATURAL_RX.match(f['value']) for f in exits)
     unused = ' '.join(f['value'] for f in act('api_unused'))
     # độ phủ: giả lập chạy tới exit tự nhiên (E), hoặc fact 'coverage' khẳng định đã duyệt tĩnh hết các hàm dùng API nhạy cảm (S)
     # dec_coverage hợp lệ: 'a/b' (số chuỗi đã giải / số call-site của hàm giải mã) hoặc 'n/a: lý do' (không có hàm giải mã); chữ tự do không tính
@@ -430,14 +445,14 @@ def report(case):
     L += ['', '## Phát hiện theo nguồn (S tĩnh, E giả lập CPU, V VM)', '', '| id | Loại | Trạng thái | Nguồn | Kiểm chứng chéo | Ghi chú |', '|---|---|---|---|---|---|']
     L += [f"| {f['id']} | {f['kind']} | {f['status']} | {f['src']} | {'có' if len(f['verified_by']) > 1 else 'không'} | {f['note']} |"
           for f in cur.values() if f['status'] != 'retracted']
-    L += ['', '## Đính chính', '', '| id | Trước | Sau | Vòng |', '|---|---|---|---|']
+    L += ['', '## Đính chính', '', '| id | Trước | Sau |', '|---|---|---|']
     prev = {}
     for f in H:
         p = prev.get(f['id'])
         if p and (p['value'], p['status']) != (f['value'], f['status']):
-            L.append(f"| {f['id']} | {p['value']} ({p['status']}) | {f['value']} ({f['status']}) | {f.get('round', '')} |")
+            L.append(f"| {f['id']} | {p['value']} ({p['status']}) | {f['value']} ({f['status']}) |")
         if f.get('supersedes') in prev:
-            o = prev[f['supersedes']]; L.append(f"| {o['id']} → {f['id']} | {o['value']} | {f['value']} | {f.get('round', '')} |")
+            o = prev[f['supersedes']]; L.append(f"| {o['id']} → {f['id']} | {o['value']} | {f['value']} |")
         prev[f['id']] = f
     i0 = L.index('## Đính chính') + 4; L[i0:] = list(dict.fromkeys(L[i0:]))   # một fact supersede được ghi lại nhiều lần -> một dòng
     refs = {ev_path(case, f['evidence'])[0][len(EV):] for f in cur.values()}

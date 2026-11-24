@@ -421,7 +421,7 @@ def next_step(c, accept=''):
     for k, v, n in todo: print(f'  còn thiếu: {k:<30} {v:<8} next: {n}')
     for k, why_ in acc.items(): print(f'  chấp nhận hạn chế: {k}: {why_}')
     if todo and C.mode(c) == 'light': print('NEED_MORE (light): làm tiếp bằng tầng tĩnh (flow.py dec, rea inspect-*). Mục còn thiếu cần giả lập hoặc công cụ ad-hoc thì nâng chế độ: flow.py mode ' + shlex.quote(c) + ' full, hoặc chấp nhận hạn chế: next --accept Cx=lý do'); return 1
-    if todo:   # tầng T5: có fact observe và VM đã bật thì dẫn sang vmspec/vm-run; lời nhắc không bao giờ được làm next thất bại
+    if todo and 'C13' not in acc:   # tầng T5: có fact observe và VM đã bật thì dẫn sang vmspec/vm-run; lời nhắc không bao giờ được làm next thất bại
         try:
             from vm import spec as VS; lr = (state(c).get('rounds') or [{}])[-1]
             vh, stop_ = VS.next_hint(c, ok, bool(bg_pid(c)), f"{DIR(c)}/r{lr['n']}/" if lr.get('verdict') == 'FAIL' and lr.get('facts_sha256') == facts_sha(c) else '')

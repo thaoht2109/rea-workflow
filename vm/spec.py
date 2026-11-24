@@ -209,12 +209,17 @@ def sweep(raw, keep):
 def bridge(c, s, p):
     """Giao đặc tả cho cầu nối (lệnh ngoài skill, không qua shell), rồi kiểm bản kê trả về. Vòng được tính là đã gửi NGAY TRƯỚC khi gọi:
     cầu nối lỗi giữa chừng thì mẫu có thể đã chạy, không được gọi lại cùng vòng. Không in stdout của cầu nối nguyên văn.
-    Chốt watch không dựa vào biến môi trường (phiên con tự xóa được): watcher giữ flock trên work/.watch.lock suốt phiên của case, ở đây thử lấy đúng khóa đó."""
+    Chốt watch không chỉ dựa vào biến môi trường (phiên con tự xóa được): watcher giữ flock trên work/.watch.lock của case nó đang xử lý, và một khóa chia sẻ
+    trên <workspace>/.rea-watch.lock suốt thời gian chạy; ở đây thử lấy cả hai khóa độc quyền, không được thì từ chối (case khác trong cùng workspace cũng bị chặn)."""
     d = os.path.dirname(p); raw = os.path.join(d, 'raw'); n = s['round']
     lk = open(os.path.join(c, 'work', '.watch.lock'), 'a')
     try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError: lk.close(); die('case đang do watch (phiên không người trực) xử lý: watcher không được gọi cầu nối, để người dùng chạy sau khi watcher dừng')
-    try:   # giữ khóa suốt lúc gọi cầu nối: watcher không chen vào case giữa chừng
+    gl = open(os.path.join(os.path.dirname(os.path.abspath(c)), '.rea-watch.lock'), 'a')
+    try: fcntl.flock(gl, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError: gl.close(); lk.close(); die('đang có watch (phiên không người trực) chạy trong workspace này: không gọi cầu nối trong lúc đó, để người dùng chạy sau khi watcher dừng')
+    fcntl.flock(gl, fcntl.LOCK_UN); gl.close()   # chỉ cần biết không có watcher; không giữ, để watcher khởi động được
+    try:   # giữ khóa của case suốt lúc gọi cầu nối: watcher không chen vào case giữa chừng
         if os.path.exists(raw): die(f'{raw} đã tồn tại: vòng {n} có dấu vết lần gọi trước, không gọi lại')
         tj = os.path.join(d, 'task.json')
         json.dump(dict(round=n, started=datetime.datetime.now().isoformat(timespec='seconds'), vmspec_sha256=sha(p), facts_sha256=s['facts_sha256']), open(tj, 'w'))
@@ -223,11 +228,14 @@ def bridge(c, s, p):
         try:
             r = subprocess.run(shlex.split(CFG.VM_BRIDGE_CMD) + [os.path.abspath(p), os.path.abspath(c), os.path.abspath(raw)], capture_output=True, text=True, errors='replace',
                                timeout=len(s['launches']) * (s['time']['timeout'] + 3600) + 600, stdin=subprocess.DEVNULL)
-            rc, tail = r.returncode, [safe(x) for x in (r.stdout or '').strip().splitlines()[-3:]]
+            rc, tail = r.returncode, [safe(x) for x in ((r.stdout or '').strip() or (r.stderr or '').strip()).splitlines()[-3:]]   # stdout trống (cầu nối chết vì ngoại lệ): lấy stderr
         except subprocess.TimeoutExpired: rc, tail = -1, ['cầu nối không trả lời trong thời hạn']
         except (OSError, ValueError) as x:   # lệnh không khởi chạy được: cầu nối chưa từng chạy nên chắc chắn chưa gửi gì, vòng không bị tính
             os.remove(tj); shutil.rmtree(raw, ignore_errors=True); log_run(c, round=n, event='not_started', error=type(x).__name__)
             print(f'LỖI: không chạy được VM_BRIDGE_CMD ({type(x).__name__}); chưa gửi gì, vòng {n} không bị tính. Báo người dùng kiểm lệnh cầu nối trong rea.env.'); return 1
+        except BaseException:   # Ctrl+C giữa lúc chờ: vòng vẫn tính là đã gửi, nhưng raw/ phải được dọn và có run.json trước khi thoát
+            sweep(raw, None); json.dump(dict(round=n, ok=False, error='bị ngắt giữa lúc gọi cầu nối', files=[], ended=datetime.datetime.now().isoformat(timespec='seconds')), open(os.path.join(d, 'run.json'), 'w'), ensure_ascii=False, indent=1)
+            log_run(c, round=n, event='end', ok=False, error='bị ngắt'); raise
         err, files = ('', []) if rc else check_result(s, raw)
         if rc: err = f'cầu nối kết thúc với mã {rc}'
         sweep(raw, None if err else {x['name'] for x in files} | {'result.json'})
@@ -255,6 +263,10 @@ def signs(c):
 def next_hint(c, gate_ok, bg=False, fix=''):
     """(dòng in, có chặn không) cho review.next_step khi checklist còn thiếu. Có fact observe + VM đã cấu hình: NEED_VM kèm đúng lệnh kế."""
     obs = observes(c); q = shlex.quote(c)
+    try: ans = json.load(open(os.path.join(VMDIR(c), 'answers.json'), encoding='utf-8'))
+    except (OSError, ValueError): ans = {}
+    ans = ans if isinstance(ans, dict) else {}
+    obs = [i for i in obs if not (isinstance(ans.get(i), dict) and ans[i].get('status') == 'answered')]   # câu đã có trả lời từ VM thì không còn là lý do gọi VM
     if not CFG.VM_BRIDGE_CMD:
         return (f"  lưu ý (không chặn): có {len(obs)} fact observe nhưng tầng VM chưa bật (VM_BRIDGE_CMD trong rea.env do người dùng khai): báo người dùng, hoặc ghi phần này vào mục hạn chế", False) if obs else ('', False)
     if not obs:
@@ -265,10 +277,16 @@ def next_hint(c, gate_ok, bg=False, fix=''):
     if fix: return head + f'review gần nhất FAIL và facts chưa đổi: sửa từng mục theo where/redo trong {fix} (fact mới có supersedes), rồi `flow.py review {q} --llm --detach`', True
     if not gate_ok: return head + f'ghi đủ fact env rồi `flow.py review {q} --llm --detach` tới PASS (tham số VM lấy từ fact đã qua phản biện), sau đó `flow.py vmspec {q}`', True
     sent, _ = rounds(c)
-    if sent:   # đã có vòng gửi đi: bản này chưa đọc báo cáo sandbox thành fact, nên dừng ở đây cho người dùng quyết (không tự gửi vòng mới)
-        try: ok_ = json.load(open(os.path.join(VMDIR(c), f'r{sent}', 'run.json'), encoding='utf-8')).get('ok')
+    if sent:
+        d = os.path.join(VMDIR(c), f'r{sent}')
+        try: ok_ = json.load(open(os.path.join(d, 'run.json'), encoding='utf-8')).get('ok')
         except (OSError, ValueError): ok_ = None
-        return head + (f'vòng {sent} đã có kết quả ở {VMDIR(c)}/r{sent}/raw (đã kiểm sha256)' if ok_ else f'vòng {sent} đã gửi nhưng không có kết quả hợp lệ (xem {VMDIR(c)}/r{sent}/run.json)') + ': báo người dùng. Bản này chưa đọc báo cáo sandbox thành fact; không tự gửi vòng mới', True
+        if not ok_: return head + f'vòng {sent} đã gửi nhưng không có kết quả hợp lệ (xem {d}/run.json): báo người dùng, không tự gửi vòng mới', True
+        if not os.path.exists(os.path.join(d, 'ingest.json')): return head + f'vòng {sent} đã có kết quả: `flow.py vm-ingest {q}`', True
+        why = '; '.join(f"{i}: {safe(ans[i].get('why'))[:80]}" for i in obs[:4] if isinstance(ans.get(i), dict))
+        left = CFG.VM_MAX_ROUNDS - sent
+        return head + f'vòng {sent} chưa trả lời được ({why or "câu hỏi mới ghi sau vòng này"}). ' + (f'Còn {left} vòng: nếu sửa được môi trường (fact env/observe mới, supersedes) thì `flow.py review {q} --llm --detach` rồi `flow.py vmspec {q}`; '
+               if left > 0 else 'Đã hết số vòng (VM_MAX_ROUNDS). ') + f'không thì ghi vào mục hạn chế: `flow.py next {q} --accept C13=lý do`', True
     try: s, _ = latest(c); fresh = s.get('facts_sha256') == __import__('review').facts_sha(c)
     except SystemExit: fresh = False
     if not fresh: return head + f'`flow.py vmspec {q}`', True

@@ -18,7 +18,7 @@
 #                                      quan hệ phải ghi thành fact kind=relation (đã chứng minh = active, suy luận = hypothesis) và có mục 'Quan hệ giữa các mẫu' trong báo cáo
 #   flow.py tool CASE new TÊN | seal TÊN [OUTPUT] | list   tầng T1b cho định dạng chưa có đường đi (triage 'unknown'): agent tự viết VÀ TỰ CHẠY công cụ ở
 #                                      work/tools/ theo khuôn (skill không chạy nó); seal niêm phong output thành evidence tool_* kèm dấu băm công cụ, đòi phép tự kiểm đạt
-#   flow.py status CASE                checklist C1–C12 + bước kế tiếp từ triage
+#   flow.py status CASE                checklist C1–C13 + bước kế tiếp từ triage
 #   flow.py resume CASE                tóm tắt để làm tiếp sau khi ngữ cảnh bị nén/clear: tính từ facts, không lưu file riêng
 #   flow.py checkpoint CASE            trước khi tách phiên ở một mốc: kiểm mọi kết quả đã thành fact/evidence (mã 1 = còn việc), rồi /clear + resume
 #   flow.py report CASE [--final] | audit CASE   sinh report/GENERATED.md + report-<ngày>.html (--final: chỉ khi phản biện đạt) | đối chiếu evidence báo cáo với đĩa
@@ -41,6 +41,8 @@
 #   flow.py vm-run CASE --dry-run      dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu) rồi in yêu cầu sẽ giao cho cầu nối; không mở kết nối mạng.
 #                                      Skill không chứa mã gửi mẫu: gửi là việc của cầu nối do người dùng tự cài (VM_BRIDGE_CMD trong rea.env); phiên watch không được gọi
 #   flow.py vm-run CASE                giao đặc tả cho cầu nối (một lần mỗi vòng), kiểm bản kê trả về (mức mạng, route, thời gian, sha256) -> work/vm/rN/raw (0400), run.json, runs.jsonl
+#   flow.py vm-ingest CASE [rN]        đọc báo cáo sandbox của vòng đã chạy (dữ liệu do mẫu chi phối: lọc, cắt, không chép thân dữ liệu) -> evidence vm_rN_tK.txt,
+#                                      trả lời từng fact observe (work/vm/answers.json, mục C13), ghi fact nguồn V dạng hypothesis cho fact S/E khớp chuỗi; không thay fact cũ
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
@@ -697,6 +699,9 @@ if __name__ == '__main__':
     elif cmd == 'next': import review; sys.exit(review.next_step(c, review.accept_args(a)))
     elif cmd == 'vmspec': from vm import spec; sys.exit(spec.build(c))
     elif cmd == 'vm-run': from vm import spec; sys.exit(spec.run(c, '--dry-run' in a))
+    elif cmd == 'vm-ingest':
+        if a[2:3] and not re.fullmatch(r'r?\d+', a[2]): raise SystemExit('dùng: flow.py vm-ingest CASE [rN]')
+        from vm import ingest; sys.exit(ingest.ingest(c, a[2] if a[2:3] else None))
     elif cmd == 'gate':
         import review; ok, why = review.gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
     elif cmd == 'audit':

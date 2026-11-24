@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C12, sinh bảng báo cáo, đối chiếu evidence.
+# Dữ liệu một case phân tích: facts.jsonl (chỉ ghi thêm), checklist C1–C13, sinh bảng báo cáo, đối chiếu evidence.
 #   case.py add CASE id=.. kind=.. value=.. src=S|E|V evidence=report/evidence/F[#Ln] [status=..] [verified_by=S,E] [supersedes=..] [stage=..] [note=..] [recompute=..] [--strict]
 #   recompute: phép đếm lại con số trong value, máy chạy lại mỗi lần lint/review: '<count|distinct> <regex> report/evidence/F[#La-Lb] = <N>',
 #   nhiều phép nối bằng ' && '. count = số dòng khớp; distinct = số giá trị khác nhau (nhóm 1 nếu có). N phải có trong value.
@@ -430,6 +430,17 @@ def review_status(case):
     if not last or last['facts_sha256'] != cur: return 'missing'     # review đã cũ: facts đổi sau lần review cuối
     return ('partial' if last.get('weak') else 'ok') if last['verdict'] == 'PASS' else 'partial'
 
+def vm_status(case, obs_ids):
+    """Mục 'Xác nhận trên VM' (C13): None nếu case chưa gửi vòng nào sang VM (mục không hiện). Đã gửi: 'missing' khi vòng mới nhất chưa được đọc (vm-ingest),
+    'ok' khi mọi fact observe đang active đã có câu trả lời trong work/vm/answers.json, còn lại 'partial'."""
+    d = os.path.join(case, 'work', 'vm')
+    sent = [int(m[1]) for m in (re.fullmatch(r'r(\d+)', n) for n in (os.listdir(d) if os.path.isdir(d) else [])) if m and os.path.exists(os.path.join(d, m[0], 'task.json'))]
+    if not sent: return None
+    try: a = json.load(open(os.path.join(d, 'answers.json'), encoding='utf-8'))
+    except (OSError, ValueError): a = None
+    if not isinstance(a, dict) or not os.path.exists(os.path.join(d, f'r{max(sent)}', 'ingest.json')): return 'missing'
+    return 'ok' if all(isinstance(a.get(i), dict) and a[i].get('status') == 'answered' for i in obs_ids) else 'partial'
+
 def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợi ý (HTML dùng tên case để không lộ đường dẫn máy)
     F = [f for f in load(case).values() if f['status'] != 'retracted']
     act = lambda *ks: [f for f in F if f['kind'] in ks and f['status'] == 'active']
@@ -467,6 +478,8 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
         'C12 Quan hệ giữa các mẫu': 'n/a(một mẫu)' if len(sources(case)) < 2 else 'ok' if any((RELATION_RX.match(f['value']) and f['src'] in ('S', 'E')) or na(f['value']) for f in act('relation'))
                                     else 'partial' if hyp('relation') or act('relation') else 'missing',   # relation 'n/a' không kèm ': lý do' chưa đủ
     }
+    vs = vm_status(case, [f['id'] for f in act('observe') if not env_issue(f)])
+    if vs: R['C13 Xác nhận trên VM'] = vs   # chỉ hiện khi case đã gửi ít nhất một vòng sang VM
     NEXT = {'C0': 'flow.py review CASE [--llm] (tối đa 2 lần); stopped thì đọc work/review/STOP_REPORT.md', 'C1': 'T0 flow.py triage', 'C2': 'T0/T1 bóc vỏ; ghi entry (hàm/offset bắt đầu mã độc)',
             'C3': 'T2 tìm anti-debug/anti-VM quanh import nhạy cảm; T3 nếu chạy được',
             'C4': 'T2 tìm hàm giải mã chuỗi/config (xref chuỗi rác, vòng XOR); hoặc fact n/a nếu chuỗi rõ',
@@ -474,7 +487,8 @@ def check(case, shown=None):   # shown: chữ điền vào chỗ CASE trong gợ
             'C7': 'T2: registry/service/cron/systemd/rc.local/ghi file hệ thống; hoặc n/a', 'C8': 'T3 --fake-dl rồi T4; hoặc n/a nếu không tải payload',
             'C9': 'T4 (cần payload thật) hoặc n/a', 'C10': 'đối chiếu kỹ thuật/chuỗi với họ đã biết; T4 + T0 trên payload',
             'C11': 'E: giả lập tới exit tự nhiên; S: fact coverage liệt kê đã duyệt mọi xref của import nhạy cảm',
-            'C12': "flow.py link CASE (đối chiếu chéo các mẫu); sau khi dịch ngược từng mẫu, ghi NHẬN ĐỊNH: fact relation src=S value='direct|shared|context|unrelated: căn cứ từ dịch ngược' (active khi có bằng chứng, mức mạnh hơn chưa chứng minh thì hypothesis); bối cảnh do người thu mẫu cung cấp ghi riêng src=V"}
+            'C12': "flow.py link CASE (đối chiếu chéo các mẫu); sau khi dịch ngược từng mẫu, ghi NHẬN ĐỊNH: fact relation src=S value='direct|shared|context|unrelated: căn cứ từ dịch ngược' (active khi có bằng chứng, mức mạnh hơn chưa chứng minh thì hypothesis); bối cảnh do người thu mẫu cung cấp ghi riêng src=V",
+            'C13': 'flow.py vm-ingest CASE (đọc báo cáo sandbox); câu hỏi observe còn chưa trả lời: xem lý do trong work/vm/answers.json, sửa fact env/observe rồi vòng mới, hoặc next --accept C13=lý do'}
     FACT = {'C1': 'hash, filetype', 'C2': 'container, entry', 'C3': 'anti_analysis', 'C4': "str_algo, str_key, dec_coverage dạng 'a/b' (có hàm giải mã) hoặc 'n/a: lý do' (chỉ khi mọi str_algo cũng 'n/a: lý do')",
             'C5': 'c2 | url | ua', 'C6': 'inject', 'C7': 'persistence', 'C8': 'payload_fmt, payload_key, payload_hash', 'C9': 'payload_hash', 'C10': 'family',
             'C11': "coverage (S) hoặc exit_reason natural + api_unused + dec_coverage dạng 'a/b' hoặc 'n/a: lý do' như C4 (E)",

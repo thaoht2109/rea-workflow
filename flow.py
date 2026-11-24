@@ -37,6 +37,9 @@
 #   flow.py kb export FILE [--name TÊN] | import FILE [--name TÊN]   chia sẻ/backup kho giữa các server (không có mẫu, có IOC)
 #   flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   chạy liên tục: mẫu mới trong INBOX và thư mục con (theo sha256) thành case, mỗi mốc một phiên `claude -p` theo `next`;
 #                                      dừng và báo khi STOPPED/DONE, hết trần phiên hoặc fact không đổi (REA_WATCH_*); không --model thì hỏi; --report: chép báo cáo case xong vào Report_<TÊN|tên INBOX>
+#   flow.py vmspec CASE                tầng T5: gộp fact env/observe + triage thành work/vm/rN/vmspec.json và vm_task.md (cần cổng phản biện PASS; trần lấy từ VM_* trong rea.env); không gửi gì
+#   flow.py vm-run CASE --dry-run      dựng lại đặc tả để so với bản trên đĩa (cổng, trần VM_*, hash mẫu) rồi in yêu cầu sẽ giao cho cầu nối; không mở kết nối mạng.
+#                                      Skill không chứa mã gửi mẫu: gửi là việc của cầu nối do người dùng tự cài (VM_BRIDGE_CMD trong rea.env; bản này chưa gọi); phiên watch không được gọi
 #   flow.py help                       in danh sách lệnh này (nguồn duy nhất; SKILL/README/FLOW không chép lại)
 #   flow.py next CASE                  việc kế tiếp, đã điền sẵn tên case và lệnh cần chạy (đọc nó thay vì đọc lại tài liệu)
 #   flow.py review-loop CASE [--no-llm]   review -> tự sửa fact lỗi -> review lần 2 -> dừng nếu vẫn FAIL (--no-llm: chỉ lớp 1)
@@ -691,6 +694,8 @@ if __name__ == '__main__':
     elif cmd == 'review': import review; sys.exit(review.review(c, '--llm' in a))
     elif cmd == 'review-loop': import review; sys.exit(review.loop(c, '--no-llm' not in a))
     elif cmd == 'next': import review; sys.exit(review.next_step(c, review.accept_args(a)))
+    elif cmd == 'vmspec': from vm import spec; sys.exit(spec.build(c))
+    elif cmd == 'vm-run': from vm import spec; sys.exit(spec.run(c, '--dry-run' in a))
     elif cmd == 'gate':
         import review; ok, why = review.gate(c); print(('OK ' if ok else 'CHẶN ') + why); sys.exit(0 if ok else 1)
     elif cmd == 'audit':

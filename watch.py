@@ -24,7 +24,7 @@ PARALLEL = max(1, num('REA_WATCH_PARALLEL', '1'))   # số case xử lý cùng l
 _QUIT = threading.Event()   # Ctrl-C ở luồng chính: worker đang chạy không ghi khóa stop giả (flow.py con chết vì SIGINT) và không mở phiên claude mới
 _LIMIT = [0.0]        # hạn mức của tài khoản dùng chung mọi case: chạm ở một case thì case khác trong watcher này cũng nghỉ
 ALIAS = CFG.get('REA_WATCH_ALIAS_SUFFIX', '', path=False)   # X<hậu tố>/ là bản giải nén của X/ cùng cấp: chỉ quét bản giải nén, báo cáo về X/
-STATES = r'^(STOPPED|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
+STATES = r'^(STOPPED|NEED_VM|NEED_MORE|NEED_FIX|NEED_REVIEW|NEED_REPORT|DONE)\b'
 PROMPT = ('Phiên tự động do `flow.py watch` mở cho case `{c}`: không có người trả lời, đừng hỏi. Chạy `python3 {F} resume {c}` rồi `python3 {F} next {c}` '
           'và làm MỘT mốc theo kết quả (NEED_MORE: phân tích tiếp; NEED_FIX: sửa fact theo where/redo; NEED_REPORT: cập nhật báo cáo viết tay). '
           'Không thực thi mẫu. Hậu kiểm tự động sẽ DỪNG case nếu thấy lệnh có dạng chạy mẫu, kể cả khi chỉ đọc: chạy công cụ phân tích trực tiếp '
@@ -91,6 +91,8 @@ def exec_pats(c, copies=None, cmds=()):
 NESTED = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+watch(?![\w.])'   # watch.py không có __main__
                     r'|' + POS + r'(?:\S*/)?python[\d.]*\s+(?:-\S+\s+)*-[A-Za-z]*c\b[^\n]*(?:\bwatch\.main\s*\(|\b(?:import|from)\s+watch\b)'
                     r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?watch(?![\w.])''')
+VMRUN = re.compile(POS + r'(?:\S*/)?(?:python[\d.]*\s+(?:-\S+\s+)*)?\S*flow\.py\s+vm-(?:run|loop)(?![\w.-])'   # gửi mẫu sang VM: chỉ người dùng chạy; neo vị trí lệnh như NESTED (grep 'flow.py vm-run' là đọc tĩnh)
+                   r'''|(?:subprocess|os\.system|os\.exec|os\.spawn|popen|runpy)[^\n]*flow\.py['"]?\s*,?\s*['"]?vm-(?:run|loop)(?![\w.-])''')
 RUN_TOOL = re.compile(r'capture|debug|spawn|attach|instrument|frida|run_?target|execute', re.I)   # tool MCP chạy target
 
 def tool_names(out):
@@ -141,7 +143,7 @@ def session(c, st, model):
     if known: st['derived'] = sorted(known)
     else: st.pop('derived', None)
     P = exec_pats(c, known)
-    bad = ([x for x in cmds if any(p.search(x) for p in P) or NESTED.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
+    bad = ([x for x in cmds if any(p.search(x) for p in P) or NESTED.search(x) or VMRUN.search(x)]   # chạy mẫu hoặc mở watcher lồng (ngoài trần phiên)
            + [t for t in tool_names(out) if t.startswith('mcp__') and RUN_TOOL.search(t)])
     hard, soft = fp(c) != before, soft_fp(c) != sbefore   # facts/báo cáo đổi: tiến độ thật; chỉ work/ đổi: tiến độ mềm (viết hook, giả lập tiếp)
     lim = 0 if bad else limit_until(out)   # hết hạn mức của claude: không phải lỗi của case
@@ -157,7 +159,7 @@ def session(c, st, model):
     st['soft'] = 0 if hard else st.get('soft', 0) + 1   # mọi phiên chưa ra fact, kể cả phiên không đổi gì: xen kẽ hai loại vẫn chạm trần
     say(c, f"phiên {n} xong: " + ('facts/báo cáo đổi' if hard else ('chỉ work/ đổi' if soft else 'không đổi') + f", {st['soft']}/{SOFT} phiên chưa ra fact")
         + (f", lỗi: {init['_error']}" if init['_error'] else ''))
-    why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu hoặc watch lồng) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi gì" if st['stall'] >= STALL
+    why = (f'hậu kiểm: lệnh bị cấm (chạy mẫu, watch lồng hoặc gửi mẫu sang VM) ở phiên {n}: {bad[0][:200]}' if bad else f"{st['stall']} phiên liên tiếp không đổi gì" if st['stall'] >= STALL
            else f"{st['soft']} phiên liên tiếp chưa ra fact mới (chỉ đổi work/: hook, công cụ, snapshot; hoặc không đổi gì)" if st['soft'] >= SOFT
            else f'đủ {maxs} phiên' if n >= maxs else '')
     stop(c, st, why) if why else save(c, st)
@@ -212,6 +214,7 @@ def step(c, model, report=None):
         k =(re.search(STATES, r.stdout, re.M) or [None, None])[1]
         if k != 'DONE' and st.pop('final', None): save(c, st)   # case mở lại (facts/báo cáo đổi): report --final phải chạy lại
         if k == 'STOPPED': stop(c, st, f'STOPPED: phản biện FAIL 2 lần, xem {c}/work/review/STOP_REPORT.md')
+        elif k == 'NEED_VM': stop(c, st, f'NEED_VM: case có câu hỏi cần chạy trên VM; watcher không gửi mẫu. Người dùng chạy flow.py next {c} và làm theo')
         elif k == 'DONE':
             if not st.get('final'):
                 r = flow('report', c, '--final')
@@ -365,6 +368,7 @@ def run_round(cases, model, report):
 def main(a):
     if not a or a[0].startswith('-') or not os.path.isdir(a[0]):
         print('dùng: flow.py watch INBOX [--once] [--model M] [--report [TÊN]]   (chạy ở workspace; case tạo trong thư mục hiện tại; quét cả thư mục con)'); return 2
+    os.environ['REA_WATCH'] = '1'   # phiên con thừa hưởng: flow.py vm-run từ chối trong phiên không người trực (lớp thứ hai là hậu kiểm VMRUN)
     model = pick_model(a)
     if model is None: print('--model cần tên model'); return 2
     report = None
